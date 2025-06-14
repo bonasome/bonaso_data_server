@@ -7,6 +7,18 @@ from projects.models import Project, Task
 from datetime import datetime, date
 import uuid
 
+class KeyPopulation(models.Model):
+    class KeyPopulations(models.TextChoices):
+        FSW = 'FSW', _('Female Sex Workers')
+        MSM = 'MSM', _('Men Who Have Sex With Men')
+        PWID = 'PWID', _('People Who Inject Drugs')
+        TG = 'TG', _('Transgender')
+        INTERSEX = 'INTERSEX', _('Intersex')
+        LBQ = 'LBQ', _('Lesbian, Bisexual, or Queer')
+        OTHER = 'OTHER', _('Other Key Population Status')
+    
+    name = models.CharField(max_length=10, choices=KeyPopulations.choices, unique=True)
+    
 class Respondent(models.Model):
     class Sex(models.TextChoices):
         FEMALE = 'F', _('Female')
@@ -47,7 +59,7 @@ class Respondent(models.Model):
     village = models.CharField(max_length=255, verbose_name='Village')
     district = models.CharField(max_length=25, choices=District.choices, verbose_name='District')
     citizenship = models.CharField(max_length=255, verbose_name='Citizenship/Nationality')
-
+    kp_status = models.ManyToManyField(KeyPopulation, through='KeyPopulationStatus', blank=True)
     email = models.EmailField(verbose_name='Email Address', null=True, blank=True)
     phone_number = models.CharField(max_length=255, verbose_name='Phone Number', null=True, blank=True)
     
@@ -106,20 +118,14 @@ class Respondent(models.Model):
         return self.get_full_name() if not self.is_anonymous else f'Anonymous Respondent ({self.uuid})'
 
 class KeyPopulationStatus(models.Model):
-    class KeyPopulations(models.TextChoices):
-        FSW = 'FSW', _('Female Sex Workers')
-        MSM = 'MSM', _('Men Who Have Sex With Men')
-        PWID = 'PWID', _('People Who Inject Drugs')
-        TG = 'TG', _('Transgender')
-        INTERSEX = 'INTERSEX', _('Intersex')
-        LBQ = 'LBQ', _('Lesbian, Bisexual, or Queer')
-        OTHER = 'OTHER', _('Other Key Population Status')
-    
-    respondent = models.ForeignKey(Respondent, on_delete=models.CASCADE)
-    kp_status = models.CharField(max_length=10, choices=KeyPopulations.choices, blank=True, null=True, verbose_name='Key Population Status')
+    respondent = models.ForeignKey(Respondent, on_delete=models.CASCADE, blank=True, null=True)
+    key_population = models.ForeignKey(KeyPopulation, on_delete=models.CASCADE, blank=True, null=True)
+    class Meta:
+        unique_together = ('respondent', 'key_population')
 
     def __str__(self):
-        return f'{self.respondent}: {self.kp_status}'
+        return f'{self.respondent} - {self.key_population}'
+
 class Pregnancy(models.Model):
     respondent = models.ForeignKey(Respondent, on_delete=models.CASCADE)
     is_pregnant = models.BooleanField()
@@ -135,12 +141,18 @@ class Interaction(models.Model):
     respondent = models.ForeignKey(Respondent, on_delete=models.PROTECT)
     task = models.ForeignKey(Task, on_delete=models.PROTECT, blank=True, null=True)
     interaction_date = models.DateField()
-    subcategory = models.ForeignKey(IndicatorSubcategory, on_delete=models.PROTECT, blank=True, null=True)
+    subcategories = models.ManyToManyField(IndicatorSubcategory, through='InteractionSubcategory', blank=True)
     prerequisite = models.ForeignKey('self', on_delete=models.PROTECT, blank=True, null=True, related_name='prerequisite_interaction')
+    
+    numeric_component = models.IntegerField(null=True, blank=True, default=None)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     created_by = models.ForeignKey(User, on_delete=models.SET_DEFAULT, default=None, null=True, blank=True)
 
     def __str__(self):
-        return f'Interaction with {self.respondent} on {self.interaction_date} for {self.task.indicator.code} ({self.task.project.name})'
+        return f'Interaction with {self.respondent} on {self.interaction_date} for {self.task.indicator.code}'
+
+class InteractionSubcategory(models.Model):
+    interaction = models.ForeignKey(Interaction, on_delete=models.CASCADE)
+    subcategory = models.ForeignKey(IndicatorSubcategory, on_delete=models.CASCADE)

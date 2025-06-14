@@ -1,10 +1,10 @@
 from django.urls import path
-from . import views
+from rest_framework.routers import DefaultRouter
 
-urlpatterns = [
-    path('api/get-model-info/', views.GetModelInfo.as_view(), name='get-model-info'),
-    path('api/get-list/', views.GetList.as_view(), name='get-list'),
-    path('api/create/', views.CreateRespondent.as_view(), name='create-respondent'),
-    path('api/get/<int:pk>/', views.GetRespondentDetail.as_view(), name='get-respondent'),
-    path('api/new-interaction/', views.NewInteraction.as_view(), name='new-interaction'),
-]
+from respondents.views import RespondentViewSet, InteractionViewSet
+
+router = DefaultRouter()
+router.register(r'respondents', RespondentViewSet, basename='respondent')
+router.register(r'interactions', InteractionViewSet, basename='interaction')
+
+urlpatterns = router.urls

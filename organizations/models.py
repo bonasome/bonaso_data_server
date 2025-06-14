@@ -1,4 +1,7 @@
 from django.db import models
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
 
 class Organization(models.Model):
     name = models.CharField(max_length=255, verbose_name='Organization Name')
@@ -11,6 +14,7 @@ class Organization(models.Model):
     ed_phone = models.CharField(max_length=255, verbose_name='Exeuctive Director Phone Number', null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_by')
 
     def __str__(self):
         return self.name

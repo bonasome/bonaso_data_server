@@ -2,73 +2,56 @@ from django.shortcuts import render, redirect
 from django.http import JsonResponse
 from django.views import View
 from django.forms.models import model_to_dict
+from rest_framework.viewsets import ModelViewSet
+from rest_framework import filters
+from rest_framework.response import Response
+from rest_framework.filters import SearchFilter, OrderingFilter
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.exceptions import PermissionDenied
 from rest_framework import generics
-from datetime import datetime, timedelta
-from django.utils import timezone
-
-
-import json
+from users.restrictviewset import RoleRestrictedViewSet
 
 from indicators.models import Indicator, IndicatorSubcategory
-from indicators.serializers import IndicatorsSerializer
+from indicators.serializers import IndicatorSerializer, IndicatorListSerializer
 
-class CreateIndicator(APIView):
+class IndicatorViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
-    def post(self, request):
-        from projects.models import ProjectIndicator
-        messages = []
-        user=request.user
-        data = json.loads(request.body)
-        form = data['formData']
-        code = form['code']
-        name = form['name']
-        desc = form['description']
-        status = form['status']
-        #codes should be unique so check if one exists
-        checkIndicator = Indicator.objects.filter(code=code)
-        if checkIndicator:
-            messages.append(f'An indicator with code {code} already exists.')
-            return JsonResponse({'status': 'warning', 'message': messages })
-        indicator = Indicator(code=code, name=name, status=status, description=desc, created_by=user)
-        indicator.save()
-        return JsonResponse({'status': 'success', 'redirect_id': indicator.id})
-
-class GetModelInfo(APIView):
-    permission_classes = [IsAuthenticated]
-    def get(self, request):
-        statusLabels = []
-        statusValues = []
-        for value, label in Indicator.status.field.choices:
-            statusValues.append(value)
-            statusLabels.append(label)
-        data = {
-            'values': {
-                'status': statusValues,
-            },
-            'labels': {
-                'status': statusLabels,
-            }
-        }
-
-        return JsonResponse(data, safe=False)      
-
-class GetList(generics.ListAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = IndicatorsSerializer
-
+    queryset = Indicator.objects.all()
+    serializer_class = IndicatorSerializer
+    filter_backends = [SearchFilter, OrderingFilter]
+    filterset_fields = ['project']
+    ordering_fields = ['name','code']
+    search_fields = ['name', 'code', 'description'] 
     def get_queryset(self):
-        user = self.request.user
-        role = getattr(user, 'role', None)
-        if role != 'admin':
-            raise PermissionDenied(
-                'Only admins may access indicators.'
-            )
-        query = self.request.query_params.get('q', '')
-        return Indicator.objects.filter(name__icontains=query).order_by('name')
+        queryset = super().get_queryset() 
+        project_id = self.request.query_params.get('project')
+        if project_id:
+            queryset = queryset.filter(project__id=project_id)
+        return queryset
 
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return IndicatorListSerializer
+        else:
+            return IndicatorSerializer
+        
+    def create(self, request, *args, **kwargs):
+        if request.user.role != 'admin':
+            raise PermissionDenied("Only admins can create indicators.")
+        return super().create(request, *args, **kwargs)
+    def update(self, request, *args, **kwargs):
+        if request.user.role != 'admin':
+            raise PermissionDenied("Only admins can create indicators.")
+        return super().update(request, *args, **kwargs)
+
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user) 
+
+
+'''
 class GetIndicator(APIView):
     permission_classes = [IsAuthenticated]
     def get(self, request, pk, resp):
@@ -82,7 +65,6 @@ class GetIndicator(APIView):
         preReqTasks = Task.objects.filter(indicator=indicator.prerequisite)
         respondent = Respondent.objects.filter(id=resp).first()
         prereqInteractions = Interaction.objects.filter(task__in=preReqTasks, respondent=respondent)
-            
         data=({
             'indicator': {
                 'id': indicator.id,
@@ -105,7 +87,7 @@ class GetIndicator(APIView):
                 data['indicator']['prerequisite']['prerequisite_interactions'].append({
                     'id': interaction.id,
                     'respondent': interaction.respondent.id,
-                    'category': interaction.subcategory,
+                    'category': interaction.subcategory.id,
                     'date': interaction.interaction_date,
                 })
         for option in options:
@@ -117,7 +99,7 @@ class GetIndicator(APIView):
         print(data)
         twelve_months_ago = timezone.now() - timedelta(days=365)
         for task in tasks:
-            interactions = Interaction.objects.filter(task=task, interaction_date__gte=twelve_months_ago)
+            interactions = Interaction.objects.filter(task=task, interaction_date__gte=twelve_months_ago, respondent=respondent)
             for interaction in interactions:
                 if interaction.prerequisite:
                     prereq = {
@@ -146,3 +128,4 @@ class GetIndicator(APIView):
                     'prerequisite': prereq,
                 })
         return JsonResponse(data, safe=False)
+'''

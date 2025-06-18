@@ -7,6 +7,18 @@ from projects.models import Project, Task
 from datetime import datetime, date
 import uuid
 
+class DisabilityType(models.Model):
+    class DisabilityTypes(models.TextChoices):
+        VI = 'VI', _('Visually Impaired')
+        PD = 'PD', _('Physical Disability')
+        ID = 'ID', _('Intellectual Disability')
+        HI = 'HD', _('Hearing Impaired')
+        PSY = 'PSY', _('Psychiatric Disability')
+        SI = 'SI', _('Speech Impaired')
+        OTHER = 'OTHER', _('Other Disability')
+    
+    name = models.CharField(max_length=10, choices=DisabilityTypes.choices, unique=True)
+
 class KeyPopulation(models.Model):
     class KeyPopulations(models.TextChoices):
         FSW = 'FSW', _('Female Sex Workers')
@@ -44,25 +56,24 @@ class Respondent(models.Model):
         T5_44 = '35_44', _('35–44')
         F5_64 = '45_64', _('45–64')
         O65 = '65_plus', _('65+')
-
-    is_anonymous = models.BooleanField(default=False)
-    comments = models.TextField(blank=True)
+        
     uuid =  models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
-    age_range = models.CharField(max_length=10, choices=AgeRanges.choices, blank=True, null=True, verbose_name='Age Range')
-
+    is_anonymous = models.BooleanField(default=False, verbose_name='Is Anonymous')
     id_no = models.CharField(max_length=255, unique=True, verbose_name='ID/Passport Number', blank=True, null=True)
     first_name = models.CharField(max_length=255, verbose_name='First Name', blank=True, null=True)
     last_name = models.CharField(max_length=255, verbose_name='Last Name', blank=True, null=True)
+    age_range = models.CharField(max_length=10, choices=AgeRanges.choices, blank=True, null=True, verbose_name='Age Range')
     dob = models.DateField(verbose_name='Date of Birth', blank=True, null=True)
     sex = models.CharField(max_length=2, choices=Sex.choices, verbose_name='Sex')
     ward = models.CharField(max_length=255, verbose_name='Ward', blank=True, null=True)
     village = models.CharField(max_length=255, verbose_name='Village')
     district = models.CharField(max_length=25, choices=District.choices, verbose_name='District')
     citizenship = models.CharField(max_length=255, verbose_name='Citizenship/Nationality')
-    kp_status = models.ManyToManyField(KeyPopulation, through='KeyPopulationStatus', blank=True)
+    kp_status = models.ManyToManyField(KeyPopulation, through='KeyPopulationStatus', blank=True, verbose_name='Key Population Status')
+    disability_status = models.ManyToManyField(DisabilityType, through='DisabilityStatus', blank=True, verbose_name='Disability Status')
     email = models.EmailField(verbose_name='Email Address', null=True, blank=True)
     phone_number = models.CharField(max_length=255, verbose_name='Phone Number', null=True, blank=True)
-    
+    comments = models.TextField(blank=True, null=True, verbose_name='Comments')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -90,29 +101,30 @@ class Respondent(models.Model):
             if missing:
                 raise ValidationError({field: "This field is required If the respondent does not wish to provide any of this information, please mark them as anonymous." for field in missing})
 
+    def save(self, *args, **kwargs):
+        if self.dob and not self.age_range:
+            today = date.today()
+            age = today.year - self.dob.year - ((today.month, today.day) < (self.dob.month, self.dob.day))
+            if age < 18:
+                self.age_range = self.AgeRanges.U18
+            elif age <= 24:
+                self.age_range = self.AgeRanges.ET_24
+            elif age <= 34:
+                self.age_range = self.AgeRanges.T5_34
+            elif age <= 44:
+                self.age_range = self.AgeRanges.T5_44
+            elif age <= 64:
+                self.age_range = self.AgeRanges.F5_64
+            else:
+                self.age_range = self.AgeRanges.O65
+        super().save(*args, **kwargs)
+
     def get_full_name(self):
         return f'{self.first_name} {self.last_name}'
     
     def get_age(self):
         today = datetime.today()
         return today.year - self.dob.year - ((today.month, today.day) < (self.dob.month, self.dob.day))
-    
-    def get_age_range(self):
-        if not self.age_range and self.dob:
-            age = self.get_age()
-            if age < 18:
-                ageRange = self.AgeRanges.U18
-            elif age < 25:
-                ageRange = self.AgeRanges.ET_24
-            elif age < 35:
-                ageRange = self.AgeRanges.T5_34
-            elif age < 45:
-                ageRange = self.AgeRanges.T5_44
-            elif age < 65:
-                ageRange = self.AgeRanges.F5_64
-            elif age > 65:
-                ageRange = self.AgeRanges.O65
-            return ageRange
 
     def __str__(self):
         return self.get_full_name() if not self.is_anonymous else f'Anonymous Respondent ({self.uuid})'
@@ -126,23 +138,31 @@ class KeyPopulationStatus(models.Model):
     def __str__(self):
         return f'{self.respondent} - {self.key_population}'
 
+class DisabilityStatus(models.Model):
+    respondent = models.ForeignKey(Respondent, on_delete=models.CASCADE, blank=True, null=True)
+    disability = models.ForeignKey(DisabilityType, on_delete=models.CASCADE, blank=True, null=True)
+    class Meta:
+        unique_together = ('respondent', 'disability')
+
+    def __str__(self):
+        return f'{self.respondent} - {self.disability}'
+
 class Pregnancy(models.Model):
     respondent = models.ForeignKey(Respondent, on_delete=models.CASCADE)
-    is_pregnant = models.BooleanField()
-    term_began = models.DateField()
+    is_pregnant = models.BooleanField(null=True, blank=True)
+    term_began = models.DateField(null=True, blank=True)
     term_ended = models.DateField(null=True, blank=True)
 
 class HIVStatus(models.Model):
     respondent = models.ForeignKey(Respondent, on_delete=models.CASCADE)
-    hiv_positive = models.BooleanField()
-    date_positive = models.DateField()
+    hiv_positive = models.BooleanField(null=True, blank=True)
+    date_positive = models.DateField(null=True, blank=True)
 
 class Interaction(models.Model):
     respondent = models.ForeignKey(Respondent, on_delete=models.PROTECT)
-    task = models.ForeignKey(Task, on_delete=models.PROTECT, blank=True, null=True)
+    task = models.ForeignKey(Task, on_delete=models.PROTECT)
     interaction_date = models.DateField()
     subcategories = models.ManyToManyField(IndicatorSubcategory, through='InteractionSubcategory', blank=True)
-    prerequisite = models.ForeignKey('self', on_delete=models.PROTECT, blank=True, null=True, related_name='prerequisite_interaction')
     
     numeric_component = models.IntegerField(null=True, blank=True, default=None)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 
-from projects.models import Project, Task, Client, Target
+from projects.models import Project, Task, Client, Target, ProjectIndicator, ProjectOrganization
 from organizations.models import Organization
 from indicators.models import Indicator
 from organizations.serializers import OrganizationListSerializer
@@ -37,14 +37,14 @@ class ProjectListSerializer(serializers.ModelSerializer):
 class ProjectDetailSerializer(serializers.ModelSerializer):
     tasks = TaskSerializer(many=True, read_only=True)
     client = ClientSerializer(read_only=True)
-    client_id = serializers.PrimaryKeyRelatedField(queryset=Client.objects.all(), write_only=True, source='client')
-    organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), many=True, write_only=True, source='organizations')
-    indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), many=True, write_only=True, source='indicators')
+    client_id = serializers.PrimaryKeyRelatedField(queryset=Client.objects.all(), write_only=True, required=False, source='client')
+    organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), required=False, many=True, write_only=True, source='organizations')
+    indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), many=True, required=False, write_only=True, source='indicators')
     organizations = OrganizationListSerializer(read_only=True, many=True)
     indicators = IndicatorSerializer(read_only=True, many=True)
     class Meta:
         model=Project
-        fields = ['id', 'name','client', 'start', 'end', 'description', 'tasks', 'client_id',
+        fields = ['id', 'name', 'client', 'start', 'end', 'description', 'tasks', 'client_id',
                   'organization_id', 'indicator_id', 'organizations', 'indicators', 'status']
 
     def validate(self, attrs):
@@ -55,7 +55,11 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Start date must be before end date")
         return attrs
 
+    
     def create(self, validated_data):
+        user = self.context.get('request').user if self.context.get('request') else None
+        if user.role != 'admin':
+            raise PermissionDenied('You do not have permission to edit projects.')
         organizations = validated_data.pop('organizations', [])
         inds = validated_data.pop('indicators', [])
         project = Project.objects.create(**validated_data)
@@ -65,16 +69,33 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
         return project
     
     def update(self, instance, validated_data):
+        user = self.context.get('request').user if self.context.get('request') else None
+        if user.role != 'admin':
+            raise PermissionDenied('You do not have permission to edit projects.')
+
         organizations = validated_data.pop('organizations', [])
         indicators = validated_data.pop('indicators', [])
+
+        # Update normal fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
-        if organizations is not None:
-            instance.organizations.set(organizations)
-        if indicators is not None:
-            instance.indicators.set(indicators)
 
+        # Add new organizations (append-only)
+        existing_org_ids = set(
+            ProjectOrganization.objects.filter(project=instance).values_list('organization_id', flat=True)
+        )
+        for org in organizations:
+            if org.id not in existing_org_ids:
+                ProjectOrganization.objects.create(project=instance, organization=org, added_by=user)
+
+        # Add new indicators (append-only)
+        existing_ind_ids = set(
+            ProjectIndicator.objects.filter(project=instance).values_list('indicator_id', flat=True)
+        )
+        for indicator in indicators:
+            if indicator.id not in existing_ind_ids:
+                ProjectIndicator.objects.create(project=instance, indicator=indicator, added_by=user)
         return instance
 
 

@@ -8,7 +8,7 @@ from django.core.exceptions import ValidationError
 
 class Client(models.Model):
     name = models.CharField(max_length=255, verbose_name='Client Organization Name')
-    created_by = models.ForeignKey(User, on_delete=models.SET_DEFAULT, default=None, null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -37,10 +37,12 @@ class Project(models.Model):
 class ProjectOrganization(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
+    added_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True)
 
 class ProjectIndicator(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE)
     indicator = models.ForeignKey(Indicator, on_delete=models.CASCADE)
+    added_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True)
 
 class Task(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE)

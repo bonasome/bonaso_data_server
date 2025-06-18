@@ -7,6 +7,9 @@ from users.models import User
 class IndicatorSubcategory(models.Model):
     name = models.CharField(max_length=255, verbose_name='Category Name')
 
+    def __str__(self):
+        return self.name
+
 class Indicator(models.Model):
     class Status(models.TextChoices):
         ACTIVE = 'Active', _('Active')
@@ -25,7 +28,8 @@ class Indicator(models.Model):
 
     def clean(self):
         if self.prerequisite_id == self.id:
-            raise ValidationError("An indicator cannot be its own prerequisite.")
+            self.prerequisite = None
+            #raise ValidationError("An indicator cannot be its own prerequisite.")
     
     def __str__(self):
         return f'{self.code}: {self.name}'

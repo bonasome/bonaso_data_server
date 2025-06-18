@@ -10,6 +10,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.exceptions import PermissionDenied
 from rest_framework import generics
+from rest_framework.filters import OrderingFilter
+from rest_framework.decorators import action
 from users.restrictviewset import RoleRestrictedViewSet
 
 import json
@@ -23,6 +25,9 @@ class TaskViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
     queryset = Task.objects.none()
     serializer_class = TaskSerializer
+    filter_backends = [filters.SearchFilter, OrderingFilter]
+    ordering_fields = ['indicator__code']
+    search_fields = ['indicator__code', 'indicator__name', 'project__name', 'organization__name'] 
     filterset_fields = ['project', 'organization', 'indicator']
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -93,9 +98,9 @@ class TaskViewSet(RoleRestrictedViewSet):
         
 
 class ProjectViewSet(RoleRestrictedViewSet):
-    from rest_framework.filters import OrderingFilter
     permission_classes = [IsAuthenticated]
     filter_backends = [filters.SearchFilter, OrderingFilter]
+    filterset_fields = ['client', 'start', 'end', 'status']
     ordering_fields = ['name','start', 'end', 'client']
     search_fields = ['name', 'description'] 
     queryset = Project.objects.none()
@@ -112,11 +117,26 @@ class ProjectViewSet(RoleRestrictedViewSet):
         role = getattr(user, 'role', None)
         org = getattr(user, 'organization', None)
         if role == 'admin':
-            return Project.objects.all()
+            queryset = Project.objects.all()
+            status = self.request.query_params.get('status')
+            if status:
+                queryset = queryset.filter(status=status)
         elif role and org:
-            return Project.objects.filter(organizations__in=[org], status=Project.Status.ACTIVE)
+            queryset = queryset.filter(organizations__in=[org], status=Project.Status.ACTIVE)
         else:
             return Project.objects.none()
+        
+        start = self.request.query_params.get('start')
+        end = self.request.query_params.get('end')
+        if start:
+            queryset = queryset.filter(start__gte=start)
+        if end:
+            queryset = queryset.filter(end__lte=end)
+        client = self.request.query_params.get('client')
+        if client:
+            queryset = queryset.filter(client__id=client)
+        return queryset
+    
     def create(self, request, *args, **kwargs):
         if request.user.role != 'admin':
             raise PermissionDenied("Only admins can create projects.")
@@ -124,6 +144,15 @@ class ProjectViewSet(RoleRestrictedViewSet):
     
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+    
+    @action(detail=False, methods=['get'], url_path='meta')
+    def filter_options(self, request):
+        statuses = [status for status, _ in Project.Status.choices]
+        clients = Client.objects.values('id', 'name')
+        return Response({
+            'statuses': statuses,
+            'clients': list(clients) if clients else None,
+        })
 
 class TargetViewSet(RoleRestrictedViewSet):
     queryset = Target.objects.none()

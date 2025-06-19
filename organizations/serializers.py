@@ -23,7 +23,8 @@ class OrganizationSerializer(serializers.ModelSerializer):
         source='parent_organization',
         queryset=Organization.objects.all(),
         write_only=True,
-        required=False
+        required=False,
+        allow_null=True,
     )
     child_organizations = serializers.SerializerMethodField(read_only=True)
     def get_child_organizations(self, obj):

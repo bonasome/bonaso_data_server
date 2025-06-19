@@ -26,7 +26,8 @@ class IndicatorSerializer(serializers.ModelSerializer):
         source='prerequisite',
         queryset=Indicator.objects.all(),
         write_only=True,
-        required=False
+        required=False, 
+        allow_null=True,
     )
     class Meta:
         model = Indicator

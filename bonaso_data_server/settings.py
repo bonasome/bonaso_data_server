@@ -63,7 +63,8 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-CORS_ALLOWED_ORIGINS = ['http://localhost:5173', 'https://comfy-kataifi-b7f809.netlify.app']
+CORS_ALLOWED_ORIGINS = ['http://localhost:5173', 'https://comfy-kataifi-b7f809.netlify.app', 
+                        'https://bonasodataserver-production.up.railway.app']
 CORS_ALLOW_CREDENTIALS = True
 
 CSRF_TRUSTED_ORIGINS = [

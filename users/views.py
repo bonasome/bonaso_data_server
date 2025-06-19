@@ -26,8 +26,8 @@ class CookieTokenObtainPairView(TokenObtainPairView):
                 key='access_token',
                 value=access_token,
                 httponly=True,
-                secure=False, #change this when moving out of dev
-                samesite='Lax',
+                secure=True, #change this when moving out of dev
+                samesite='None',
                 max_age=60*5,
                 path='/', 
             )
@@ -35,8 +35,8 @@ class CookieTokenObtainPairView(TokenObtainPairView):
                 key='refresh_token',
                 value=refresh_token,
                 httponly=True,
-                secure=False, #change this when moving out of dev
-                samesite='Lax',
+                secure=True, #change this when moving out of dev
+                samesite='None',
                 max_age=60*60*8,
                 path='/',
             )

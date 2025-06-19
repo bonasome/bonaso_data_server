@@ -8,9 +8,14 @@ class ParentOrganizationSerializer(serializers.ModelSerializer):
 
 class OrganizationListSerializer(serializers.ModelSerializer):
     parent_organization = ParentOrganizationSerializer(read_only=True)
+    child_organizations = serializers.SerializerMethodField(read_only=True)
+    
+    def get_child_organizations(self, obj):
+        organizations = Organization.objects.filter(parent_organization=obj)
+        return [{"id": org.id, "name": org.name} for org in organizations]
     class Meta:
         model = Organization
-        fields = ['id', 'name', 'parent_organization']
+        fields = ['id', 'name', 'parent_organization', 'child_organizations']
 
 class OrganizationSerializer(serializers.ModelSerializer):
     parent_organization = ParentOrganizationSerializer(read_only=True)
@@ -20,10 +25,17 @@ class OrganizationSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False
     )
+    child_organizations = serializers.SerializerMethodField(read_only=True)
+    def get_child_organizations(self, obj):
+        organizations = Organization.objects.filter(parent_organization=obj)
+        return [{"id": org.id, "name": org.name} for org in organizations]
+    
     class Meta:
         model = Organization
         fields = ['id', 'name', 'parent_organization', 'parent_organization_id', 'office_address', 
-                  'office_phone', 'office_email', 'executive_director', 'ed_phone', 'ed_email', ]
+                  'office_phone', 'office_email', 'executive_director', 'ed_phone', 'ed_email', 
+                  'child_organizations'
+                  ]
         
     def validate(self, attrs):
         user = self.context['request'].user

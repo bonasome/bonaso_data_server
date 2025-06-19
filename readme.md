@@ -8,6 +8,3 @@ File Uploads:
 Meeting:
     Once the frontend is reasonably set up as to do some demos, I need to meet with the ME team to figure out some specific wordings and make sure the general app flow meets all needs. 
 
-Real Thinkers:
-    Figure out how to easily create large amounts of responses (file uploads, table inputs??)
-    Handling different data types (facebook posts, etc.)

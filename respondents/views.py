@@ -71,6 +71,9 @@ class RespondentViewSet(RoleRestrictedViewSet):
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
+
     @action(detail=False, methods=['get'], url_path='meta')
     def filter_options(self, request):
         districts = [district for district, _ in Respondent.District.choices]
@@ -100,6 +103,7 @@ class RespondentViewSet(RoleRestrictedViewSet):
     @action(detail=True, methods=['get', 'post', 'patch'], url_path='sensitive-info')
     def sensitive_info(self, request, pk=None):
         respondent = self.get_object()
+
         if request.method == 'GET':
             serializer = SensitiveInfoSerializer(respondent)
             return Response(serializer.data)
@@ -107,6 +111,7 @@ class RespondentViewSet(RoleRestrictedViewSet):
         elif request.method == 'POST' or request.method == 'PATCH':
             serializer = SensitiveInfoSerializer(respondent, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
+            serializer.save(updated_by=request.user)
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -159,6 +164,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 'respondent': respondent,
                 'interaction_date': interaction_date,
                 'task': task['task'], 
+                'comments': task['comments'],
                 'numeric_component': task['numeric_component'],
                 'subcategory_names': task['subcategory_names'],
             },
@@ -188,10 +194,10 @@ class InteractionViewSet(RoleRestrictedViewSet):
         if not project_id or not org_id:
             raise serializers.ValidationError('Template requires a project and organization.')
         valid_orgs = Organization.objects.filter(Q(parent_organization=user.organization) | Q(id=user.organization.id))
-        if user.role != 'admin' and not valid_orgs.objects.filter(id=org_id).exists():
+        if user.role != 'admin' and not valid_orgs.filter(id=org_id).exists():
             raise PermissionDenied('You do not have permission to access this template.')
         
-        district_labels = [d.label for d.label in Respondent.District]
+        district_labels = [choice.label for choice in Respondent.District]
         sex_labels = [choice.label for choice in Respondent.Sex]
         age_range_labels = [choice.label for choice in Respondent.AgeRanges]
         sex_labels = [choice.label for choice in Respondent.Sex]
@@ -202,7 +208,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
         for field in Respondent._meta.get_fields():
             if field.auto_created:
                 continue
-            if field.name in ['uuid', 'created_by', 'created_at', 'updated_at']:
+            if field.name in ['uuid', 'created_by', 'created_at', 'updated_at', 'updated_by']:
                 continue
             if hasattr(field, 'verbose_name'):
                 verbose = field.verbose_name
@@ -215,7 +221,9 @@ class InteractionViewSet(RoleRestrictedViewSet):
             else:
                 field_info['multiple'] = False
 
-            if field.name == 'district':
+            if field.name == 'is_anonymous':
+                field_info['options'] = ['TRUE', 'FALSE']
+            elif field.name == 'district':
                 field_info['options'] = district_labels
             elif field.name == 'sex':
                 field_info['options'] = sex_labels
@@ -287,7 +295,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
     @action(detail=False, methods=['POST'], url_path='upload')
     def post_template(self, request):
-        from projects.models import Task
+        from projects.models import Task, Project
         from organizations.models import Organization
         errors = []
         warnings = []
@@ -316,6 +324,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
         if not project_id or not org_id:
             raise serializers.ValidationError("Template requires both a valid project and organization ID.")
 
+        project = Project.objects.filter(id=project_id).first()
         # 4. Organization permission check
         valid_orgs = Organization.objects.filter(Q(parent_organization=user.organization) | Q(id=user.organization_id))
         if user.role != 'admin' and not valid_orgs.filter(id=org_id).exists():
@@ -433,21 +442,27 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
         
         def is_valid_excel_date(value):
+            if value is None:
+                return False
+
             if isinstance(value, (datetime, date)):
                 return True
+
+            # Try ISO string
             try:
-                # Try ISO string
                 datetime.fromisoformat(value)
                 return True
             except (ValueError, TypeError):
                 pass
+
+            # Try Excel serial date (number or numeric string)
             try:
-                # Try parsing Excel float serial date
-                if isinstance(value, (int, float)):
-                    from_excel(value)  # will raise if invalid
-                    return True
-            except Exception:
+                numeric_value = float(value)
+                from_excel(numeric_value)  # will raise if invalid
+                return True
+            except (ValueError, TypeError):
                 pass
+
             return False
 
         def is_email(value):
@@ -465,11 +480,11 @@ class InteractionViewSet(RoleRestrictedViewSet):
         for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
             row_errors = []
             row_warnings = []
-            anon =  True if get_cell_value(row, 'is_anonymous') else False
+            anon = get_cell_value(row, 'is_anonymous') == 'TRUE'
             id_no = get_cell_value(row, 'id_no') or None
-            respondent = Respondent.objects.filter(Q(id_no=id_no) | Q(uuid=id_no)).first()
+            respondent = Respondent.objects.filter(id_no=id_no).first()
             if respondent:
-                row_warnings.append(f"Respondent at column: {get_column('id_no')}, row: {i} already exists.")
+                row_warnings.append(f"Respondent {respondent} at column: {get_column('id_no')}, row: {i} already exists.")
             
             first_name = get_cell_value(row, 'first_name') or None
             last_name = get_cell_value(row, 'last_name') or None
@@ -482,11 +497,17 @@ class InteractionViewSet(RoleRestrictedViewSet):
             dob = get_cell_value(row, 'dob') or None
             if anon:
                 dob = None
-            if dob and not is_valid_excel_date(dob):
-                row_warnings.append(f"Date of interaction at column: {get_column('dob')}, row: {i} is invalid.")
-                if parse_date(dob) > date.today():
-                    row_warnings.append(f"Date of interaction at column: {get_column('dob')}, row: {i} cannot be in the future.")
-            
+            if dob:
+                if not is_valid_excel_date(dob):
+                    row_errors.append(f"Date of birth at column: {get_column('dob')}, row: {i} is invalid.")
+                else:
+                    python_date = from_excel(dob) if isinstance(dob, (int, float)) else dob
+                    if isinstance(python_date, datetime):
+                        python_date = python_date.date()
+
+                    if python_date > date.today():
+                        row_errors.append(f"Date of birth at column: {get_column('dob')}, row: {i} cannot be in the future.")
+                dob = python_date
             age_range = (get_cell_value(row, 'age_range') or '').replace(' ', '').lower()
             age_range = age_range.replace(' ', '').lower()
             if age_range and not age_range in get_options('age_range'):
@@ -548,10 +569,27 @@ class InteractionViewSet(RoleRestrictedViewSet):
             doi_col = headers['Date of Interaction']['column']-1 
             interaction_date = row[doi_col] if len(row) > doi_col else None
 
-            if interaction_date and not is_valid_excel_date(interaction_date):
-                row_warnings.append(f"Date of interaction at column: {doi_col}, row: {i} is invalid.")
-                if parse_date(interaction_date) > date.today():
-                    row_warnings.append(f"Date of interaction at column: {doi_col}, row: {i} cannot be in the future.")
+            if interaction_date:
+                if not is_valid_excel_date(interaction_date):
+                    row_errors.append(
+                        f"Date of interaction at column: {get_column('Date of Interaction')}, row: {i} is invalid."
+                    )
+                else:
+                    python_date = from_excel(interaction_date) if isinstance(interaction_date, (int, float)) else interaction_date
+                    if isinstance(python_date, datetime):
+                        python_date = python_date.date()
+
+                    if python_date > date.today():
+                        row_errors.append(
+                            f"Date of interaction at column: {doi_col}, row: {i} cannot be in the future."
+                        )
+                    if python_date < project.start or python_date > project.end:
+                        row_warnings.append(
+                            f"Date of interaction at column: {doi_col}, row: {i} is outside of the range of this project."
+                        )
+
+                    interaction_date = python_date
+            
             
             if len(row_errors) > 0:
                 row_errors.append("This respondent and their interactions will not be saved until these errors are fixed")
@@ -585,19 +623,25 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     comments = comments,
                     created_by=respondent
                 )
+
                 if kp_status_names and len(kp_status_names) > 0:
                     kp_types = []
                     for name in kp_status_names:
-                            kp = get_choice_key_from_label(KeyPopulation.KeyPopulations.choices, kp)
-                            kp, _ = KeyPopulation.objects.get_or_create(name=name)
-                            kp_types.append(kp)
+                        key = get_choice_key_from_label(KeyPopulation.KeyPopulations.choices, name)
+                        if not key:
+                            continue
+                        kp, _ = KeyPopulation.objects.get_or_create(name=key)
+                        kp_types.append(kp)
                     respondent.kp_status.set(kp_types)
+                
                 if disability_status_names and len(disability_status_names) > 0:
                     disability_types = []
                     for name in disability_status_names:
-                            dis = get_choice_key_from_label(DisabilityType.DisabilityTypes.choices, dis)
-                            dis, _ = DisabilityType.objects.get_or_create(name=name)
-                            disability_types.append(dis)
+                        key = get_choice_key_from_label(KeyPopulation.KeyPopulations.choices, name)
+                        if not key:
+                            continue
+                        disability, _ = KeyPopulation.objects.get_or_create(name=key)
+                        disability_types.append(disability)
                     respondent.disability_status.set(disability_types)
 
             def topological_sort(tasks):
@@ -673,11 +717,17 @@ class InteractionViewSet(RoleRestrictedViewSet):
                                 } if isinstance(val, list) else set()
 
                                 if not current_ids.issubset(parent_ids):
-                                    row_errors.append(f'Subcategories for task {task.indicator.name} do not match with prerequisite categories.')
-                    interaction = Interaction.objects.filter(respondent=respondent, task=task).order_by('-interaction_date').first()
+                                    row_errors.append(f'Subcategories for task {task.indicator.name} at column: {col}, row: {i} do not match with prerequisite categories.')
+                    
+                    last_month = now().date() - timedelta(days=30)
+                    recent = Interaction.objects.filter(respondent=respondent, task=task, interaction_date__gte=last_month)
+                    if recent.exists():
+                        row_warnings.append(f'Respondent {respondent} has already had an interaction related to {task.indicator.code} (column: {col}, row: {i}) in the last 30 days. Please verify this result.')
+                    
+                    interaction = Interaction.objects.filter(respondent=respondent, task=task, interaction_date=interaction_date).first()
                     if interaction:
                         interaction.interaction_date = interaction_date
-                        row_warnings.append('Interaction for respondent {respondent} and {task.indicator.code} already exists.')
+                        row_warnings.append(f'Interaction for respondent {respondent} and {task.indicator.code} column: {col}, row: {i} already exists.')
                     else:
                         interaction = Interaction.objects.create(interaction_date=interaction_date, respondent=respondent, task=task, created_by=user)
                     if task.indicator.require_numeric:

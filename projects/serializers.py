@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
+from django.db.models import Q
 
 from projects.models import Project, Task, Client, Target, ProjectIndicator, ProjectOrganization
 from organizations.models import Organization
@@ -13,9 +14,18 @@ class ClientSerializer(serializers.ModelSerializer):
         model=Client
         fields=['id', 'name']
 
+
+
+class ProjectListSerializer(serializers.ModelSerializer):
+    client = ClientSerializer(read_only=True)
+    class Meta:
+        model = Project
+        fields = ['id', 'name', 'client', 'start', 'end', 'status']
+
 class TaskSerializer(serializers.ModelSerializer):
-    organization = OrganizationListSerializer(read_only=True)
     indicator = IndicatorSerializer(read_only=True)
+    project = ProjectListSerializer(read_only=True)
+    organization = OrganizationListSerializer(read_only=True)
     organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True)
     indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True)
     project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True)
@@ -24,15 +34,18 @@ class TaskSerializer(serializers.ModelSerializer):
         required=False,   # optional
         allow_null=True
     )
+    targets = serializers.SerializerMethodField()
+
+    def get_targets(self, obj):
+        request = self.context.get('request')
+        if request and request.query_params.get('include_targets') == 'true':
+            return TargetForTaskSerializer(obj.target_set.all(), many=True, context=self.context).data
+        return None
+    
     class Meta:
         model=Task
-        fields = ['id', 'indicator', 'organization', 'project', 'indicator_id', 'project_id', 'organization_id', 'parent_task']
-
-class ProjectListSerializer(serializers.ModelSerializer):
-    client = ClientSerializer(read_only=True)
-    class Meta:
-        model = Project
-        fields = ['id', 'name', 'client', 'start', 'end', 'status']
+        fields = ['id', 'indicator', 'organization', 'project', 'indicator_id', 
+                  'project_id', 'organization_id', 'parent_task', 'targets']
 
 class ProjectDetailSerializer(serializers.ModelSerializer):
     tasks = TaskSerializer(many=True, read_only=True)
@@ -40,8 +53,31 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
     client_id = serializers.PrimaryKeyRelatedField(queryset=Client.objects.all(), write_only=True, required=False, source='client')
     organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), required=False, many=True, write_only=True, source='organizations')
     indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), many=True, required=False, write_only=True, source='indicators')
-    organizations = OrganizationListSerializer(read_only=True, many=True)
-    indicators = IndicatorSerializer(read_only=True, many=True)
+    organizations = serializers.SerializerMethodField()
+    indicators = serializers.SerializerMethodField()
+
+    def get_organizations(self, obj):
+        user = self.context['request'].user
+        if user.role == 'admin':
+            queryset = obj.organizations.all()
+        else:
+            org = user.organization
+            queryset = obj.organizations.filter(
+                Q(parent_organization=org) | Q(id=org.id)
+            )
+        return OrganizationListSerializer(queryset, many=True, context=self.context).data
+
+    def get_indicators(self, obj):
+        user = self.context['request'].user
+        if user.role == 'admin':
+            queryset = obj.indicators.all()
+        else:
+            org = user.organization
+            tasks = Task.objects.filter(organization=org, project=obj)
+            indicator_ids = tasks.values_list('indicator_id', flat=True).distinct()
+            queryset = Indicator.objects.filter(id__in=indicator_ids)
+        return IndicatorSerializer(queryset, many=True, context=self.context).data
+    
     class Meta:
         model=Project
         fields = ['id', 'name', 'client', 'start', 'end', 'description', 'tasks', 'client_id',
@@ -98,17 +134,38 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
                 ProjectIndicator.objects.create(project=instance, indicator=indicator, added_by=user)
         return instance
 
-
+class TargetForTaskSerializer(serializers.ModelSerializer):
+    related_to = serializers.SerializerMethodField()
+    class Meta:
+        model = Target
+        fields = ['id', 'start', 'end', 'amount','related_to','percentage_of_related',  ]
+    def get_related_to(self, obj):
+        if obj.related_to:
+            return {
+                'id': obj.related_to.id,
+                'code': obj.related_to.indicator.code,
+                'name': obj.related_to.indicator.name,
+            }
+        return None
 class TargetSerializer(serializers.ModelSerializer):
     task = TaskSerializer(read_only=True)
     task_id = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True, source='task')
-    related_to = TaskSerializer(read_only=True)
-    related_to_id = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True, required=False, source='related_to')
+    related_to = serializers.SerializerMethodField()
+    related_to_id = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True, required=False, allow_null=True, source='related_to')
     class Meta:
         model = Target
         fields = ['id', 'task', 'task_id', 'start', 'end', 'amount','related_to', 'related_to_id', 'percentage_of_related',  ]
+    def get_related_to(self, obj):
+        if obj.related_to:
+            return {
+                'id': obj.related_to.id,
+                'code': obj.related_to.indicator.code,
+                'name': obj.related_to.indicator.name,
+            }
+        return None
     
     def validate(self, attrs):
+        print("Incoming validated attrs:", attrs)
         task = attrs.get('task')
         related = attrs.get('related_to')
         if not task:

@@ -27,7 +27,8 @@ class Project(models.Model):
     start = models.DateField(verbose_name='Project Start Date')
     end = models.DateField(verbose_name='Project Completion Date')
     description = models.TextField(blank=True, null=True, verbose_name='Project Description')
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='project_created_by')
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='project_updated_by')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -50,7 +51,7 @@ class Task(models.Model):
     indicator = models.ForeignKey(Indicator, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(User, on_delete=models.SET_DEFAULT, default=None, null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='task_created_by')
     class Meta:
         unique_together = ('project', 'organization', 'indicator')
 
@@ -64,10 +65,12 @@ class Target(models.Model):
     end = models.DateField('Target Conclusion Date')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='target_created_by')
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='target_updated_by')
     related_to = models.ForeignKey(Task, related_name='related_to_task', on_delete=models.CASCADE, blank=True, null=True)
     percentage_of_related = models.IntegerField(validators=[MinValueValidator(0), MaxValueValidator(100)], null=True, blank=True)
 
+    
     def clean(self):
         super().clean()
         if not self.amount:

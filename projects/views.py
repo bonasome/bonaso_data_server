@@ -10,9 +10,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.exceptions import PermissionDenied
 from rest_framework import generics
+from django.db.models import Q
 from rest_framework.filters import OrderingFilter
 from rest_framework.decorators import action
 from users.restrictviewset import RoleRestrictedViewSet
+from rest_framework import serializers
 
 import json
 from datetime import datetime, date
@@ -23,75 +25,97 @@ from projects.serializers import ProjectListSerializer, ProjectDetailSerializer,
 
 class TaskViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
-    queryset = Task.objects.none()
     serializer_class = TaskSerializer
     filter_backends = [filters.SearchFilter, OrderingFilter]
     ordering_fields = ['indicator__code']
-    search_fields = ['indicator__code', 'indicator__name', 'project__name', 'organization__name'] 
+    search_fields = ['indicator__code', 'indicator__name', 'project__name', 'organization__name']
     filterset_fields = ['project', 'organization', 'indicator']
+
+    
     def get_queryset(self):
-        queryset = super().get_queryset()
         user = self.request.user
         role = getattr(user, 'role', None)
-        org = getattr(user, 'organization', None)
+        user_org = getattr(user, 'organization', None)
+        queryset = Task.objects.all()
+
+        org_param = self.request.query_params.get('organization')
+        if org_param:
+            queryset = queryset.filter(organization__id=org_param)
+
         if role == 'admin':
-            return Task.objects.all()
-        elif role and org:
-            return Task.objects.filter(organization = org, project__status=Project.Status.ACTIVE)
+            return queryset
+        elif role in ['meofficer', 'manager'] and user_org:
+            return queryset.filter(Q(organization=user_org) | Q(organization__parent_organization=user_org), project__status=Project.Status.ACTIVE)
+        elif role in ['data_collector'] and user_org:
+            return queryset.filter(organization=user_org, project__status=Project.Status.ACTIVE)
         else:
             return Task.objects.none()
-        
+
     def create(self, request, *args, **kwargs):
         from organizations.models import Organization
         from indicators.models import Indicator
+
         user = request.user
         data = request.data
         role = getattr(user, 'role', None)
-        org = getattr(user, 'organization', None)
-        if not role or not org:
+        user_org = getattr(user, 'organization', None)
+
+        if not role or not user_org:
             raise PermissionDenied('You do not have permission to perform this action.')
+
+        org_id = data.get('organization_id')
+        indicator_id = data.get('indicator_id')
+        project_id = data.get('project_id')
+
+        if not all([org_id, indicator_id, project_id]):
+            raise serializers.ValidationError("All of organization_id, indicator_id, and project_id are required.")
+
         if role == 'admin':
-            org_id = data.get('organization_id')
-            indicator_id = data.get('indicator_id')
-            project_id = data.get('project_id')
             try:
                 organization = Organization.objects.get(id=org_id)
                 indicator = Indicator.objects.get(id=indicator_id)
                 project = Project.objects.get(id=project_id)
             except (Organization.DoesNotExist, Indicator.DoesNotExist, Project.DoesNotExist):
                 return Response({'detail': 'Related object not found.'}, status=400)
+
             if not project.organizations.filter(id=organization.id).exists() or not project.indicators.filter(id=indicator.id).exists():
-                return Response({'detail': 'Related objects not available.'}, status=400)
+                return Response({'detail': 'Related objects not available in this project.'}, status=400)
+
             task = Task.objects.create(
                 organization=organization,
                 indicator=indicator,
                 project=project,
                 created_by=user,
             )
-            serializer = self.get_serializer(task)
-            return Response(serializer.data, status=201)
-        
-        elif role == 'meofficer' or role == 'manager':
-            parent_task = data.get('parent_task')
-            assign_to = data.get('organization_id')
-            if not parent_task or not assign_to:
-                raise PermissionDenied('You must assign an existing task to an organization.')
+            return Response(self.get_serializer(task).data, status=201)
+
+        elif role in ['meofficer', 'manager']:
+            # Non-admins can assign tasks to child orgs with assigned indicators
+            valid_org_ids = Organization.objects.filter(parent_organization=user_org).values_list('id', flat=True)
+            valid_indicator_ids = Task.objects.filter(organization=user_org).values_list('indicator__id', flat=True)
+            valid_project_ids = Project.objects.filter(organizations=user_org).values_list('id', flat=True)
+
+            if int(org_id) not in valid_org_ids:
+                raise PermissionDenied('You may only assign tasks to your child organizations.')
+            if int(indicator_id) not in valid_indicator_ids:
+                raise PermissionDenied('You may only assign indicators you also have.')
+            if int(project_id) not in valid_project_ids:
+                raise PermissionDenied('You can only assign tasks to projects you are part of.')
+
             try:
-                parent = Task.objects.get(id=parent_task)
-                to_organization = Organization.objects.get(id=assign_to)
-            except Task.DoesNotExist:
-                raise PermissionDenied('Parent task not found.')
-            valid_org_ids = Organization.objects.filter(parent_organization=org).values_list('id', flat=True)
-            if int(assign_to) not in valid_org_ids:
-                raise PermissionDenied('You can only assign tasks to subgrantees.')
+                organization = Organization.objects.get(id=org_id)
+                indicator = Indicator.objects.get(id=indicator_id)
+                project = Project.objects.get(id=project_id)
+            except (Organization.DoesNotExist, Indicator.DoesNotExist, Project.DoesNotExist):
+                raise serializers.ValidationError("One or more provided IDs are invalid.")
+
             new_task = Task.objects.create(
-                project=parent.project, 
-                organization = to_organization, 
-                indicator=parent.indicator, 
-                created_by = user
+                project=project,
+                organization=organization,
+                indicator=indicator,
+                created_by=user
             )
-            serializer = self.get_serializer(new_task)
-            return Response(serializer.data, status=201)
+            return Response(self.get_serializer(new_task).data, status=201)
 
         else:
             raise PermissionDenied('You do not have permission to perform this action.')
@@ -112,30 +136,21 @@ class ProjectViewSet(RoleRestrictedViewSet):
             return ProjectDetailSerializer
 
     def get_queryset(self):
-        queryset = super().get_queryset()
         user = self.request.user
         role = getattr(user, 'role', None)
         org = getattr(user, 'organization', None)
+
         if role == 'admin':
             queryset = Project.objects.all()
             status = self.request.query_params.get('status')
             if status:
                 queryset = queryset.filter(status=status)
+            return queryset
+
         elif role and org:
-            queryset = queryset.filter(organizations__in=[org], status=Project.Status.ACTIVE)
-        else:
-            return Project.objects.none()
-        
-        start = self.request.query_params.get('start')
-        end = self.request.query_params.get('end')
-        if start:
-            queryset = queryset.filter(start__gte=start)
-        if end:
-            queryset = queryset.filter(end__lte=end)
-        client = self.request.query_params.get('client')
-        if client:
-            queryset = queryset.filter(client__id=client)
-        return queryset
+            return Project.objects.filter(organizations=org, status=Project.Status.ACTIVE)
+
+        return Project.objects.none()
     
     def create(self, request, *args, **kwargs):
         if request.user.role != 'admin':
@@ -144,6 +159,35 @@ class ProjectViewSet(RoleRestrictedViewSet):
     
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+    
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
+    
+    def partial_update(self, request, *args, **kwargs):
+        from organizations.models import Organization
+        user = request.user
+        instance = self.get_object()
+
+        if user.role != 'admin':
+            allowed_keys = ['organization_id']
+            if not any(k in request.data for k in allowed_keys):
+                raise PermissionDenied("Only admins can edit projects.")
+
+            new_org_ids = request.data.get('organization_id') or []
+            if not isinstance(new_org_ids, list):
+                new_org_ids = [new_org_ids]
+
+            existing_orgs = set(instance.organizations.values_list('id', flat=True))
+
+            new_orgs = Organization.objects.filter(id__in=new_org_ids).exclude(id__in=existing_orgs)
+            invalid_orgs = [org for org in new_orgs if org.parent_organization != user.organization]
+            if invalid_orgs:
+                raise PermissionDenied("You may only add your subgrantees.")
+            instance.organizations.add(*new_orgs)
+
+            return Response(ProjectDetailSerializer(instance, context=self.get_serializer_context()).data)
+
+        return super().partial_update(request, *args, **kwargs)
     
     @action(detail=False, methods=['get'], url_path='meta')
     def filter_options(self, request):
@@ -156,7 +200,8 @@ class ProjectViewSet(RoleRestrictedViewSet):
 
 class TargetViewSet(RoleRestrictedViewSet):
     queryset = Target.objects.none()
-    filterset_fields = ['task']
+    filter_backends = [filters.SearchFilter, OrderingFilter]
+    filterset_fields = ['task', 'organization', 'indicator']
     permission_classes = [IsAuthenticated]
     serializer_class = TargetSerializer
     def get_queryset(self):
@@ -166,13 +211,12 @@ class TargetViewSet(RoleRestrictedViewSet):
         org = getattr(user, 'organization', None)
         if not role or not org:
             return Target.objects.none()
-        queryset = super().get_queryset()
         
         if role == 'admin':
             queryset= Target.objects.all()
         else:
             queryset= Target.objects.filter(task__organization=org)
-            queryset.filter(task__project__status=Project.Status.ACTIVE)
+            queryset = queryset.filter(task__project__status=Project.Status.ACTIVE)
 
         start = self.request.query_params.get('start')
         end = self.request.query_params.get('end')
@@ -189,6 +233,19 @@ class TargetViewSet(RoleRestrictedViewSet):
             raise PermissionDenied("Only admins can create targets.")
         return super().create(request, *args, **kwargs)
 
+    def update(self, request, *args, **kwargs):
+        user = request.user
+        if getattr(user, 'role', None) != 'admin':
+            raise PermissionDenied("Only admins can update targets.")
+        
+        # Let DRF handle both PUT and PATCH via super()
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        return self.update(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
 '''
 class CreateProject(APIView):
     permission_classes = [IsAuthenticated]

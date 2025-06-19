@@ -78,6 +78,7 @@ class IndicatorViewSet(RoleRestrictedViewSet):
         if request.user.role != 'admin':
             raise PermissionDenied("Only admins can create indicators.")
         return super().create(request, *args, **kwargs)
+    
     def update(self, request, *args, **kwargs):
         if request.user.role != 'admin':
             raise PermissionDenied("Only admins can create indicators.")
@@ -86,6 +87,9 @@ class IndicatorViewSet(RoleRestrictedViewSet):
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user) 
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user) 
 
 
 '''

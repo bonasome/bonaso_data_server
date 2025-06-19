@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 from users.models import User
@@ -6,6 +7,7 @@ from indicators.models import Indicator, IndicatorSubcategory
 from projects.models import Project, Task
 from datetime import datetime, date
 import uuid
+from datetime import timedelta
 
 class DisabilityType(models.Model):
     class DisabilityTypes(models.TextChoices):
@@ -77,7 +79,8 @@ class Respondent(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    created_by = models.ForeignKey(User, on_delete=models.SET_DEFAULT, default=None, null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='respondent_created_by')
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='respondent_updated_by')
 
     def clean(self):
         if self.is_anonymous:
@@ -163,15 +166,47 @@ class Interaction(models.Model):
     task = models.ForeignKey(Task, on_delete=models.PROTECT)
     interaction_date = models.DateField()
     subcategories = models.ManyToManyField(IndicatorSubcategory, through='InteractionSubcategory', blank=True)
-    
+    comments = models.TextField(verbose_name='Comments', null=True, blank=True, default=None)
     numeric_component = models.IntegerField(null=True, blank=True, default=None)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
-    created_by = models.ForeignKey(User, on_delete=models.SET_DEFAULT, default=None, null=True, blank=True)
-
+    flagged = models.BooleanField(default=False)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='interaction_created_by')
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='interaction_updated_by')
+    
     def __str__(self):
         return f'Interaction with {self.respondent} on {self.interaction_date} for {self.task.indicator.code}'
+
+    def save(self, *args, **kwargs):
+        if self.interaction_date:
+            thirty_days_ago = self.interaction_date - timedelta(days=30)
+            thirty_days_ahead = self.interaction_date  + timedelta(days=30)
+            # Check for recent similar interactions
+            recent_exists = Interaction.objects.filter(
+                respondent=self.respondent,
+                task=self.task,
+                interaction_date__gte=thirty_days_ago,
+                interaction_date__lt=thirty_days_ahead
+            ).exclude(pk=self.pk).exists()
+
+            if recent_exists:
+                self.flagged = True
+
+            # Check prerequisite interaction
+            prerequisite = self.task.indicator.prerequisite
+            if prerequisite:
+                prereq_exists = Interaction.objects.filter(
+                    respondent=self.respondent,
+                    task__indicator=prerequisite,
+                    interaction_date__gte=thirty_days_ago,
+                    interaction_date__lt=self.interaction_date
+                ).exists()
+
+                if not prereq_exists:
+                    self.flagged = True
+
+        super().save(*args, **kwargs)
+
 
 class InteractionSubcategory(models.Model):
     interaction = models.ForeignKey(Interaction, on_delete=models.CASCADE)

@@ -6,6 +6,7 @@ from indicators.models import IndicatorSubcategory
 from indicators.serializers import IndicatorSubcategorySerializer
 from datetime import datetime, date
 from django.db.models import Q
+from rest_framework.exceptions import PermissionDenied
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
@@ -63,7 +64,8 @@ class SensitiveInfoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Respondent
         fields = ['id', 'is_pregnant', 'term_began', 'term_ended', 'hiv_positive', 'date_positive',
-                  'kp_status', 'kp_status_names', 'pregnancy_info', 'hiv_status_info', 'disability_status', 'disability_status_names']
+                  'kp_status', 'kp_status_names', 'pregnancy_info', 'hiv_status_info', 'disability_status', 
+                  'disability_status_names', 'created_by', 'updated_by']
         
     def create(self, validated_data):
         today = date.today()
@@ -211,7 +213,7 @@ class RespondentSerializer(serializers.ModelSerializer):
         fields = [
             'id','id_no', 'uuid', 'is_anonymous', 'first_name', 'last_name', 'sex', 'ward',
             'village', 'district', 'citizenship', 'comments', 'email', 'phone_number', 'dob',
-            'age_range'
+            'age_range', 'created_by', 'updated_by'
         ]
 
 class InteractionSerializer(serializers.ModelSerializer):
@@ -227,7 +229,7 @@ class InteractionSerializer(serializers.ModelSerializer):
         model=Interaction
         fields = [
             'id', 'respondent', 'subcategories','subcategory_names', 'task', 'task_detail', 
-            'interaction_date', 'numeric_component', 'created_by'
+            'interaction_date', 'numeric_component', 'created_by', 'updated_by', 'comments'
         ]
     
     def to_internal_value(self, data):
@@ -324,21 +326,21 @@ class InteractionSerializer(serializers.ModelSerializer):
         created_by = instance.created_by
         if user.role != 'admin':
             if user.organization != created_by.organization:
-                return
-            if user.role != 'meofficer' or user.role != 'manager':
+                raise PermissionDenied("You do not have permission to update this interaction.")
+            if user.role not in ['meofficer', 'manager']:
                 if instance.created_by != user:
-                    return
+                    raise PermissionDenied("You do not have permission to update this interaction.")
         subcategory_names = validated_data.pop('subcategory_names', [])
         subcategories = [
             IndicatorSubcategory.objects.get_or_create(name=name)[0]
             for name in subcategory_names
         ]
         instance.subcategories.set(subcategories)
-        instance.subcategories.set(subcategories)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
+        instance.updated_by = user
         instance.save()
         return instance
         

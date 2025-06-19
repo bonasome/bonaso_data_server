@@ -22,7 +22,8 @@ class Indicator(models.Model):
     prerequisite = models.ForeignKey('self', on_delete=models.SET_NULL, blank=True, null=True, verbose_name='Prerequisite Indicator')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='indicator_created_by')
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='indicator_updated_by')
     require_numeric = models.BooleanField(blank=True, null=True, default=False, verbose_name='Indicator requires an accompanying numeric value.')
     subcategories = models.ManyToManyField(IndicatorSubcategory, blank=True)
 

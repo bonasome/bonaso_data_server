@@ -66,8 +66,8 @@ class CookieTokenRefreshView(TokenRefreshView):
                 key='access_token',
                 value=access_token,
                 httponly=True,
-                secure=False,  # Change to True in prod!
-                samesite='Lax',
+                secure=True,  # Change to True in prod!
+                samesite='None',
                 max_age=60 * 5
             )
         

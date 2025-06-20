@@ -68,7 +68,7 @@ CORS_ALLOWED_ORIGINS = ['http://localhost:5173', 'https://comfy-kataifi-b7f809.n
 CORS_ALLOW_CREDENTIALS = True
 
 CSRF_TRUSTED_ORIGINS = [
-    "https://comfy-kataifi-b7f809.netlify.app",
+    "https://comfy-kataifi-b7f809.netlify.app", 'http://localhost:5173'
 ]
 ROOT_URLCONF = 'bonaso_data_server.urls'
 
@@ -127,7 +127,11 @@ REST_FRAMEWORK = {
     ),
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
-    'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend'],
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
+    ],
     'DEFAULT_PERMISSION_CLASSES': [
         'users.permissions.IsActiveUser',
     ],

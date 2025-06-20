@@ -1,6 +1,7 @@
 from django.shortcuts import render
 from users.restrictviewset import RoleRestrictedViewSet
 from django.db.models import Q
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.filters import SearchFilter, OrderingFilter
 from profiles.models import FavoriteProject, FavoriteRespondent, FavoriteTask
@@ -14,9 +15,9 @@ User = get_user_model()
 class ProfileViewSet(RoleRestrictedViewSet):
     serializer_class = ProfileSerializer
     permission_classes = [IsAuthenticated]
-    filter_backends = [SearchFilter, OrderingFilter]
-    filterset_fields = ['organization', 'role']
-    ordering_fields = ['name']
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['organization', 'role', 'is_active']
+    ordering_fields = ['last_name']
     search_fields = ['last_name','first_name', 'username'] 
 
     def get_queryset(self):

@@ -10,10 +10,15 @@ from django.contrib.auth import get_user_model
 
 User = get_user_model()
 
+from organizations.serializers import OrganizationListSerializer
+from organizations.models import Organization
+
 class ProfileSerializer(serializers.ModelSerializer):
+    organization = OrganizationListSerializer(read_only=True)
+    organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True)
     class Meta:
         model=User
-        fields = ['id', 'username', 'first_name', 'last_name', 'email', 'organization', 'role', 'is_active']
+        fields = ['id', 'username', 'first_name', 'last_name', 'email','organization', 'organization_id', 'role', 'is_active']
         read_only_fields = ['id']
 
     def get_fields(self):
@@ -22,12 +27,15 @@ class ProfileSerializer(serializers.ModelSerializer):
 
         if user.role != 'admin':
             fields['is_active'].read_only = True
-
-        if user.role != 'admin':
             fields['role'].read_only = True
             fields['organization'].read_only = True
 
         return fields
+    def update(self, instance, validated_data):
+        organization = validated_data.pop('organization_id', None)
+        if organization:
+            validated_data['organization'] = organization
+        return super().update(instance, validated_data)
 
 class FavoriteTaskSerializer(serializers.ModelSerializer):
     task = TaskSerializer(read_only=True)

@@ -22,6 +22,7 @@ debug = os.getenv("DEBUG", "False").lower() in ["1", "true", "yes"]
 class CookieTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
     def post(self, request, *args, **kwargs):
+        print(f'DEBUG mode (from env): {debug}')
         response = super().post(request, *args, **kwargs)
         data =  response.data
         access_token = data.get('access')
@@ -32,7 +33,7 @@ class CookieTokenObtainPairView(TokenObtainPairView):
                 key='access_token',
                 value=access_token,
                 httponly=True,
-                secure= not debug, #change this when moving out of dev
+                secure= not debug, 
                 samesite='None' if not debug else 'Lax',
                 max_age=60*5,
                 path='/', 
@@ -41,7 +42,7 @@ class CookieTokenObtainPairView(TokenObtainPairView):
                 key='refresh_token',
                 value=refresh_token,
                 httponly=True,
-                secure=not debug, #change this when moving out of dev
+                secure=not debug, 
                 samesite='None' if not debug else 'Lax',
                 max_age=60*60*8,
                 path='/',
@@ -72,7 +73,7 @@ class CookieTokenRefreshView(TokenRefreshView):
                 key='access_token',
                 value=access_token,
                 httponly=True,
-                secure=not debug,  # Change to True in prod!
+                secure=not debug, 
                 samesite='None' if not debug else 'Lax',
                 max_age=60 * 5
             )

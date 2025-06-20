@@ -6,6 +6,28 @@ from respondents.models import Respondent
 
 from projects.serializers import TaskSerializer, ProjectDetailSerializer
 from projects.models import Task, Project
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
+class ProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model=User
+        fields = ['id', 'username', 'first_name', 'last_name', 'email', 'organization', 'role', 'is_active']
+        read_only_fields = ['id']
+
+    def get_fields(self):
+        fields = super().get_fields()
+        user = self.context['request'].user
+
+        if user.role != 'admin':
+            fields['is_active'].read_only = True
+
+        if user.role != 'admin':
+            fields['role'].read_only = True
+            fields['organization'].read_only = True
+
+        return fields
 
 class FavoriteTaskSerializer(serializers.ModelSerializer):
     task = TaskSerializer(read_only=True)

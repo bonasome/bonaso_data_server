@@ -1,6 +1,7 @@
 from django.shortcuts import render
 from django.contrib.auth import logout
 from .serializers import CustomTokenObtainPairSerializer
+from django.contrib.auth.password_validation import validate_password
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework.response import Response
@@ -8,9 +9,11 @@ from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from django.core.exceptions import ValidationError
 from rest_framework import status
-
+from django.db.models import Q
 from django.contrib.auth import get_user_model
+
 User = get_user_model()
 
 class CookieTokenObtainPairView(TokenObtainPairView):
@@ -97,28 +100,41 @@ def logout_view(request):
 class ApplyForNewUser(APIView):
     permission_classes = [IsAuthenticated]
     def post(self, request):
+        from organizations.models import Organization
         user = request.user
         if not user or user.role not in ['meofficer', 'manager', 'admin'] or not user.organization:
             return Response({'detail': 'You do not have permission to perform this action.'}, status=status.HTTP_400_BAD_REQUEST)
-        org = user.organization
-        if not org or not org.pk:
-            return Response({'detail': 'Invalid or missing organization.'}, status=400)
-        
         data = request.data
+        org_id = data.get('organization', user.organization.id)
+        try:
+            org = Organization.objects.get(id=org_id)
+        except Organization.DoesNotExist:
+            return Response({'detail': 'Organization not found.'}, status=400)
+        if user.role != 'admin':
+            if not (org == user.organization or org.parent_organization == user.organization):
+                return Response({'detail': 'You do not have permission to create this user.'}, status=400)
+        
         username = data.get('username')
         password = data.get('password')
 
         if not username or not password:
-            return Response({'detail': 'You do not have permission to perform this action.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'Insufficient information provided.'}, status=status.HTTP_400_BAD_REQUEST)
         
         if User.objects.filter(username=username).exists():
             return Response({'detail': 'A user with that username already exists.'}, status=status.HTTP_400_BAD_REQUEST)
         
+        try:
+            validate_password(password)
+        except ValidationError as e:
+            return Response({'detail': e.messages}, status=400)
+        
         new_user = User.objects.create_user(
             username=username,
             password=password,
+            first_name=data.get('first_name', ''),
+            last_name = data.get('last_name', ''),
             email=data.get('email', ''),
-            organization=user.organization,
+            organization=org,
             role='view_only',
         )
-        return Response({'message': 'User created successfuly. An admin will activate them shortly.'}, status=status.HTTP_201_CREATED)
+        return Response({'message': 'User created successfuly. An admin will activate them shortly.', 'id': new_user.id}, status=status.HTTP_201_CREATED)

@@ -1,18 +1,13 @@
 from django.shortcuts import render, redirect
-from django.http import JsonResponse
-from django.views import View
 from django.forms.models import model_to_dict
 from rest_framework.viewsets import ModelViewSet
-from rest_framework import filters
 from rest_framework.response import Response
 from rest_framework.filters import SearchFilter, OrderingFilter
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.views import APIView
 from rest_framework.exceptions import PermissionDenied
-from rest_framework import generics
 from users.restrictviewset import RoleRestrictedViewSet
-
+from rest_framework.decorators import action
 from indicators.models import Indicator, IndicatorSubcategory
 from indicators.serializers import IndicatorSerializer, IndicatorListSerializer
 
@@ -52,12 +47,15 @@ class IndicatorViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
     queryset = Indicator.objects.all()
     serializer_class = IndicatorSerializer
-    filter_backends = [SearchFilter, OrderingFilter]
-    filterset_fields = ['project', 'prerequisite']
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['project', 'prerequisite', 'status']
     ordering_fields = ['code', 'name']
     search_fields = ['name', 'code', 'description'] 
     def get_queryset(self):
         queryset = super().get_queryset() 
+        user = self.request.user
+        if user.role != 'admin':
+            queryset = queryset.filter(status=Indicator.Status.ACTIVE)
         project_id = self.request.query_params.get('project')
         if project_id:
             queryset = queryset.filter(projectindicator__project__id=project_id)
@@ -91,6 +89,12 @@ class IndicatorViewSet(RoleRestrictedViewSet):
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user) 
 
+    @action(detail=False, methods=['get'], url_path='meta')
+    def filter_options(self, request):
+        statuses = [status for status, _ in Indicator.Status.choices]
+        return Response({
+            'statuses': statuses,
+        })
 
 '''
 class GetIndicator(APIView):

@@ -32,7 +32,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
     class Meta:
         model = Indicator
         fields = ['id', 'name', 'code', 'prerequisite', 'prerequisite_id', 'description', 'subcategories', 
-                  'subcategory_names', 'require_numeric']
+                  'subcategory_names', 'require_numeric', 'status']
         
     def create(self, validated_data):
         subcategory_names = validated_data.pop('subcategory_names', [])

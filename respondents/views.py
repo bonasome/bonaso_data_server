@@ -119,6 +119,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
     queryset = Interaction.objects.all()
     serializer_class = InteractionSerializer
+    ordering_fields = ['-interaction_date']
     filter_backends = [SearchFilter]
     filterset_fields = ['task', 'respondent', 'interaction_date']
     search_fields = ['respondent__uuid', 'respondent__first_name', 'respondent__last_name', 

@@ -15,6 +15,7 @@ from rest_framework.filters import OrderingFilter
 from rest_framework.decorators import action
 from users.restrictviewset import RoleRestrictedViewSet
 from rest_framework import serializers
+from rest_framework import status
 
 import json
 from datetime import datetime, date
@@ -197,6 +198,31 @@ class ProjectViewSet(RoleRestrictedViewSet):
             'statuses': statuses,
             'clients': list(clients) if clients else None,
         })
+    @action(detail=True, methods=['delete'], url_path='remove-organization/(?P<organization_id>[^/.]+)')
+    def remove_organization(self, request, pk=None, organization_id=None):
+        project = self.get_object()
+        try:
+            org = ProjectOrganization.objects.get(project=project, organization__id=organization_id)
+            org.delete()
+            return Response({"detail": "Organization removed."}, status=status.HTTP_200_OK)
+        except ProjectOrganization.DoesNotExist:
+            return Response({"detail": "Organization not found."}, status=status.HTTP_404_NOT_FOUND)
+    
+    @action(detail=True, methods=['delete'], url_path='remove-indicator/(?P<indicator_id>[^/.]+)')
+    def remove_indicator(self, request, pk=None, indicator_id=None):
+        project = self.get_object()
+        try:
+            indicator = ProjectIndicator.objects.get(project=project, indicator__id=indicator_id)
+            indicator.delete()
+            return Response({"detail": "Indicator removed."}, status=status.HTTP_200_OK)
+        except ProjectIndicator.DoesNotExist:
+            return Response({"detail": "Indicator not found."}, status=status.HTTP_404_NOT_FOUND)
+
+
+
+
+
+
 
 class TargetViewSet(RoleRestrictedViewSet):
     queryset = Target.objects.none()

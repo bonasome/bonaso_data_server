@@ -229,7 +229,7 @@ class InteractionSerializer(serializers.ModelSerializer):
         model=Interaction
         fields = [
             'id', 'respondent', 'subcategories','subcategory_names', 'task', 'task_detail', 
-            'interaction_date', 'numeric_component', 'created_by', 'updated_by', 'comments'
+            'interaction_date', 'numeric_component', 'created_by', 'updated_by', 'comments', 'flagged',
         ]
     
     def to_internal_value(self, data):

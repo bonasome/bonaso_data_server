@@ -11,7 +11,6 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 
 
-
 class ProfileViewSet(RoleRestrictedViewSet):
     serializer_class = ProfileSerializer
     permission_classes = [IsAuthenticated]

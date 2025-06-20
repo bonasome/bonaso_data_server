@@ -7,6 +7,7 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from profiles.models import FavoriteProject, FavoriteRespondent, FavoriteTask
 from profiles.serializers import ProfileSerializer, FavoriteProjectSerializer, FavoriteRespondentSerializer, FavoriteTaskSerializer
 from django.contrib.auth import get_user_model
+from rest_framework import status
 
 User = get_user_model()
 
@@ -26,7 +27,11 @@ class ProfileViewSet(RoleRestrictedViewSet):
         elif user.role in ['meofficer', 'manager']:
             return User.objects.filter(Q(organization=user.organization) | Q(organization__parent_organization=user.organization))
         return User.objects.filter(id=user.id)
-
+    def destroy(self, request, *args, **kwargs):
+        return Response(
+            {"detail": "Deleting users is not allowed. Mark them as inactive instead."},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
 
 class FavoriteTaskViewSet(RoleRestrictedViewSet):
     serializer_class = FavoriteTaskSerializer

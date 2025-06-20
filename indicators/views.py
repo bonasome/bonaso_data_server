@@ -10,7 +10,8 @@ from users.restrictviewset import RoleRestrictedViewSet
 from rest_framework.decorators import action
 from indicators.models import Indicator, IndicatorSubcategory
 from indicators.serializers import IndicatorSerializer, IndicatorListSerializer
-
+from respondents.models import Interaction
+from rest_framework import status
 
 def topological_sort(indicators):
     from collections import defaultdict, deque
@@ -88,6 +89,32 @@ class IndicatorViewSet(RoleRestrictedViewSet):
 
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user) 
+
+    def destroy(self, request, *args, **kwargs):
+        user = request.user
+        instance = self.get_object()
+
+        if instance.status == Indicator.Status.ACTIVE:
+            return Response(
+                {"detail": "You cannot delete an active indicator. Consider marking this as deprecated instead."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        # Prevent deletion if indicator has interactions
+        if Interaction.objects.filter(task__indicator__id=instance.id).exists():
+            return Response(
+                {"detail": "You cannot delete an indicator that has interactions associated with it."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Role check
+        if user.role != 'admin':
+            return Response(
+                {"detail": "You do not have permission to delete an indicator."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=False, methods=['get'], url_path='meta')
     def filter_options(self, request):

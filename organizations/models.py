@@ -1,10 +1,10 @@
 from django.db import models
 from django.contrib.auth import get_user_model
-
 User = get_user_model()
 
 class Organization(models.Model):
     name = models.CharField(max_length=255, verbose_name='Organization Name')
+    full_name = models.CharField(max_length=255, verbose_name='Full/Extended Organization Name', blank=True, null=True)
     parent_organization = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, verbose_name='Parent Organization')
     office_address = models.CharField(max_length=255, verbose_name='Office Address', null=True, blank=True)
     office_email = models.EmailField(verbose_name='Office Email Address', null=True, blank=True)
@@ -19,4 +19,3 @@ class Organization(models.Model):
 
     def __str__(self):
         return self.name
-

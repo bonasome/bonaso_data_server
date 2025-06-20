@@ -74,6 +74,34 @@ class RespondentViewSet(RoleRestrictedViewSet):
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
 
+    def destroy(self, request, *args, **kwargs):
+        user = request.user
+        instance = self.get_object()
+
+        # Prevent deletion if respondent has interactions
+        if Interaction.objects.filter(respondent_id=instance.id).exists():
+            return Response(
+                {
+                    "detail": (
+                        "You cannot delete a respondent that has interactions associated with them. "
+                        "If this respondent has requested data removal, consider marking them as anonymous."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Permission check: only admin can delete
+        if user.role != 'admin':
+            return Response(
+                {"detail": "You do not have permission to delete this respondent."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Perform deletion
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
     @action(detail=False, methods=['get'], url_path='meta')
     def filter_options(self, request):
         districts = [district for district, _ in Respondent.District.choices]
@@ -145,6 +173,22 @@ class InteractionViewSet(RoleRestrictedViewSet):
             queryset = queryset.filter(interaction_date__lte=end)
         return queryset
     
+    def destroy(self, request, *args, **kwargs):
+        user = request.user  # consistent access
+
+        instance = self.get_object()
+
+        if user.role not in ['admin', 'meofficer', 'manager']:
+            return Response(
+                {
+                    "detail": "You do not have permission to delete this interaction."
+                },
+                status=status.HTTP_403_FORBIDDEN  # 403 is more appropriate than 400 here
+            )
+
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     @action(detail=False, methods=['post', 'patch'], url_path='batch')
     def batch_create(self, request):
         respondent = request.data.get('respondent')

@@ -4,6 +4,7 @@ from django.views import View
 from django.forms.models import model_to_dict
 from rest_framework.viewsets import ModelViewSet
 from rest_framework import filters
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.permissions import IsAuthenticated
@@ -22,7 +23,9 @@ from datetime import datetime, date
 today = date.today().isoformat()
 
 from projects.models import Project, ProjectIndicator, ProjectOrganization, Client, Task, Target
-from projects.serializers import ProjectListSerializer, ProjectDetailSerializer, TaskSerializer, TargetSerializer
+from projects.serializers import ProjectListSerializer, ProjectDetailSerializer, TaskSerializer, TargetSerializer, ClientSerializer
+from respondents.models import Interaction
+
 
 class TaskViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
@@ -120,11 +123,39 @@ class TaskViewSet(RoleRestrictedViewSet):
 
         else:
             raise PermissionDenied('You do not have permission to perform this action.')
-        
+
+    def destroy(self, request, *args, **kwargs):
+        user = request.user
+        instance = self.get_object()
+
+        # Prevent deletion if task has interactions
+        if Interaction.objects.filter(task=instance).exists():
+            return Response(
+                {"detail": "You cannot delete a task that has interactions associated with it."},
+                status=status.HTTP_400_BAD_REQUEST  # Changed from 403 to 400
+            )
+
+        # Role check
+        if user.role not in ['admin', 'meofficer', 'manager']:
+            return Response(
+                {"detail": "You do not have permission to delete a task."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Restrict deletion to child organizations for non-admins
+        if user.role in ['meofficer', 'manager']:
+            if instance.organization.parent_organization_id != user.organization_id:
+                return Response(
+                    {"detail": "You can only delete tasks assigned to your child organizations."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)  
 
 class ProjectViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
-    filter_backends = [filters.SearchFilter, OrderingFilter]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
     filterset_fields = ['client', 'start', 'end', 'status']
     ordering_fields = ['name','start', 'end', 'client']
     search_fields = ['name', 'description'] 
@@ -190,6 +221,32 @@ class ProjectViewSet(RoleRestrictedViewSet):
 
         return super().partial_update(request, *args, **kwargs)
     
+    def destroy(self, request, *args, **kwargs):
+        user = request.user
+        instance = self.get_object()
+
+        # Only admins can delete
+        if user.role != 'admin':
+            return Response(
+                {"detail": "You cannot delete a project."},
+                status=status.HTTP_403_FORBIDDEN 
+            )
+
+        # Prevent deletion of active projects
+        if instance.status == Project.Status.ACTIVE:
+            return Response(
+                {
+                    "detail": (
+                        "You cannot delete an active project. "
+                        "If necessary, please mark it as planned or on hold first."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+        
     @action(detail=False, methods=['get'], url_path='meta')
     def filter_options(self, request):
         statuses = [status for status, _ in Project.Status.choices]
@@ -201,28 +258,56 @@ class ProjectViewSet(RoleRestrictedViewSet):
     @action(detail=True, methods=['delete'], url_path='remove-organization/(?P<organization_id>[^/.]+)')
     def remove_organization(self, request, pk=None, organization_id=None):
         project = self.get_object()
+        user = request.user
+
+        # Permission check
+        if user.role not in ['meofficer', 'manager', 'admin']:
+            return Response(
+                {"detail": "You do not have permission to remove an organization from a project."},
+                status=status.HTTP_403_FORBIDDEN
+            )
         try:
-            org = ProjectOrganization.objects.get(project=project, organization__id=organization_id)
-            org.delete()
-            return Response({"detail": "Organization removed."}, status=status.HTTP_200_OK)
+            org_link = ProjectOrganization.objects.get(project=project, organization__id=organization_id)
+
+            # Additional org-level check for non-admins
+            if user.role in ['meofficer', 'manager']:
+                if org_link.organization.parent_organization_id != user.organization_id:
+                    return Response(
+                        {"detail": "You can only remove child organizations of your own organization."},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+            if Interaction.objects.filter(task__organization__id = org_link.organization.id).exists():
+                 return Response(
+                        {"detail": "You cannot remove an organization from a project when they have active tasks."},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+            org_link.delete()
+            return Response({"detail": "Organization removed from project."}, status=status.HTTP_200_OK)
+
         except ProjectOrganization.DoesNotExist:
-            return Response({"detail": "Organization not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"detail": "Organization not associated with this project."}, status=status.HTTP_404_NOT_FOUND)
     
     @action(detail=True, methods=['delete'], url_path='remove-indicator/(?P<indicator_id>[^/.]+)')
     def remove_indicator(self, request, pk=None, indicator_id=None):
+        user = self.request.user
+        if user.role != 'admin':
+            return Response(
+                {"detail": "You do not have permission to remove an indicator from a project."},
+                status=status.HTTP_403_FORBIDDEN 
+            )
         project = self.get_object()
         try:
-            indicator = ProjectIndicator.objects.get(project=project, indicator__id=indicator_id)
-            indicator.delete()
+            indicator_link = ProjectIndicator.objects.get(project=project, indicator__id=indicator_id)
+            if Interaction.objects.filter(task__indicator__id = indicator_link.indicator.id).exists():
+                 return Response(
+                        {"detail": "You cannot remove an indicator from a project when it has active tasks."},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+            indicator_link.delete()
             return Response({"detail": "Indicator removed."}, status=status.HTTP_200_OK)
         except ProjectIndicator.DoesNotExist:
             return Response({"detail": "Indicator not found."}, status=status.HTTP_404_NOT_FOUND)
-
-
-
-
-
-
+    
 
 class TargetViewSet(RoleRestrictedViewSet):
     queryset = Target.objects.none()
@@ -272,6 +357,35 @@ class TargetViewSet(RoleRestrictedViewSet):
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+    def destroy(self, request, *args, **kwargs):
+        user = request.user
+        instance = self.get_object()
+
+        # Role check
+        if user.role not in ['admin', 'meofficer', 'manager']:
+            return Response(
+                {"detail": "You do not have permission to delete a target."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Restrict deletion to child organizations for non-admins
+        if user.role in ['meofficer', 'manager']:
+            if instance.organization.parent_organization_id != user.organization_id:
+                return Response(
+                    {"detail": "You can only delete targets from your child organizations."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+    
+
+class ClientViewSet(RoleRestrictedViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ClientSerializer
+
+
 '''
 class CreateProject(APIView):
     permission_classes = [IsAuthenticated]

@@ -11,9 +11,17 @@ from users.models import User
 
 class ClientSerializer(serializers.ModelSerializer):
     class Meta:
-        model=Client
-        fields=['id', 'name']
+        model = Client
+        fields = ['id', 'name']
 
+    def create(self, validated_data):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+
+        if not user or user.role != 'admin':
+            raise PermissionDenied('You do not have permission to manage clients.')
+
+        return super().create(validated_data)
 
 
 class ProjectListSerializer(serializers.ModelSerializer):

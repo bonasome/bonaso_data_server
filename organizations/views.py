@@ -12,12 +12,14 @@ from rest_framework.views import APIView
 from rest_framework.exceptions import PermissionDenied
 from rest_framework import generics
 from rest_framework.decorators import action
+from rest_framework import status
 from django.db.models import Q
 from users.restrictviewset import RoleRestrictedViewSet
 from organizations.models import Organization
-from projects.models import Project
+from projects.models import Project, Task
 from organizations.serializers import OrganizationListSerializer, OrganizationSerializer
-
+from django.contrib.auth import get_user_model
+User = get_user_model()
 
 class OrganizationViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
@@ -63,3 +65,44 @@ class OrganizationViewSet(RoleRestrictedViewSet):
     
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user) 
+    
+    def destroy(self, request, *args, **kwargs):
+        user = self.request.user
+        instance = self.get_object()
+        if user.role != 'admin':
+            return Response(
+                {
+                    "detail": (
+                        "You cannot delete an organization. "
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Check for active users in the organization
+        if User.objects.filter(is_active=True, organization=instance).exists():
+            return Response(
+                {
+                    "detail": (
+                        "You cannot delete an organization with active users. "
+                        "Please transfer the users or mark them as inactive."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        # Check for active tasks linked to active projects
+        if Task.objects.filter(
+            project__status=Project.Status.ACTIVE,
+            organization=instance
+        ).exists():
+            return Response(
+                {
+                    "detail": (
+                        "You cannot delete an organization with active tasks "
+                        "linked to active projects."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)

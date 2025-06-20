@@ -16,6 +16,9 @@ from django.contrib.auth import get_user_model
 
 User = get_user_model()
 
+import os
+debug = os.getenv("DEBUG", "False").lower() in ["1", "true", "yes"]
+
 class CookieTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
     def post(self, request, *args, **kwargs):
@@ -29,8 +32,8 @@ class CookieTokenObtainPairView(TokenObtainPairView):
                 key='access_token',
                 value=access_token,
                 httponly=True,
-                secure=True, #change this when moving out of dev
-                samesite='None',
+                secure= not debug, #change this when moving out of dev
+                samesite='None' if not debug else 'Lax',
                 max_age=60*5,
                 path='/', 
             )
@@ -38,8 +41,8 @@ class CookieTokenObtainPairView(TokenObtainPairView):
                 key='refresh_token',
                 value=refresh_token,
                 httponly=True,
-                secure=True, #change this when moving out of dev
-                samesite='None',
+                secure=not debug, #change this when moving out of dev
+                samesite='None' if not debug else 'Lax',
                 max_age=60*60*8,
                 path='/',
             )
@@ -69,8 +72,8 @@ class CookieTokenRefreshView(TokenRefreshView):
                 key='access_token',
                 value=access_token,
                 httponly=True,
-                secure=True,  # Change to True in prod!
-                samesite='None',
+                secure=not debug,  # Change to True in prod!
+                samesite='None' if not debug else 'Lax',
                 max_age=60 * 5
             )
         

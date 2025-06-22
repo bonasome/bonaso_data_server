@@ -41,7 +41,7 @@ class OrganizationViewSetTest(APITestCase):
     def test_view_only(self):
         self.client.force_authenticate(user=self.view_user)
         response = self.client.get('/api/organizations/')
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 403)
         self.assertEqual(len(response.data['results']), 0)
 
     def test_organization_list_view(self):
@@ -76,7 +76,7 @@ class OrganizationViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['id'], self.org.id)
     
-    def test_indicator_create_view(self):
+    def test_organization_create_view(self):
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'name': 'Test org 4',

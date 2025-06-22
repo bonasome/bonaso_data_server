@@ -179,8 +179,9 @@ class Interaction(models.Model):
 
     def save(self, *args, **kwargs):
         if self.interaction_date:
-            thirty_days_ago = self.interaction_date - timedelta(days=30)
-            thirty_days_ahead = self.interaction_date  + timedelta(days=30)
+            date = datetime.strptime(self.interaction_date, "%Y-%m-%d").date()
+            thirty_days_ago = date - timedelta(days=30)
+            thirty_days_ahead = date  + timedelta(days=30)
             # Check for recent similar interactions
             recent_exists = Interaction.objects.filter(
                 respondent=self.respondent,

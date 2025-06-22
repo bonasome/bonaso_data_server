@@ -1,20 +1,17 @@
 from django.shortcuts import render, redirect
 from django.http import JsonResponse
-from django.views import View
-from django.forms.models import model_to_dict
 from django.db.models import Q
-from rest_framework.viewsets import ModelViewSet
 from rest_framework import filters
 from rest_framework import status
 from rest_framework.response import Response
 from users.restrictviewset import RoleRestrictedViewSet
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.views import APIView
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from django.utils.dateparse import parse_date
 from datetime import date, timedelta
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.filters import OrderingFilter
 from rest_framework import serializers
 from rest_framework.filters import SearchFilter
@@ -35,7 +32,7 @@ from itertools import product
 
 from datetime import datetime, date
 today = date.today().isoformat()
-
+from projects.models import Task
 from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType
 from respondents.serializers import RespondentSerializer, RespondentListSerializer, InteractionSerializer, SensitiveInfoSerializer
 from indicators.models import IndicatorSubcategory
@@ -140,9 +137,92 @@ class RespondentViewSet(RoleRestrictedViewSet):
             serializer = SensitiveInfoSerializer(respondent, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             serializer.save(updated_by=request.user)
-            serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
+        
+    @action(detail=False, methods=['post'], url_path='bulk')
+    def bulk_upload(self, request):
+        data = request.data
+        if not isinstance(data, list):
+            return Response({"detail": "Expected a list of respondents."}, status=400)
 
+        created_ids = []
+        errors = []
+        for i, item in enumerate(data):
+            try:
+                sensitive_data = item.pop("sensitive_info", {})
+                interactions = item.pop("interactions", [])
+
+                existing = Respondent.objects.filter(id_no=item.get('id_no')).first()
+                if existing:
+                    respondent_serializer = RespondentSerializer(
+                        existing, data=item, context={'request': request}, partial=True
+                    )
+                else:
+                    respondent_serializer = RespondentSerializer(
+                        data=item, context={'request': request}
+                    )
+                respondent_serializer.is_valid(raise_exception=True)
+                respondent = respondent_serializer.save(created_by=request.user)
+
+                # Save sensitive info if provided
+                if sensitive_data:
+                    sensitive_serializer = SensitiveInfoSerializer(
+                        instance=respondent,
+                        data=sensitive_data,
+                        partial=True,
+                        context={'request': request}
+                    )
+                    sensitive_serializer.is_valid(raise_exception=True)
+                    sensitive_serializer.save(updated_by=request.user)
+
+                # Save interactions
+                for interaction in interactions:
+                    try:
+                        subcat_names = interaction.pop("subcategory_names", [])
+                        task_id = interaction.pop("task")
+                        try:
+                            task_instance = Task.objects.get(id=task_id)
+                        except Task.DoesNotExist:
+                            raise ValidationError({"task": f"Task with ID {task_id} not found"})
+                        interaction_obj = Interaction.objects.create(
+                            respondent=respondent,
+                            created_by=request.user,
+                            task=task_instance,
+                            **interaction
+                        )
+                        subcats = []
+                        for name in subcat_names:
+                            subcat, _ = IndicatorSubcategory.objects.get_or_create(name=name)
+                            subcats.append(subcat)
+                        interaction_obj.subcategories.set(subcats)
+                    except Exception as inter_err:
+                        errors.append({
+                            'respondent': respondent.id,
+                            'interaction_error': str(inter_err),
+                            'interaction_data': interaction
+                        })
+
+                created_ids.append(respondent.id)
+
+            except ValidationError as ve:
+                errors.append({
+                    'index': i,
+                    'error': 'Validation error',
+                    'details': ve.detail,
+                    'data': item
+                })
+            except Exception as e:
+                errors.append({
+                    'index': i,
+                    'error': str(e),
+                    'data': item
+                })
+        print(errors)
+        return Response({
+            "created_ids": created_ids,
+            "errors": errors
+        }, status=status.HTTP_207_MULTI_STATUS if errors else status.HTTP_201_CREATED)
+    
 class InteractionViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
     queryset = Interaction.objects.all()
@@ -191,35 +271,49 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
     @action(detail=False, methods=['post', 'patch'], url_path='batch')
     def batch_create(self, request):
-        respondent = request.data.get('respondent')
-        interaction_date = request.data.get('interaction_date')
+        respondent_id = request.data.get('respondent')
         tasks = request.data.get('tasks', [])
+        top_level_date = request.data.get('interaction_date')
 
-        if not interaction_date or not respondent or not tasks:
-            return Response({'error': 'Missing date'}, status=status.HTTP_400_BAD_REQUEST)
+        if not respondent_id or not tasks:
+            return Response({'error': 'Missing respondent or tasks'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            respondent = Respondent.objects.get(id=respondent_id)
+
+        except Respondent.DoesNotExist:
+            return Response({'error': 'Respondent not found'}, status=status.HTTP_404_NOT_FOUND)
+
         created = []
-        for task in tasks:
-            if not all(field in task for field in ['task', 'numeric_component', 'subcategory_names']):
-                return Response(
-                    {'error': 'BAD PAYLOAD. Task is missing details necessary for creation/validation'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        for i, task in enumerate(tasks):
+            task_date = task.get('interaction_date') or top_level_date
+
+            if not task_date:
+                return Response({'error': f'Missing interaction_date for task index {i}'}, status=status.HTTP_400_BAD_REQUEST)
+
+            if not all(k in task for k in ['task', 'subcategory_names']):
+                return Response({'error': f'Missing required task fields at index {i}'}, status=status.HTTP_400_BAD_REQUEST)
 
             serializer = self.get_serializer(data={
-                'respondent': respondent,
-                'interaction_date': interaction_date,
-                'task': task['task'], 
-                'comments': task['comments'],
-                'numeric_component': task['numeric_component'],
-                'subcategory_names': task['subcategory_names'],
-            },
-            context={'request': request, 'respondent': Respondent.objects.get(id=respondent)}
-            )
+                'respondent': respondent_id,
+                'interaction_date': task_date,
+                'task': task['task'],
+                'numeric_component': task.get('numeric_component'),
+                'subcategory_names': task.get('subcategory_names', []),
+                'comments': task.get('comments', ''),
+            }, context={'request': request, 'respondent': respondent})
+
             serializer.is_valid(raise_exception=True)
             serializer.save()
             created.append(serializer.data)
 
         return Response(created, status=status.HTTP_201_CREATED)
+
+
+
+
+
+
 
     @staticmethod
     def excel_columns():
@@ -231,7 +325,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
     def get_template(self, request):
         from projects.models import Task
         from organizations.models import Organization
-        user=self.request.user
+        user=request.user
         if not user.role in ['meofficer', 'manager', 'admin']:
             raise PermissionDenied('You do not have permission to access templates.')
         project_id = request.GET.get('project')
@@ -344,16 +438,16 @@ class InteractionViewSet(RoleRestrictedViewSet):
         from organizations.models import Organization
         errors = []
         warnings = []
-
-        user = self.request.user
+        user = request.user
+        
         if user.role not in ['admin', 'meofficer', 'manager']:
             raise PermissionDenied('You do not have permission to access templates.')
 
         uploaded_file = request.FILES.get('file')
         if not uploaded_file:
-            raise serializers.ValidationError("No file was uploaded.")
+            return Response({"detail": "No file was uploaded."}, status=status.HTTP_400_BAD_REQUEST)
         if not uploaded_file.name.endswith('.xlsx'):
-            raise serializers.ValidationError("Uploaded file must be an .xlsx Excel file.")
+            return Response({"detail": "Uploaded file must be an .xlsx Excel file."}, status=status.HTTP_400_BAD_REQUEST)
         
         try:
             wb = load_workbook(filename=uploaded_file)
@@ -425,7 +519,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
         
         tasks = Task.objects.filter(organization__id=org_id, project__id=project_id).order_by('indicator__code')
         if not tasks:
-            raise serializers.ValidationError('There are no tasks associated with this project for your organization.')
+           errors.append('No tasks associted with project.')
+           return Response({'errors': errors, 'warnings': warnings,  }, status=status.HTTP_400_BAD_REQUEST)
         for task in tasks:
             header = task.indicator.code + ': ' + task.indicator.name
             if task.indicator.require_numeric:
@@ -519,7 +614,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
             return bool(re.fullmatch(pattern, value))
         
         if len(errors) > 0:
-            return serializers.ValidationError(errors)
+            return Response({'errors': errors, 'warnings': warnings,  }, status=status.HTTP_400_BAD_REQUEST)
         
 
         for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
@@ -543,22 +638,29 @@ class InteractionViewSet(RoleRestrictedViewSet):
             if anon:
                 dob = None
             if dob:
+                python_date = None
                 if not is_valid_excel_date(dob):
                     row_errors.append(f"Date of birth at column: {get_column('dob')}, row: {i} is invalid.")
                 else:
-                    python_date = from_excel(dob) if isinstance(dob, (int, float)) else dob
+                    if isinstance(dob, (int, float)):
+                        python_date = from_excel(dob)
+                    elif isinstance(dob, datetime):
+                        python_date = dob
+                    elif isinstance(dob, str):
+                        try:
+                            python_date = datetime.strptime(dob, "%Y-%m-%d")
+                        except ValueError:
+                            row_errors.append(f"Date of birth at column: {get_column('dob')}, row: {i} has invalid format.")
+                    else:
+                        row_errors.append(f"Date of birth at column: {get_column('dob')}, row: {i} is not a recognized date type.")
+
                     if isinstance(python_date, datetime):
                         python_date = python_date.date()
 
-                    if python_date > date.today():
-                        row_errors.append(f"Date of birth at column: {get_column('dob')}, row: {i} cannot be in the future.")
-                dob = python_date
-            age_range = (get_cell_value(row, 'age_range') or '').replace(' ', '').lower()
-            age_range = age_range.replace(' ', '').lower()
-            if age_range and not age_range in get_options('age_range'):
-                row_errors.append(f"Age range at column: {get_column('age_range')}, row: {i} is not a valid choice.")
-            if not age_range and not dob:
-                row_errors.append(f"Age range at column: {get_column('age_range')}, row: {i} is required for anonymous respondents.")
+                    if python_date:
+                        if python_date > date.today():
+                            row_errors.append(f"Date of birth at column: {get_column('dob')}, row: {i} cannot be in the future.")
+                        dob = python_date
             
             sex = get_cell_value(row, 'sex')
             if not sex in get_options('sex') or not sex:
@@ -617,7 +719,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
             if interaction_date:
                 if not is_valid_excel_date(interaction_date):
                     row_errors.append(
-                        f"Date of interaction at column: {get_column('Date of Interaction')}, row: {i} is invalid."
+                        f"Date of interaction at column: {doi_col}, row: {i} is invalid."
                     )
                 else:
                     python_date = from_excel(interaction_date) if isinstance(interaction_date, (int, float)) else interaction_date
@@ -788,4 +890,4 @@ class InteractionViewSet(RoleRestrictedViewSet):
             warnings.extend(row_warnings)
         print('warnings', warnings)
         print('errors', errors)
-        return JsonResponse({'errors': errors, 'warnings': warnings })
+        return Response({'errors': errors, 'warnings': warnings }, status=status.HTTP_200_OK)

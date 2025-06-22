@@ -22,6 +22,7 @@ class ProfileViewSet(RoleRestrictedViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        print(self.request.user)
         if user.role == 'admin':
             return User.objects.all()
         elif user.role in ['meofficer', 'manager']:

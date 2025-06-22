@@ -1,6 +1,6 @@
 from django.shortcuts import render
 from django.contrib.auth import logout
-from .serializers import CustomTokenObtainPairSerializer
+from .serializers import CustomTokenObtainPairSerializer, CustomMobileTokenSerializer
 from django.contrib.auth.password_validation import validate_password
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
@@ -13,6 +13,10 @@ from django.core.exceptions import ValidationError
 from rest_framework import status
 from django.db.models import Q
 from django.contrib.auth import get_user_model
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.contrib.auth import authenticate
+from rest_framework.permissions import AllowAny
+from datetime import timedelta
 
 User = get_user_model()
 
@@ -142,3 +146,29 @@ class ApplyForNewUser(APIView):
             role='view_only',
         )
         return Response({'message': 'User created successfuly. An admin will activate them shortly.', 'id': new_user.id}, status=status.HTTP_201_CREATED)
+
+class MobileLoginView(TokenObtainPairView):
+    permission_classes = [AllowAny]
+    serializer_class = CustomMobileTokenSerializer
+    def post(self, request, *args, **kwargs):
+        username = request.data.get("username")
+        password = request.data.get("password")
+
+        user = authenticate(username=username, password=password)
+        if not user:
+            return Response({"detail": "Invalid credentials."}, status=401)
+
+        refresh = RefreshToken.for_user(user)
+        refresh.access_token.set_exp(lifetime=timedelta(minutes=15))
+
+        return Response({
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+            "user_id": user.id,
+        })
+
+class TestConnectionView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response({"status": "ok"}, status=200)

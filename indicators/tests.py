@@ -6,105 +6,206 @@ from django.urls import reverse
 from django.contrib.auth import get_user_model
 
 from organizations.models import Organization
-from projects.models import Project
+from projects.models import Project, Client
 from indicators.models import Indicator, IndicatorSubcategory
 
 User = get_user_model()
-class IndicatorViewSetTest(APITestCase):
+
+
+class TestIndicatorPerms(APITestCase):
     def setUp(self):
-        self.admin = User.objects.create_user(username='testuser', password='testpass', role='admin')
-        self.user2 = User.objects.create_user(username='testuser2', password='testpass', role='meofficer')
-        self.view_user = User.objects.create(username='uninitiated', password='testpass', role='view_only')
-        self.client.force_authenticate(user=self.admin)
-        self.org = Organization.objects.create(name='Test Org')
+        self.client_obj = Client.objects.create(name='Test Client')  # Assuming Client exists
 
-        self.admin.organization = self.org
+        self.parent = Organization.objects.create(name='Parent Org')
+        self.child = Organization.objects.create(name='Child Org', parent_organization=self.parent)
+        self.wrong = Organization.objects.create(name='Wrong Org')
 
-        self.ind = Indicator.objects.create(code='1', name='Test Ind')
-        self.ind2 = Indicator.objects.create(code='2', name='Test Ind 2')
+        self.admin = User.objects.create_user(username='admin', password='testpass', role='admin', organization=self.parent)
+        self.meofficer = User.objects.create_user(username='meofficer', password='testpass', role='meofficer', organization=self.parent)
+        self.manager = User.objects.create_user(username='manager', password='testpass', role='manager', organization=self.parent)
+        self.mechild = User.objects.create_user(username='mechild', password='testpass', role='meofficer', organization=self.child)
+        self.wrong_org = User.objects.create_user(username='wrong_org', password='testpass', role='meofficer', organization=self.wrong)
+        self.data_collector = User.objects.create_user(username='dc', password='testpass', role='data_collector', organization=self.parent)
+        self.view_only = User.objects.create_user(username='view', password='testpass', role='view_only', organization=self.parent)
+        self.no_org = User.objects.create_user(username='orgless', password='testpass', role='meofficer')
+        self.no_role = User.objects.create_user(username='norole', password='testpass')  # no role
 
         self.project = Project.objects.create(
-            name='Beta Project',
-            status=Project.Status.PLANNED,
-            start='2024-02-01',
-            end='2024-10-31',
-            description='Second project',
+            name='Alpha Project',
+            client=self.client_obj,
+            status=Project.Status.ACTIVE,
+            start='2024-01-01',
+            end='2024-12-31',
+            description='Test project',
             created_by=self.admin,
         )
-        self.project.indicators.set([self.ind])
+        self.project.organizations.set([self.parent, self.wrong])
 
+        self.indicator = Indicator.objects.create(code='Test101', name='Test')
+        self.inactive_ind = Indicator.objects.create(code='Test102', name='Inactive', status=Indicator.Status.PLANNED)
+        self.wrong_prog = Indicator.objects.create(code='Test103', name='Not in proj')
+        self.project.indicators.set([self.indicator])
+
+    #make sure anonymous users cannot view or create indicators
     def test_anon(self):
         self.client.logout()
         response = self.client.get('/api/indicators/')
         self.assertEqual(response.status_code, 401)
 
-    def test_view_only(self):
-        self.client.force_authenticate(user=self.view_user)
-        response = self.client.get('/api/indicators/')
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data['results']), 0)
-
-    def test_indicator_list_view(self):
-        self.client.force_authenticate(user=self.admin)
-        response = self.client.get('/api/indicators/')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 2)
-    
-    def test_search_indicators(self):
-        self.client.force_authenticate(user=self.admin)
-        response = self.client.get('/api/indicators/?search=2')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 1)
-        self.assertEqual(response.data['results'][0]['code'], '2')
-    
-    def test_indicator_filter_view(self):
-        self.client.force_authenticate(user=self.admin)
-        url = f'/api/indicators/?project={self.project.id}'
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 1)
-
-    def test_indicator_detail_view(self):
-        self.client.force_authenticate(user=self.admin)
-        url = f'/api/indicators/{self.ind.id}/'
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['id'], self.ind.id)
-    
-    def test_indicator_create_view(self):
-        self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'name': 'Ind 3',
             'code': '3',
-            'prerequisite_id': self.ind2.id,
         }
         response = self.client.post('/api/indicators/', valid_payload, format='json')
-        if response.status_code != 201:
-            print(response.status_code)
-            print(response.data)
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        indicator = Indicator.objects.get(code='3')
-        self.assertEqual(indicator.prerequisite.id, self.ind2.id)
+        self.assertEqual(response.status_code, 401)
 
-        valid_payload2 = {
-            'name': 'Ind 3',
-            'code': '4',
-            'subcategory_names': ['1', '2'],
-        }
-        response = self.client.post('/api/indicators/', valid_payload2, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        indicator = Indicator.objects.get(code='4')
-        self.assertEqual(indicator.subcategories.count(), 2)
-    
-    def test_no_perm_create(self):
-        self.client.force_authenticate(user=self.user2)
+    def test_view_only(self):
+        self.client.force_authenticate(user=self.view_only)
+        response = self.client.get('/api/indicators/')
+        self.assertEqual(response.status_code, 403)
         valid_payload = {
             'name': 'Ind 3',
             'code': '3',
-            'prerequisite': self.ind2.id,
+        }
+        response = self.client.post('/api/indicators/', valid_payload, format='json')
+        self.assertEqual(response.status_code, 403)
+        
+    
+    def test_no_org(self):
+        self.client.force_authenticate(user=self.no_org)
+        response = self.client.get('/api/indicators/')
+        self.assertEqual(response.status_code, 403)
+
+        valid_payload = {
+            'name': 'Ind 3',
+            'code': '3',
+        }
+        response = self.client.post('/api/indicators/', valid_payload, format='json')
+        self.assertEqual(response.status_code, 403)
+    
+    def test_no_role(self):
+        self.client.force_authenticate(user=self.no_role)
+        response = self.client.get('/api/indicators/')
+        self.assertEqual(response.status_code, 403)
+
+        valid_payload = {
+            'name': 'Ind 3',
+            'code': '3',
+        }
+        response = self.client.post('/api/indicators/', valid_payload, format='json')
+        self.assertEqual(response.status_code, 403)
+
+    def test_queryset_admin(self):
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get('/api/indicators/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data['results']), 3)
+    
+    def test_queryset_meofficer(self):
+        self.client.force_authenticate(user=self.meofficer)
+        response = self.client.get('/api/indicators/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data['results']), 1)
+    
+    def test_create_admin(self):
+        self.client.force_authenticate(user=self.admin)
+        valid_payload = {
+            'name': 'Ind 3',
+            'code': '3',
+        }
+        response = self.client.post('/api/indicators/', valid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+    
+    def test_create_meofficer(self):
+        self.client.force_authenticate(user=self.meofficer)
+        valid_payload = {
+            'name': 'Ind 3',
+            'code': '3',
         }
         response = self.client.post('/api/indicators/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_update_meofficer(self):
+        self.client.force_authenticate(user=self.meofficer)
+        valid_payload = {
+            'name': 'Ind 3',
+            'code': '3',
+        }
+        response = self.client.patch(f'/api/indicators/{self.indicator.id}/', valid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+    
+    def test_delete_admin(self):
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.delete(f'/api/indicators/{self.inactive_ind.id}/')
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
+        response = self.client.delete(f'/api/indicators/{self.indicator.id}/')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_delete_meofficer(self):
+        self.client.force_authenticate(user=self.meofficer)
+        response = self.client.delete(f'/api/indicators/{self.indicator.id}/')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class TestIndicatorValidation(APITestCase):
+    def setUp(self):
+        self.parent = Organization.objects.create(name='Parent Org')
+        self.admin = User.objects.create_user(username='admin', password='testpass', role='admin', organization=self.parent)
+        self.indicator = Indicator.objects.create(name='Test Indicator', code='TEST101')
+    def test_create(self):
+        self.client.force_authenticate(user=self.admin)
+        valid_payload = {
+            'name': 'Ind 3',
+            'code': 'NEW101',
+            'subcategory_names': ['1', '2'],
+        }
+        response = self.client.post(f'/api/indicators/', valid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        indicator = Indicator.objects.get(code='NEW101')
+        self.assertEqual(indicator.subcategories.count(), 2)
+        subcategory_names = list(indicator.subcategories.values_list('name', flat=True))
+        self.assertListEqual(sorted(subcategory_names), ['1', '2'])
+
+    def test_patch(self):
+        self.client.force_authenticate(user=self.admin)
+        valid_payload = {
+            'subcategory_names': ['2'],
+        }
+        response = self.client.patch(f'/api/indicators/{self.indicator.id}/', valid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.indicator.subcategories.count(), 1)
+        subcategory_names = list(self.indicator.subcategories.values_list('name', flat=True))
+        self.assertListEqual(sorted(subcategory_names), ['2'])
+
+    def test_no_code(self):
+        self.client.force_authenticate(user=self.admin)
+        invalid_payload = {
+            'name': 'Ind 3',
+        }
+        response = self.client.post(f'/api/indicators/', invalid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_no_name(self):
+        self.client.force_authenticate(user=self.admin)
+        invalid_payload = {
+            'code': '3'
+        }
+        response = self.client.post(f'/api/indicators/', invalid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_duplicates(self):
+        self.client.force_authenticate(user=self.admin)
+        invalid_payload = {
+            'name': 'Ind 3',
+            'code': 'TEST101',
+        }
+        response = self.client.post(f'/api/indicators/', invalid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        invalid_payload = {
+            'name': 'Test Indicator',
+            'code': 'TEST102',
+        }
+        response = self.client.post(f'/api/indicators/', invalid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

@@ -217,7 +217,7 @@ class RespondentSerializer(serializers.ModelSerializer):
         ]
 
 class InteractionSerializer(serializers.ModelSerializer):
-    respondent = serializers.PrimaryKeyRelatedField(read_only=True)
+    respondent = serializers.PrimaryKeyRelatedField(queryset=Respondent.objects.all())
     task = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True)
     task_detail = TaskSerializer(source='task', read_only=True)
     subcategories = IndicatorSubcategorySerializer(many=True, read_only=True)
@@ -228,7 +228,7 @@ class InteractionSerializer(serializers.ModelSerializer):
     class Meta:
         model=Interaction
         fields = [
-            'id', 'respondent', 'subcategories','subcategory_names', 'task', 'task_detail', 
+            'id', 'respondent', 'subcategories','subcategory_names', 'task', 'task_detail',
             'interaction_date', 'numeric_component', 'created_by', 'updated_by', 'comments', 'flagged',
         ]
     
@@ -306,7 +306,7 @@ class InteractionSerializer(serializers.ModelSerializer):
     
     def create(self, validated_data):
         user = self.context['request'].user
-        respondent = self.context.get('respondent')
+        respondent = validated_data.pop('respondent', None) or self.context.get('respondent')
 
         subcategory_names = validated_data.pop('subcategory_names', [])
         interaction = Interaction.objects.create(

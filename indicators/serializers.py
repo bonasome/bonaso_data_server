@@ -33,7 +33,28 @@ class IndicatorSerializer(serializers.ModelSerializer):
         model = Indicator
         fields = ['id', 'name', 'code', 'prerequisite', 'prerequisite_id', 'description', 'subcategories', 
                   'subcategory_names', 'require_numeric', 'status']
-        
+
+    def validate(self, attrs):
+        code = attrs.get('code', getattr(self.instance, 'code', None))
+        name = attrs.get('name', getattr(self.instance, 'name', None))
+        if not code:
+            raise serializers.ValidationError({"code": "Code is required."})
+        if not name:
+            raise serializers.ValidationError({"name": "Name is required."})
+        # Uniqueness check for 'code'
+        qs = Indicator.objects.filter(code=code)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError({"code": "Code must be unique."})
+        # Uniqueness check for 'name'
+        qs = Indicator.objects.filter(name=name)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError({"name": "Name must be unique."})
+        return attrs
+    
     def create(self, validated_data):
         subcategory_names = validated_data.pop('subcategory_names', [])
         indicator = Indicator.objects.create(**validated_data)

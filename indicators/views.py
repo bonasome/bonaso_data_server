@@ -10,6 +10,7 @@ from users.restrictviewset import RoleRestrictedViewSet
 from rest_framework.decorators import action
 from indicators.models import Indicator, IndicatorSubcategory
 from indicators.serializers import IndicatorSerializer, IndicatorListSerializer
+from projects.models import ProjectIndicator, Project
 from respondents.models import Interaction
 from rest_framework import status
 
@@ -57,10 +58,12 @@ class IndicatorViewSet(RoleRestrictedViewSet):
         user = self.request.user
         if user.role != 'admin':
             queryset = queryset.filter(status=Indicator.Status.ACTIVE)
+            queryset = queryset.filter(
+                projectindicator__project__organizations__id=user.organization.id
+            )
         project_id = self.request.query_params.get('project')
         if project_id:
             queryset = queryset.filter(projectindicator__project__id=project_id)
-            print(queryset)
         prereq_id = self.request.query_params.get('prerequisite')
         if prereq_id:
             queryset = queryset.filter(prerequisite__id = prereq_id)
@@ -94,6 +97,12 @@ class IndicatorViewSet(RoleRestrictedViewSet):
         user = request.user
         instance = self.get_object()
 
+        if user.role != 'admin':
+            return Response(
+                {"detail": "You do not have permission to delete an indicator."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
         if instance.status == Indicator.Status.ACTIVE:
             return Response(
                 {"detail": "You cannot delete an active indicator. Consider marking this as deprecated instead."},
@@ -104,13 +113,6 @@ class IndicatorViewSet(RoleRestrictedViewSet):
             return Response(
                 {"detail": "You cannot delete an indicator that has interactions associated with it."},
                 status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Role check
-        if user.role != 'admin':
-            return Response(
-                {"detail": "You do not have permission to delete an indicator."},
-                status=status.HTTP_403_FORBIDDEN
             )
 
         self.perform_destroy(instance)

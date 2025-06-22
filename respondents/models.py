@@ -179,9 +179,16 @@ class Interaction(models.Model):
 
     def save(self, *args, **kwargs):
         if self.interaction_date:
-            date = datetime.strptime(self.interaction_date, "%Y-%m-%d").date()
-            thirty_days_ago = date - timedelta(days=30)
-            thirty_days_ahead = date  + timedelta(days=30)
+            if isinstance(self.interaction_date, str):
+                date_value = datetime.strptime(self.interaction_date, "%Y-%m-%d").date()
+            elif isinstance(self.interaction_date, datetime):
+                date_value = self.interaction_date.date()
+            elif isinstance(self.interaction_date, date):
+                date_value = self.interaction_date
+            else:
+                raise ValueError("Invalid type for interaction_date")
+            thirty_days_ago = date_value - timedelta(days=30)
+            thirty_days_ahead = date_value  + timedelta(days=30)
             # Check for recent similar interactions
             recent_exists = Interaction.objects.filter(
                 respondent=self.respondent,

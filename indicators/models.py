@@ -6,7 +6,12 @@ from users.models import User
 
 class IndicatorSubcategory(models.Model):
     name = models.CharField(max_length=255, verbose_name='Category Name')
+    slug = models.CharField(max_length=255, blank=True)
 
+    def save(self, *args, **kwargs):
+        self.canonical_name = ''.join(self.name.lower().split())  # lowercase + no spaces
+        super().save(*args, **kwargs)
+        
     def __str__(self):
         return self.name
 

@@ -17,6 +17,7 @@ from rest_framework.decorators import action
 from users.restrictviewset import RoleRestrictedViewSet
 from rest_framework import serializers
 from rest_framework import status
+from django.db import transaction
 
 import json
 from datetime import datetime, date
@@ -59,86 +60,84 @@ class TaskViewSet(RoleRestrictedViewSet):
         from indicators.models import Indicator
 
         user = request.user
-        data = request.data
         role = getattr(user, 'role', None)
         user_org = getattr(user, 'organization', None)
 
-        if not role or not user_org:
-            raise PermissionDenied('You do not have permission to perform this action.')
-
+        data = request.data
         org_id = data.get('organization_id')
         indicator_id = data.get('indicator_id')
         project_id = data.get('project_id')
 
+        if not role or not user_org:
+            raise PermissionDenied("You do not have permission to perform this action.")
+
         if not all([org_id, indicator_id, project_id]):
             raise serializers.ValidationError("All of organization_id, indicator_id, and project_id are required.")
 
+        try:
+            org_id = int(org_id)
+            indicator_id = int(indicator_id)
+            project_id = int(project_id)
+        except (TypeError, ValueError):
+            raise serializers.ValidationError("IDs must be valid integers.")
+
+        try:
+            organization = Organization.objects.get(id=org_id)
+            indicator = Indicator.objects.get(id=indicator_id)
+            project = Project.objects.get(id=project_id)
+        except (Organization.DoesNotExist, Indicator.DoesNotExist, Project.DoesNotExist):
+            raise serializers.ValidationError("One or more provided IDs are invalid.")
+
         if role == 'admin':
-            try:
-                organization = Organization.objects.get(id=org_id)
-                indicator = Indicator.objects.get(id=indicator_id)
-                project = Project.objects.get(id=project_id)
-            except (Organization.DoesNotExist, Indicator.DoesNotExist, Project.DoesNotExist):
-                return Response({'detail': 'Related object not found.'}, status=400)
-
-            if not project.organizations.filter(id=organization.id).exists() or not project.indicators.filter(id=indicator.id).exists():
-                return Response({'detail': 'Related objects not available in this project.'}, status=400)
-
-            task = Task.objects.create(
-                organization=organization,
-                indicator=indicator,
-                project=project,
-                created_by=user,
-            )
-            return Response(self.get_serializer(task).data, status=201)
+            if not project.organizations.filter(id=organization.id).exists() or \
+            not project.indicators.filter(id=indicator.id).exists():
+                raise serializers.ValidationError("Organization/indicator are not in this project.")
 
         elif role in ['meofficer', 'manager']:
-            # Non-admins can assign tasks to child orgs with assigned indicators
-            valid_org_ids = Organization.objects.filter(parent_organization=user_org).values_list('id', flat=True)
-            valid_indicator_ids = Task.objects.filter(organization=user_org).values_list('indicator__id', flat=True)
-            valid_project_ids = Project.objects.filter(organizations=user_org).values_list('id', flat=True)
-
-            if int(org_id) not in valid_org_ids:
+            # Validate org/indicator/project assignment
+            if not Organization.objects.filter(id=org_id, parent_organization=user_org).exists():
                 raise PermissionDenied('You may only assign tasks to your child organizations.')
-            if int(indicator_id) not in valid_indicator_ids:
+
+            if not Task.objects.filter(organization=user_org, indicator=indicator).exists():
                 raise PermissionDenied('You may only assign indicators you also have.')
-            if int(project_id) not in valid_project_ids:
+
+            if not Project.objects.filter(id=project_id, organizations=user_org).exists():
                 raise PermissionDenied('You can only assign tasks to projects you are part of.')
-
-            try:
-                organization = Organization.objects.get(id=org_id)
-                indicator = Indicator.objects.get(id=indicator_id)
-                project = Project.objects.get(id=project_id)
-            except (Organization.DoesNotExist, Indicator.DoesNotExist, Project.DoesNotExist):
-                raise serializers.ValidationError("One or more provided IDs are invalid.")
-
-            new_task = Task.objects.create(
-                project=project,
-                organization=organization,
-                indicator=indicator,
-                created_by=user
-            )
-            return Response(self.get_serializer(new_task).data, status=201)
 
         else:
             raise PermissionDenied('You do not have permission to perform this action.')
 
+        # Check prerequisites (shared by both roles)
+        prereq = getattr(indicator, 'prerequisite', None)
+        if prereq and not Task.objects.filter(project=project, organization=organization, indicator=prereq).exists():
+            raise serializers.ValidationError(
+                "This task's indicator has a prerequisite. Please assign that indicator as a task first."
+            )
+
+        task = Task.objects.create(
+            project=project,
+            organization=organization,
+            indicator=indicator,
+            created_by=user
+        )
+        return Response(self.get_serializer(task).data, status=201)
+
     def destroy(self, request, *args, **kwargs):
         user = request.user
         instance = self.get_object()
-
-        # Prevent deletion if task has interactions
-        if Interaction.objects.filter(task=instance).exists():
-            return Response(
-                {"detail": "You cannot delete a task that has interactions associated with it."},
-                status=status.HTTP_400_BAD_REQUEST  # Changed from 403 to 400
-            )
 
         # Role check
         if user.role not in ['admin', 'meofficer', 'manager']:
             return Response(
                 {"detail": "You do not have permission to delete a task."},
                 status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Prevent deletion if task has interactions
+        if Interaction.objects.filter(task=instance).exists():
+            return Response(
+                {"detail": "You cannot delete a task that has interactions associated with it."},
+                status=status.HTTP_409_CONFLICT
             )
 
         # Restrict deletion to child organizations for non-admins
@@ -147,6 +146,11 @@ class TaskViewSet(RoleRestrictedViewSet):
                 return Response(
                     {"detail": "You can only delete tasks assigned to your child organizations."},
                     status=status.HTTP_403_FORBIDDEN
+                )
+        if Task.objects.filter(indicator__prerequisite = instance.indicator, project=instance.project, organization=instance.organization).exists():
+            return Response(
+                    {"detail": "You cannot remove this task since it is a prerequisite for one or more tasks."},
+                    status=status.HTTP_409_CONFLICT
                 )
 
         self.perform_destroy(instance)
@@ -196,30 +200,48 @@ class ProjectViewSet(RoleRestrictedViewSet):
     
     def partial_update(self, request, *args, **kwargs):
         from organizations.models import Organization
+
         user = request.user
         instance = self.get_object()
 
         if user.role != 'admin':
-            allowed_keys = ['organization_id']
-            if not any(k in request.data for k in allowed_keys):
-                raise PermissionDenied("Only admins can edit projects.")
+            if user.role in ['meofficer', 'manager']:
+                if instance.status == Project.Status.ACTIVE:
+                    allowed_keys = ['organization_id']
+                    if not any(k in request.data for k in allowed_keys):
+                        raise PermissionDenied("Only admins can edit projects.")
 
-            new_org_ids = request.data.get('organization_id') or []
-            if not isinstance(new_org_ids, list):
-                new_org_ids = [new_org_ids]
+                    new_org_ids = request.data.get('organization_id', [])
+                    if not isinstance(new_org_ids, list):
+                        new_org_ids = [new_org_ids]
 
-            existing_orgs = set(instance.organizations.values_list('id', flat=True))
+                    existing_org_ids = set(instance.organizations.values_list('id', flat=True))
+                    new_orgs = Organization.objects.filter(id__in=new_org_ids).exclude(id__in=existing_org_ids)
 
-            new_orgs = Organization.objects.filter(id__in=new_org_ids).exclude(id__in=existing_orgs)
-            invalid_orgs = [org for org in new_orgs if org.parent_organization != user.organization]
-            if invalid_orgs:
-                raise PermissionDenied("You may only add your subgrantees.")
-            instance.organizations.add(*new_orgs)
+                    # Check for invalid orgs not subgrantees of user's org
+                    invalid_orgs = [org for org in new_orgs if org.parent_organization != user.organization]
+                    if invalid_orgs:
+                        raise PermissionDenied("You may only add your subgrantees.")
 
-            return Response(ProjectDetailSerializer(instance, context=self.get_serializer_context()).data)
+                    # Check if all requested IDs exist
+                    found_org_ids = set(org.id for org in new_orgs)
+                    missing_org_ids = set(new_org_ids) - found_org_ids - existing_org_ids
+                    if missing_org_ids:
+                        return Response({"detail": f"Organizations not found: {missing_org_ids}"}, status=400)
 
+                    instance.organizations.add(*new_orgs)
+
+                    # Return updated data
+                    serializer = ProjectDetailSerializer(instance, context=self.get_serializer_context())
+                    return Response(serializer.data)
+
+            else:
+                raise PermissionDenied("Only admins can edit active projects.")
+
+        # Admin users get normal partial update behavior
         return super().partial_update(request, *args, **kwargs)
     
+    @transaction.atomic
     def destroy(self, request, *args, **kwargs):
         user = request.user
         instance = self.get_object()
@@ -240,7 +262,16 @@ class ProjectViewSet(RoleRestrictedViewSet):
                         "If necessary, please mark it as planned or on hold first."
                     )
                 },
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_409_CONFLICT
+            )
+        if Interaction.objects.filter(task__project = instance).exists():
+            return Response(
+                {
+                    "detail": (
+                        "This project has interactions associated with it, and therefore cannot be deleted."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT
             )
 
         self.perform_destroy(instance)
@@ -278,32 +309,50 @@ class ProjectViewSet(RoleRestrictedViewSet):
             if Interaction.objects.filter(task__organization__id = org_link.organization.id).exists():
                  return Response(
                         {"detail": "You cannot remove an organization from a project when they have active tasks."},
-                        status=status.HTTP_403_FORBIDDEN
+                        status=status.HTTP_409_CONFLICT
                     )
+            count, _ = Task.objects.filter(project=project, organization=org_link.organization).delete()
             org_link.delete()
-            return Response({"detail": "Organization removed from project."}, status=status.HTTP_200_OK)
+            return Response({"detail": f"Organization and {count} related inactive tasks removed from project."}, status=status.HTTP_200_OK)
 
         except ProjectOrganization.DoesNotExist:
             return Response({"detail": "Organization not associated with this project."}, status=status.HTTP_404_NOT_FOUND)
     
+    @transaction.atomic
     @action(detail=True, methods=['delete'], url_path='remove-indicator/(?P<indicator_id>[^/.]+)')
     def remove_indicator(self, request, pk=None, indicator_id=None):
-        user = self.request.user
+        user = request.user
         if user.role != 'admin':
             return Response(
                 {"detail": "You do not have permission to remove an indicator from a project."},
-                status=status.HTTP_403_FORBIDDEN 
+                status=status.HTTP_403_FORBIDDEN
             )
+
         project = self.get_object()
+
         try:
             indicator_link = ProjectIndicator.objects.get(project=project, indicator__id=indicator_id)
-            if Interaction.objects.filter(task__indicator__id = indicator_link.indicator.id).exists():
-                 return Response(
-                        {"detail": "You cannot remove an indicator from a project when it has active tasks."},
-                        status=status.HTTP_403_FORBIDDEN
-                    )
+
+            if Interaction.objects.filter(task__indicator=indicator_link.indicator).exists():
+                return Response(
+                    {"detail": "You cannot remove an indicator from a project when it has active tasks."},
+                    status=status.HTTP_409_CONFLICT
+                )
+
+            if ProjectIndicator.objects.filter(project=project, indicator__prerequisite__id=indicator_id).exists():
+                return Response(
+                    {"detail": "You cannot remove this indicator since it is a prerequisite for other indicators in this project. Please remove those first."},
+                    status=status.HTTP_409_CONFLICT
+                )
+
+            count, _ = Task.objects.filter(project=project, indicator=indicator_link.indicator).delete()
             indicator_link.delete()
-            return Response({"detail": "Indicator removed."}, status=status.HTTP_200_OK)
+
+            return Response(
+                {"detail": f"Indicator removed along with {count} associated tasks."},
+                status=status.HTTP_200_OK
+            )
+
         except ProjectIndicator.DoesNotExist:
             return Response({"detail": "Indicator not found."}, status=status.HTTP_404_NOT_FOUND)
     
@@ -325,7 +374,7 @@ class TargetViewSet(RoleRestrictedViewSet):
         if role == 'admin':
             queryset= Target.objects.all()
         else:
-            queryset= Target.objects.filter(task__organization=org)
+            queryset= Target.objects.filter(Q(task__organization=org) | Q(task__organization__parent_organization=org))
             queryset = queryset.filter(task__project__status=Project.Status.ACTIVE)
 
         start = self.request.query_params.get('start')
@@ -336,26 +385,12 @@ class TargetViewSet(RoleRestrictedViewSet):
             queryset = queryset.filter(end__lte=end)
 
         return queryset
-    
-    def create(self, request, *args, **kwargs):
-        user = request.user
-        if getattr(user, 'role', None) != 'admin':
-            raise PermissionDenied("Only admins can create targets.")
-        return super().create(request, *args, **kwargs)
-
-    def update(self, request, *args, **kwargs):
-        user = request.user
-        if getattr(user, 'role', None) != 'admin':
-            raise PermissionDenied("Only admins can update targets.")
-        
-        # Let DRF handle both PUT and PATCH via super()
-        return super().update(request, *args, **kwargs)
-
-    def partial_update(self, request, *args, **kwargs):
-        return self.update(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+    
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
 
     def destroy(self, request, *args, **kwargs):
         user = request.user
@@ -370,7 +405,7 @@ class TargetViewSet(RoleRestrictedViewSet):
 
         # Restrict deletion to child organizations for non-admins
         if user.role in ['meofficer', 'manager']:
-            if instance.organization.parent_organization_id != user.organization_id:
+            if instance.task.organization.parent_organization_id != user.organization_id:
                 return Response(
                     {"detail": "You can only delete targets from your child organizations."},
                     status=status.HTTP_403_FORBIDDEN

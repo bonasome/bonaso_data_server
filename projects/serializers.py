@@ -1,13 +1,18 @@
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
+from django.db import transaction
 from django.db.models import Q
-
 from projects.models import Project, Task, Client, Target, ProjectIndicator, ProjectOrganization
 from organizations.models import Organization
 from indicators.models import Indicator
 from organizations.serializers import OrganizationListSerializer
 from indicators.serializers import IndicatorSerializer
-from users.models import User
+from rest_framework.exceptions import APIException
+
+class ConflictError(APIException):
+    status_code = 409
+    default_detail = 'Conflict: This resource overlaps with an existing one.'
+    default_code = 'conflict'
 
 class ClientSerializer(serializers.ModelSerializer):
     class Meta:
@@ -92,26 +97,59 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
                   'organization_id', 'indicator_id', 'organizations', 'indicators', 'status']
 
     def validate(self, attrs):
-        start = attrs.get('start', getattr(self.instance, 'start', None))
-        end = attrs.get('end', getattr(self.instance, 'end', None))
+        # Use incoming value if present, otherwise fall back to existing value on the instance
+        start = attrs.get('start') or getattr(self.instance, 'start', None)
+        end = attrs.get('end') or getattr(self.instance, 'end', None)
 
         if start and end and end < start:
-            raise serializers.ValidationError("Start date must be before end date")
+            raise serializers.ValidationError("End date must be after start date.")
+
         return attrs
 
-    
+    def _add_organizations(self, project, organizations, user):
+        existing_org_ids = set(
+            ProjectOrganization.objects.filter(project=project).values_list('organization_id', flat=True)
+        )
+        new_links = [
+            ProjectOrganization(project=project, organization=org, added_by=user)
+            for org in organizations if org.id not in existing_org_ids
+        ]
+        ProjectOrganization.objects.bulk_create(new_links)
+
+    def _add_indicators(self, project, indicators, user):
+        existing_ind_ids = set(
+            ProjectIndicator.objects.filter(project=project).values_list('indicator_id', flat=True)
+        )
+        incoming_ind_ids = {ind.id for ind in indicators}
+
+        new_links = []
+        for indicator in indicators:
+            prereq = getattr(indicator, 'prerequisite', None)
+            if prereq and prereq.id not in existing_ind_ids and prereq.id not in incoming_ind_ids:
+                raise serializers.ValidationError(
+                    f"Indicator '{indicator}' has a prerequisite that must be added first."
+                )
+            if indicator.id not in existing_ind_ids:
+                new_links.append(ProjectIndicator(project=project, indicator=indicator, added_by=user))
+
+        ProjectIndicator.objects.bulk_create(new_links)
+
+
+    @transaction.atomic
     def create(self, validated_data):
         user = self.context.get('request').user if self.context.get('request') else None
         if user.role != 'admin':
             raise PermissionDenied('You do not have permission to edit projects.')
         organizations = validated_data.pop('organizations', [])
-        inds = validated_data.pop('indicators', [])
+        indicators = validated_data.pop('indicators', [])
         project = Project.objects.create(**validated_data)
 
-        project.organizations.set(organizations)
-        project.indicators.set(inds)
+        self._add_organizations(project, organizations, user)
+        self._add_indicators(project, indicators, user)
         return project
-    
+
+
+    @transaction.atomic
     def update(self, instance, validated_data):
         user = self.context.get('request').user if self.context.get('request') else None
         if user.role != 'admin':
@@ -126,20 +164,9 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
         instance.save()
 
         # Add new organizations (append-only)
-        existing_org_ids = set(
-            ProjectOrganization.objects.filter(project=instance).values_list('organization_id', flat=True)
-        )
-        for org in organizations:
-            if org.id not in existing_org_ids:
-                ProjectOrganization.objects.create(project=instance, organization=org, added_by=user)
+        self._add_organizations(instance, organizations, user)
+        self._add_indicators(instance, indicators, user)
 
-        # Add new indicators (append-only)
-        existing_ind_ids = set(
-            ProjectIndicator.objects.filter(project=instance).values_list('indicator_id', flat=True)
-        )
-        for indicator in indicators:
-            if indicator.id not in existing_ind_ids:
-                ProjectIndicator.objects.create(project=instance, indicator=indicator, added_by=user)
         return instance
 
 class TargetForTaskSerializer(serializers.ModelSerializer):
@@ -173,12 +200,22 @@ class TargetSerializer(serializers.ModelSerializer):
         return None
     
     def validate(self, attrs):
-        print("Incoming validated attrs:", attrs)
-        task = attrs.get('task')
+        task = attrs.get('task', getattr(self.instance, 'task', None))
+        org = attrs.get('organization', getattr(self.instance, 'organization', None)) \
+            or getattr(task, 'organization', None)
+        
+        user = self.context['request'].user
+        if user.role not in ['meofficer', 'manager', 'admin']:
+            raise serializers.ValidationError("You do not have permission to create targets.")
+        if user.role != 'admin' and org.parent_organization.id != user.organization_id:
+            raise serializers.ValidationError("You may only assign tasks to your child organizations.")
+        
         related = attrs.get('related_to')
         if not task:
             raise serializers.ValidationError({'task_id': 'Task not found.'})
-
+        
+        if related and related == task:
+            raise serializers.ValidationError({'related_to_id': 'A task cannot reference itself.'})
         if related and related.project != task.project:
             raise serializers.ValidationError({'related_to_id': 'Related target must belong to the same project.'})
 
@@ -188,6 +225,8 @@ class TargetSerializer(serializers.ModelSerializer):
         if not attrs.get('amount') and (not related or not attrs.get('percentage_of_related')):
             raise serializers.ValidationError("Either 'amount' or both 'related_to' and 'percentage_of_related' must be provided.")
         
+        if attrs.get('amount') and (related and attrs.get('percentage_of_related')):
+            raise serializers.ValidationError("Target expected either amount or percentage of related task but got both instead.")
         
         start = attrs.get('start', getattr(self.instance, 'start', None))
         end = attrs.get('end', getattr(self.instance, 'end', None))
@@ -204,7 +243,7 @@ class TargetSerializer(serializers.ModelSerializer):
                 overlaps = overlaps.exclude(pk=self.instance.pk)
 
             if overlaps.exists():
-                raise serializers.ValidationError("This target overlaps with an existing target.")
+                raise ConflictError("This target overlaps with an existing target.")
         
         return attrs
 

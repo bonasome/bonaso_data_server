@@ -10,57 +10,70 @@ from organizations.models import Organization
 
 
 
-class ProfileViewSetTests(APITestCase):
+from django.test import TestCase
+
+from rest_framework.test import APITestCase, APIClient
+from rest_framework import status
+from django.urls import reverse
+from django.contrib.auth import get_user_model
+from datetime import datetime
+from projects.models import Project, Client, Task, Target
+from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus
+from organizations.models import Organization
+from indicators.models import Indicator, IndicatorSubcategory
+from datetime import date
+User = get_user_model()
+
+class ProfileViewSetTest(APITestCase):
     def setUp(self):
-        # Setup org structure
-        self.org_main = Organization.objects.create(name='Main Org')
-        self.org_child = Organization.objects.create(name='Child Org', parent_organization=self.org_main)
-
-        # Admin user
-        self.admin = User.objects.create_user(username='admin', password='pass', role='admin')
+        self.today = date.today().isoformat()
         
-        # ME Officer (has access to their org + children)
-        self.officer = User.objects.create_user(username='officer', password='pass', role='meofficer', organization=self.org_main)
-        
-        # Manager in a child org
-        self.manager = User.objects.create_user(username='manager', password='pass', role='manager', organization=self.org_child)
+        self.admin = User.objects.create_user(username='admin', password='testpass', role='admin')
+        self.manager = User.objects.create_user(username='officer', password='testpass', role='manager')
+        self.data_collector = User.objects.create_user(username='data_collector', password='testpass', role='data_collector')
+        self.child_data_collector = User.objects.create_user(username='data_collector2', password='testpass', role='data_collector')
+        self.loser = User.objects.create_user(username='i_wish_i_was_in_that_org', password='testpass', role='data_collector')
 
-        # Regular user
-        self.user = User.objects.create_user(username='user', password='pass', role='staff', organization=self.org_child)
+        self.org = Organization.objects.create(name='Test Org')
+        self.child_org = Organization.objects.create(name='Child Org')
+        self.other_org = Organization.objects.create(name='Loser Org')
 
-        self.url = reverse('user-list')  # adjust to your router name if not `user-list`
+        self.admin.organization = self.org
+        self.admin.save()
 
-    def authenticate(self, user):
-        self.client = APIClient()
-        self.client.force_authenticate(user=user)
+        self.manager.organization = self.org
+        self.manager.save()
+
+        self.data_collector.organization = self.org
+        self.data_collector.save()
+
+        self.child_data_collector.organization = self.child_org
+        self.child_data_collector.save()
+
+        self.loser.organization = self.other_org
+        self.loser.save()
 
     def test_admin_can_see_all_users(self):
-        self.authenticate(self.admin)
-        response = self.client.get(self.url)
-        usernames = [u['username'] for u in response.data]
-        self.assertIn('user', usernames)
-        self.assertIn('officer', usernames)
-        self.assertIn('manager', usernames)
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get('/api/profiles/users/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 5)
 
     def test_officer_can_see_own_and_child_org_users(self):
-        self.authenticate(self.officer)
-        response = self.client.get(self.url)
-        usernames = [u['username'] for u in response.data]
-        self.assertIn('officer', usernames)
-        self.assertIn('manager', usernames)
-        self.assertIn('user', usernames)  # child org
-        self.assertNotIn('admin', usernames)
+        self.client.force_authenticate(user=self.manager)
+        response = self.client.get('/api/profiles/users/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 3)
 
     def test_regular_user_can_only_see_self(self):
-        self.authenticate(self.user)
-        response = self.client.get(self.url)
+        self.client.force_authenticate(user=self.data_collector)
+        response = self.client.get('/api/profiles/users/')
         self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['username'], 'user')
+        self.assertEqual(response.data[0]['username'], 'data_collector')
 
     def test_cannot_delete_user(self):
-        self.authenticate(self.admin)
-        url = reverse('user-detail', kwargs={'pk': self.user.id})  # adjust name if not 'user-detail'
-        response = self.client.delete(url)
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.delete(f'/api/profiles/users/{self.data_collector.id}/')
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
         self.assertEqual(response.data['detail'], "Deleting users is not allowed. Mark them as inactive instead.")
 

@@ -84,7 +84,7 @@ class Respondent(models.Model):
 
     def clean(self):
         if self.is_anonymous:
-            if self.first_name or self.last_name or self.email or self.phone_number or self.id_no:
+            if self.first_name or self.last_name or self.email or self.phone_number or self.id_no or self.dob:
                 raise ValidationError('This respondent was marked as anonymous, but personal information was provided. Please either remove this information or get permission from the respondent to collect their personal information.')
             if not self.age_range:
                 raise ValidationError('Anonymous respondents are required to provide an age range for reporting purposes.')
@@ -105,8 +105,18 @@ class Respondent(models.Model):
                 raise ValidationError({field: "This field is required If the respondent does not wish to provide any of this information, please mark them as anonymous." for field in missing})
 
     def save(self, *args, **kwargs):
-        if self.dob and not self.age_range:
+        if self.dob:
+            # If dob is a string, convert it
+            if isinstance(self.dob, str):
+                self.dob = date.fromisoformat(self.dob)
+            # If dob is a tuple, assume (year, month, day)
+            elif isinstance(self.dob, tuple) and len(self.dob) == 3:
+                self.dob = date(*self.dob)
+            # Optionally, handle datetime objects
+            elif isinstance(self.dob, datetime):
+                self.dob = self.dob.date()
             today = date.today()
+
             age = today.year - self.dob.year - ((today.month, today.day) < (self.dob.month, self.dob.day))
             if age < 18:
                 self.age_range = self.AgeRanges.U18

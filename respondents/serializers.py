@@ -114,6 +114,8 @@ class SensitiveInfoSerializer(serializers.ModelSerializer):
             existing_status.date_positive = date_positive if hiv_positive else None
             existing_status.save()
         else:
+            if not date_positive:
+                date_positive = date.today()
             HIVStatus.objects.create(
                 respondent=respondent,
                 hiv_positive=hiv_positive,
@@ -183,6 +185,8 @@ class SensitiveInfoSerializer(serializers.ModelSerializer):
             existing_status.date_positive = date_positive if hiv_positive else None
             existing_status.save()
         else:
+            if not date_positive:
+                date_positive = date.today()
             HIVStatus.objects.create(
                 respondent=respondent,
                 hiv_positive=hiv_positive,
@@ -208,6 +212,7 @@ class SensitiveInfoSerializer(serializers.ModelSerializer):
     
 class RespondentSerializer(serializers.ModelSerializer):
     id_no = serializers.CharField(write_only=True, required=False, allow_blank=True, allow_null=True)
+    dob = serializers.DateField(required=False)
     class Meta:
         model=Respondent
         fields = [
@@ -215,6 +220,20 @@ class RespondentSerializer(serializers.ModelSerializer):
             'village', 'district', 'citizenship', 'comments', 'email', 'phone_number', 'dob',
             'age_range', 'created_by', 'updated_by'
         ]
+    
+    def update(self, instance, validated_data):
+        instance = super().update(instance, validated_data)
+
+        if instance.is_anonymous:
+            instance.first_name = None
+            instance.dob = None
+            instance.ward = None
+            instance.id_no = None
+            instance.email = None
+            instance.phone_number = None
+
+            instance.save()  # Ensure changes are persisted
+        return instance
 
 class InteractionSerializer(serializers.ModelSerializer):
     respondent = serializers.PrimaryKeyRelatedField(queryset=Respondent.objects.all())
@@ -241,20 +260,40 @@ class InteractionSerializer(serializers.ModelSerializer):
     def validate(self, data):
         from organizations.models import Organization
         user = self.context['request'].user
-        task = data['task']
+        task = data.get('task') or getattr(self.instance, 'task', None)
+        respondent = data.get('respondent') or getattr(self.instance, 'respondent', None)
         subcategory_names = data.get('subcategory_names', [])
         interaction_date = data.get('interaction_date')
         number = data.get('numeric_component')
         role = getattr(user, 'role', None)
         org = getattr(user, 'organization', None)
-        if role !='admin':
+
+        if role != 'admin':
             if not org:
                 raise serializers.ValidationError("User must belong to an organization.")
-            if not (task.organization == org or Organization.objects.filter(parent_org=org, id=task.organization_id).exists()):
-                raise serializers.ValidationError("You do not have permission to use this task.")
+
+            # Ensure the task is part of the user's org or child orgs
+            if role in ['meofficer', 'manager']:
+                allowed_org_ids = Organization.objects.filter(
+                    Q(parent_organization=org) | Q(id=org.id)
+                ).values_list('id', flat=True)
+            else:
+                allowed_org_ids = [org.id]
+
+            if task.organization_id not in allowed_org_ids:
+                raise PermissionDenied(
+                    "You may not create or edit interactions not related to your organization or its child organizations."
+                )
     
         if not interaction_date:
             raise serializers.ValidationError("Interaction date is required.")
+        #parsed_date = datetime.fromisoformat(interaction_date).date()
+        if interaction_date > date.today():
+            raise serializers.ValidationError("Interaction date may not be in the future.")
+        if interaction_date < task.project.start or interaction_date > task.project.end:
+            raise serializers.ValidationError("This interaction is set for a date outside of the project boundaries.")
+        
+
         requires_number = task.indicator.require_numeric
         if requires_number:
             try:
@@ -281,7 +320,8 @@ class InteractionSerializer(serializers.ModelSerializer):
             from respondents.models import Interaction
             parent_qs = Interaction.objects.filter(
                 task__indicator=prereq,
-                interaction_date__lte=interaction_date
+                interaction_date__lte=interaction_date,
+                respondent=respondent,
             )
             if not parent_qs.exists():
                 raise serializers.ValidationError("Task requires a prerequisite interaction.")
@@ -289,11 +329,11 @@ class InteractionSerializer(serializers.ModelSerializer):
             if most_recent.subcategories.exists():
                 parent_ids = set(most_recent.task.indicator.subcategories.values_list('id', flat=True))
                 if set(task.indicator.subcategories.values_list('id', flat=True)) == parent_ids:
-                    current_ids = set([
-                        IndicatorSubcategory.objects.get_or_create(name=name)[0].id
-                        for name in subcategory_names
-                    ])
-                    if not current_ids.issubset(parent_ids):
+                    current_ids = set(
+                        IndicatorSubcategory.objects.filter(name__in=subcategory_names).values_list('id', flat=True)
+                    )
+                    previous_ids = set(most_recent.subcategories.values_list('id', flat=True))
+                    if not current_ids.issubset(previous_ids):
                         raise serializers.ValidationError(
                             "Subcategories must be consistent with the prerequisite interaction."
                         )
@@ -324,12 +364,10 @@ class InteractionSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         user = self.context['request'].user
         created_by = instance.created_by
-        if user.role != 'admin':
-            if user.organization != created_by.organization:
-                raise PermissionDenied("You do not have permission to update this interaction.")
-            if user.role not in ['meofficer', 'manager']:
-                if instance.created_by != user:
-                    raise PermissionDenied("You do not have permission to update this interaction.")
+        if user.role not in ['meofficer', 'manager', 'admin']:
+            if instance.created_by != user:
+                raise PermissionDenied("You may only edit your interactions.")
+
         subcategory_names = validated_data.pop('subcategory_names', [])
         subcategories = [
             IndicatorSubcategory.objects.get_or_create(name=name)[0]

@@ -8,6 +8,7 @@ from profiles.models import FavoriteProject, FavoriteRespondent, FavoriteTask
 from profiles.serializers import ProfileSerializer, FavoriteProjectSerializer, FavoriteRespondentSerializer, FavoriteTaskSerializer
 from django.contrib.auth import get_user_model
 from rest_framework import status
+from rest_framework.response import Response
 
 User = get_user_model()
 
@@ -22,12 +23,13 @@ class ProfileViewSet(RoleRestrictedViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        print(self.request.user)
         if user.role == 'admin':
             return User.objects.all()
         elif user.role in ['meofficer', 'manager']:
             return User.objects.filter(Q(organization=user.organization) | Q(organization__parent_organization=user.organization))
+        
         return User.objects.filter(id=user.id)
+    
     def destroy(self, request, *args, **kwargs):
         return Response(
             {"detail": "Deleting users is not allowed. Mark them as inactive instead."},

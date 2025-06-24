@@ -195,8 +195,8 @@ class TaskViewSetTest(APITestCase):
     
     def test_delete_task(self):
         #admin should be allowed to delete tasks
-        self.client.force_authenticate(user=self.manager)
-        response = self.client.delete(f'/api/manage/tasks/${self.other_task.id}/')
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.delete(f'/api/manage/tasks/{self.other_task.id}/')
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
     
     def test_delete_task_prereq(self):

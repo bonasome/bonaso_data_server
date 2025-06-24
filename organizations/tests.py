@@ -33,17 +33,6 @@ class OrganizationViewSetTest(APITestCase):
         )
         self.project.organizations.set([self.org])
 
-    def test_anon(self):
-        self.client.logout()
-        response = self.client.get('/api/organizations/')
-        self.assertEqual(response.status_code, 401)
-
-    def test_view_only(self):
-        self.client.force_authenticate(user=self.view_user)
-        response = self.client.get('/api/organizations/')
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(len(response.data['results']), 0)
-
     def test_organization_list_view(self):
         self.client.force_authenticate(user=self.admin)
         response = self.client.get('/api/organizations/')

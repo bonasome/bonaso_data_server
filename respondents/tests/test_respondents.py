@@ -315,7 +315,10 @@ class RespondentBulkUploadTest(APITestCase):
                 "first_name": "Test",
                 "last_name": "User",
                 "dob": "2000-01-01",
-                "gender": "M",
+                "sex": "M",
+                "village": 'here',
+                "district": "Central",
+                "citizenship": "Motswana",
                 "is_anonymous": False,
                 "sensitive_info": {
                     "hiv_positive": True,
@@ -337,9 +340,15 @@ class RespondentBulkUploadTest(APITestCase):
         ]
 
         response = self.client.post(self.url, payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_207_MULTI)
-        self.assertEqual(len(response.data['created_ids']), 1)
-        self.assertEqual(response.data['errors'], [])
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response = self.client.get('/api/record/respondents/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 1)
+
+        response = self.client.get('/api/record/interactions/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 2)
 
     def test_bulk_upload_invalid_data(self):
         payload = [{"id_no": "", "first_name": "Missing Last Name"}]

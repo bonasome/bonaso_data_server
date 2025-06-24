@@ -90,41 +90,44 @@ class JWTAuthTest(APITestCase):
 
         response = self.client.post('/api/users/token/refresh/')
         self.assertEqual(response.status_code, 400)
-    
-    def test_apply_for_user(self):
-        self.client.force_authenticate(user=self.user_me)
-        response = self.client.post('/api/users/create-user/', {
-            'username': 'testnewuser',
-            'password': 'testpass123',
-            'email': 'test@user.com',
-        })
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        response =self.client.post('/api/users/request-token/', {
-            'username': 'testnewuser',
+    def test_mobile_login(self):
+        response = self.client.post('/api/users/mobile/request-token/', {
+            'username': 'testuser',
             'password': 'testpass123'
-        })
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response = self.client.get('/api/manage/targets/')
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data['results']), 0)
-    
-    def test_apply_for_user_no_org(self):
-        self.client.force_authenticate(user=self.user_no_org)
-        response = self.client.post('/api/users/create-user/', {
-            'username': 'testnewuser2',
-            'password': 'testpass123',
-            'email': 'test@user.com',
-        })
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-    
-    def test_apply_for_user_no_perm(self):
-        self.client.force_authenticate(user=self.user_dc)
-        response = self.client.post('/api/users/create-user/', {
-            'username': 'testnewuser3',
-            'password': 'testpass123',
-            'email': 'test@user.com',
-        })
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        }, format='json')
 
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         
+        # Parse the response JSON
+        data = response.json()
+
+        # Assert that the tokens are returned
+        self.assertIn('access', data)
+        self.assertIn('refresh', data)
+    
+    def test_refresh_mobile_token(self):
+        # Step 1: Log in to get the refresh token
+        response = self.client.post('/api/users/mobile/request-token/', {
+            'username': 'testuser',
+            'password': 'testpass123'
+        }, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        tokens = response.json()
+        refresh_token = tokens.get('refresh')
+        self.assertIsNotNone(refresh_token)
+
+        # Step 2: Use refresh token to get a new access token
+        response = self.client.post('/api/users/mobile-token/refresh/', {
+            'refresh': refresh_token
+        }, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        new_access_token = response.json().get('access')
+        self.assertIsNotNone(new_access_token)
+
+        # Step 3: Use new access token to call protected endpoint
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {new_access_token}')
+        response = self.client.get('/api/users/me/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)

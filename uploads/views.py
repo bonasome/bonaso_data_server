@@ -10,6 +10,10 @@ from django.http import FileResponse
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied
+
+
+
 
 class NarrativeReportViewSet(viewsets.ModelViewSet):
     queryset = NarrativeReport.objects.all().order_by('-created_at')
@@ -32,6 +36,17 @@ class NarrativeReportViewSet(viewsets.ModelViewSet):
             )
         else:
             return NarrativeReport.objects.none()
+    
+    def perform_create(self, serializer):
+        user = self.request.user
+        org = serializer.validated_data.get('organization')
+
+        if user.role != 'admin':
+            if user.role not in ['meofficer', 'manager']:
+                raise PermissionDenied("You do not have permissiont to perform this action.")
+            if org != user.organization and org.parent_organization != user.organization:
+                raise PermissionDenied("You can only upload reports for your own organization or a child organization.")
+        serializer.save(uploaded_by=user)
 
     @action(detail=True, methods=['get'])
     def download(self, request, pk=None):

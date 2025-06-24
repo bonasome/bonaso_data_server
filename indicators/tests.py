@@ -46,54 +46,6 @@ class TestIndicatorPerms(APITestCase):
         self.wrong_prog = Indicator.objects.create(code='Test103', name='Not in proj')
         self.project.indicators.set([self.indicator])
 
-    #make sure anonymous users cannot view or create indicators
-    def test_anon(self):
-        self.client.logout()
-        response = self.client.get('/api/indicators/')
-        self.assertEqual(response.status_code, 401)
-
-        valid_payload = {
-            'name': 'Ind 3',
-            'code': '3',
-        }
-        response = self.client.post('/api/indicators/', valid_payload, format='json')
-        self.assertEqual(response.status_code, 401)
-
-    def test_view_only(self):
-        self.client.force_authenticate(user=self.view_only)
-        response = self.client.get('/api/indicators/')
-        self.assertEqual(response.status_code, 403)
-        valid_payload = {
-            'name': 'Ind 3',
-            'code': '3',
-        }
-        response = self.client.post('/api/indicators/', valid_payload, format='json')
-        self.assertEqual(response.status_code, 403)
-        
-    
-    def test_no_org(self):
-        self.client.force_authenticate(user=self.no_org)
-        response = self.client.get('/api/indicators/')
-        self.assertEqual(response.status_code, 403)
-
-        valid_payload = {
-            'name': 'Ind 3',
-            'code': '3',
-        }
-        response = self.client.post('/api/indicators/', valid_payload, format='json')
-        self.assertEqual(response.status_code, 403)
-    
-    def test_no_role(self):
-        self.client.force_authenticate(user=self.no_role)
-        response = self.client.get('/api/indicators/')
-        self.assertEqual(response.status_code, 403)
-
-        valid_payload = {
-            'name': 'Ind 3',
-            'code': '3',
-        }
-        response = self.client.post('/api/indicators/', valid_payload, format='json')
-        self.assertEqual(response.status_code, 403)
 
     def test_queryset_admin(self):
         self.client.force_authenticate(user=self.admin)

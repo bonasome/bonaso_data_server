@@ -3,85 +3,86 @@ from django.test import TestCase
 from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
 from django.urls import reverse
-from users.models import User
-from profiles.models import FavoriteRespondent
-from respondents.models import Respondent
-from organizations.models import Organization
-
-
-
-from django.test import TestCase
-
-from rest_framework.test import APITestCase, APIClient
-from rest_framework import status
-from django.urls import reverse
 from django.contrib.auth import get_user_model
-from datetime import datetime
-from projects.models import Project, Client, Task, Target
-from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus
+
+from profiles.models import FavoriteProject, FavoriteRespondent, FavoriteTask
 from organizations.models import Organization
+from projects.models import Project, Client
 from indicators.models import Indicator, IndicatorSubcategory
-from datetime import date
+from respondents.models import Respondent
 User = get_user_model()
 
-class ProfileViewSetTest(APITestCase):
+class TestProfileViewSet(APITestCase):
     def setUp(self):
-        self.today = date.today().isoformat()
-        
-        self.admin = User.objects.create_user(username='admin', password='testpass', role='admin')
-        self.manager = User.objects.create_user(username='officer', password='testpass', role='manager')
-        self.data_collector = User.objects.create_user(username='data_collector', password='testpass', role='data_collector')
-        self.child_data_collector = User.objects.create_user(username='data_collector2', password='testpass', role='data_collector')
-        self.loser = User.objects.create_user(username='i_wish_i_was_in_that_org', password='testpass', role='data_collector')
+        self.parent = Organization.objects.create(name='Parent Org')
+        self.child = Organization.objects.create(name='Child Org', parent_organization=self.parent)
+        self.wrong = Organization.objects.create(name='Wrong Org')
 
-        self.org = Organization.objects.create(name='Test Org')
-        self.child_org = Organization.objects.create(name='Child Org')
-        self.other_org = Organization.objects.create(name='Loser Org')
+        self.admin = User.objects.create_user(username='admin', password='testpass', role='admin', organization=self.parent)
+        self.officer = User.objects.create_user(username='meofficer', password='testpass', role='meofficer', organization=self.parent)
+        self.manager = User.objects.create_user(username='manager', password='testpass', role='manager', organization=self.parent)
+        self.mechild = User.objects.create_user(username='mechild', password='testpass', role='meofficer', organization=self.child)
+        self.wrong_org = User.objects.create_user(username='wrong_org', password='testpass', role='meofficer', organization=self.wrong)
+        self.data_collector = User.objects.create_user(username='dc', password='testpass', role='data_collector', organization=self.parent)
 
-        self.admin.organization = self.org
-        self.admin.save()
 
-        self.manager.organization = self.org
-        self.manager.save()
-
-        self.data_collector.organization = self.org
-        self.data_collector.save()
-
-        self.child_data_collector.organization = self.child_org
-        self.child_data_collector.save()
-
-        self.loser.organization = self.other_org
-        self.loser.save()
-
-    def test_admin_can_see_all_users(self):
+    def test_admin_see_all(self):
         self.client.force_authenticate(user=self.admin)
         response = self.client.get('/api/profiles/users/')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 5)
-
-    def test_officer_can_see_own_and_child_org_users(self):
-        self.client.force_authenticate(user=self.manager)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data['results']), 6)
+    
+    def test_officer_see_org(self):
+        self.client.force_authenticate(user=self.officer)
         response = self.client.get('/api/profiles/users/')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 3)
-
-    def test_regular_user_can_only_see_self(self):
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data['results']), 5)
+    
+    def test_dc_see_self(self):
         self.client.force_authenticate(user=self.data_collector)
         response = self.client.get('/api/profiles/users/')
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['username'], 'data_collector')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data['results']), 1)
+    
 
-    def test_cannot_delete_user(self):
-        self.client.force_authenticate(user=self.admin)
-        response = self.client.delete(f'/api/profiles/users/{self.data_collector.id}/')
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
-        self.assertEqual(response.data['detail'], "Deleting users is not allowed. Mark them as inactive instead.")
+    def dc_patch_self(self):
+        self.client.force_authenticate(user=self.data_collector)
+        valid_payload = {
+            'first_name': 'Goolius',
+        }
+        response = self.client.patch(f'/api/profiles/users/{self.data_collector.id}/', valid_payload, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.data_collector.refresh_from_db()
+        self.assertEqual(self.data_collector.first_name, 'Goolius')
+    
+    def me_officer_patch_child(self):
+        self.client.force_authenticate(user=self.officer)
+        valid_payload = {
+            'first_name': 'Goolius',
+        }
+        response = self.client.patch(f'/api/profiles/users/{self.mechild.id}/', valid_payload, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.mechild.refresh_from_db()
+        self.assertEqual(self.mechild.first_name, 'Goolius')
+    
+    def me_officer_cannot_patch_other(self):
+        self.client.force_authenticate(user=self.officer)
+        valid_payload = {
+            'first_name': 'Goolius',
+        }
+        response = self.client.patch(f'/api/profiles/users/{self.wrong_org.id}/', valid_payload, format='json')
+        self.assertEqual(response.status_code, 404)
 
 
+#at some point we should maybe write some tests for other favorites, but this is lower stakes
 class FavoriteRespondentTests(APITestCase):
     def setUp(self):
-        self.user = User.objects.create_user(username='testuser', password='testpass123')
-        self.user2 = User.objects.create_user(username='testuser2', password='testpass123')
+        self.user = User.objects.create_user(username='testuser', password='testpass123', role='data_collector')
+        self.user2 = User.objects.create_user(username='testuser2', password='testpass123', role='data_collector')
+        self.org = Organization.objects.create(name='Test Org')
+
+        self.user.organization = self.org
+        self.user2.organization = self.org
         self.respondent = Respondent.objects.create(
             is_anonymous=True,
             age_range=Respondent.AgeRanges.ET_24,

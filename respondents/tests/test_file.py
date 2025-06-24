@@ -405,6 +405,64 @@ class UploadViewSetTest(APITestCase):
         interactions = Interaction.objects.filter(respondent=self.respondent_full).count()
         self.assertEqual(interactions, 2)
     
+
+    def test_upload_same_respondent_update(self):
+        #same respondents (same id number) should not be double recorded and should not throw a serious error
+        #currently, we don't have override logic, server always wins
+        numeric_ind = Indicator.objects.create(code ='NUM', name='Number', require_numeric=True)
+
+        category1 = IndicatorSubcategory.objects.create(name='Cat 1', slug='cat1')
+        category2 = IndicatorSubcategory.objects.create(name='Cat 2', slug='cat2')
+        subcat_ind = Indicator.objects.create(code ='SC', name='Subcat')
+      
+        subcat_ind.subcategories.set([category1, category2])
+        self.project.indicators.set([subcat_ind, numeric_ind])
+
+        numeric_task = Task.objects.create(organization=self.parent_org, indicator=numeric_ind, project=self.project)
+        subcat_task = Task.objects.create(organization=self.parent_org, indicator=subcat_ind, project=self.project)
+
+        numeric_inter = Interaction.objects.create(respondent=self.respondent_full, interaction_date='2024-05-01', task=numeric_task, numeric_component=5)
+        subcat_inter = Interaction.objects.create(respondent=self.respondent_full, interaction_date='2024-05-01', task=subcat_task)
+        subcat_inter.subcategories.set([category1])
+
+        self.client.force_authenticate(user=self.officer)
+        wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
+        ws = wb['Data']
+        # Missing 'First Name' on purpose
+        headers = [
+            "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", "Sex", "Ward", "Village",
+            "District", "Citizenship/Nationality", "Email Address", "Phone Number", "Key Population Status",
+            "Disability Status", "Date of Interaction", "NUM: Number (Requires a Number)", "SC: Subcat", "Comments"
+        ]
+        ws.append(headers)
+        #if respondent already exists/has interactions, these should be edited but not duplicated. 
+        row = [
+            "FALSE", "1234567", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
+            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
+            "Hearing Impaired, Visually Impaired", date(2024, 5, 1), "10", "Cat 1, Cat 2", ""
+        ]
+        ws.append(row)
+
+        file_obj = BytesIO()
+        wb.save(file_obj)
+        file_obj.name = 'template.xlsx'
+        file_obj.seek(0)
+
+        #both of these should fail 
+        response = self.client.post('/api/record/interactions/upload/', {'file': file_obj}, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        response = self.client.get('/api/record/respondents/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 1)
+
+        interactions = Interaction.objects.filter(respondent=self.respondent_full).count()
+        self.assertEqual(interactions, 3)
+        int_detail = Interaction.objects.filter(respondent=self.respondent_full, task=numeric_task).first()
+        self.assertEqual(int_detail.numeric_component, 10)
+        int_detail = Interaction.objects.filter(respondent=self.respondent_full, task=subcat_task).first()
+        self.assertEqual(int_detail.subcategories.count(), 2)
+    
     def test_upload_interactions(self):
         #same respondents (same id number) should not be double recorded and should not throw a serious error
         #currently, we don't have override logic, server always wins

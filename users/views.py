@@ -102,13 +102,13 @@ def current_user(request):
 @api_view(['POST'])
 def logout_view(request):
     response = HttpResponse("Logged out successfully")
-    cookie_args = {
-        'path': '/',
-        'secure': not settings.DEBUG,
-        'samesite': 'None' if not settings.DEBUG else 'Lax',
-    }
-    response.delete_cookie('access_token', **cookie_args)
-    response.delete_cookie('refresh_token', **cookie_args)
+
+    # Only include samesite; secure is not supported by delete_cookie()
+    samesite_policy = 'None' if not settings.DEBUG else 'Lax'
+
+    response.delete_cookie('access_token', path='/', samesite=samesite_policy)
+    response.delete_cookie('refresh_token', path='/', samesite=samesite_policy)
+
     logout(request)
     return response
 

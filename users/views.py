@@ -100,8 +100,8 @@ def current_user(request):
 @api_view(['POST'])
 def logout_view(request):
     response = Response({'status': 'success', 'message': 'Logged out successfully'}, status=status.HTTP_200_OK)
-    response.delete_cookie('access_token', samesite='None', secure=True)
-    response.delete_cookie('refresh_token', samesite='None', secure=True)
+    response.delete_cookie('access_token', samesite='None', secure=True, path='/')
+    response.delete_cookie('refresh_token', samesite='None', secure=True, path='/')
     logout(request)
     return response
 

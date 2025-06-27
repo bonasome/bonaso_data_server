@@ -18,6 +18,7 @@ from django.contrib.auth import authenticate
 from rest_framework.permissions import AllowAny
 from datetime import timedelta
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
+from django.http import HttpResponse
 
 User = get_user_model()
 
@@ -100,10 +101,7 @@ def current_user(request):
 
 @api_view(['POST'])
 def logout_view(request):
-    response = Response(
-        {'status': 'success', 'message': 'Logged out successfully'},
-        status=status.HTTP_200_OK
-    )
+    response = HttpResponse("Logged out successfully")
     # These work fine without samesite/secure when deleting
     response.delete_cookie('access_token', path='/')
     response.delete_cookie('refresh_token', path='/')

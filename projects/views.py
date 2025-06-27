@@ -10,6 +10,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import ValidationError
 from rest_framework import generics
 from django.db.models import Q
 from rest_framework.filters import OrderingFilter
@@ -72,26 +73,26 @@ class TaskViewSet(RoleRestrictedViewSet):
             raise PermissionDenied("You do not have permission to perform this action.")
 
         if not all([org_id, indicator_id, project_id]):
-            raise serializers.ValidationError("All of organization_id, indicator_id, and project_id are required.")
+            raise ValidationError("All of organization_id, indicator_id, and project_id are required.")
 
         try:
             org_id = int(org_id)
             indicator_id = int(indicator_id)
             project_id = int(project_id)
         except (TypeError, ValueError):
-            raise serializers.ValidationError("IDs must be valid integers.")
+           raise ValidationError("IDs must be valid integers.")
 
         try:
             organization = Organization.objects.get(id=org_id)
             indicator = Indicator.objects.get(id=indicator_id)
             project = Project.objects.get(id=project_id)
         except (Organization.DoesNotExist, Indicator.DoesNotExist, Project.DoesNotExist):
-            raise serializers.ValidationError("One or more provided IDs are invalid.")
+            raise ValidationError("One or more provided IDs are invalid.")
 
         if role == 'admin':
             if not project.organizations.filter(id=organization.id).exists() or \
             not project.indicators.filter(id=indicator.id).exists():
-                raise serializers.ValidationError("Organization/indicator are not in this project.")
+                raise ValidationError("Organization/indicator are not in this project.")
 
         elif role in ['meofficer', 'manager']:
             # Validate org/indicator/project assignment
@@ -110,7 +111,7 @@ class TaskViewSet(RoleRestrictedViewSet):
         # Check prerequisites (shared by both roles)
         prereq = getattr(indicator, 'prerequisite', None)
         if prereq and not Task.objects.filter(project=project, organization=organization, indicator=prereq).exists():
-            raise serializers.ValidationError(
+            raise ValidationError(
                 "This task's indicator has a prerequisite. Please assign that indicator as a task first."
             )
 

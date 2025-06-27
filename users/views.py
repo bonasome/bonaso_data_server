@@ -107,10 +107,7 @@ def logout_view(request):
         print(refresh_token)
         token = RefreshToken(refresh_token)
         token.blacklist()
-        #request.delete_cookie("access_token", path="/")
-        response = Response({"detail": "Logged out successfully."}, status=status.HTTP_205_RESET_CONTENT)
-        response.delete_cookie("access_token", path="/")
-        response.delete_cookie("refresh_token", path="/")
+        response = Response({"detail": "Logged out successfully."}, status=status.HTTP_205_RESET_CONTENT) 
         return response
     except Exception as e:
         return Response({"detail": "Invalid token or already blacklisted."}, status=status.HTTP_400_BAD_REQUEST)

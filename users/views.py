@@ -101,10 +101,13 @@ def current_user(request):
 @api_view(['POST'])
 def logout_view(request):
     try:
-        refresh_token = request.data.get('refresh')
+        refresh_token = request.COOKIES.get('refresh_token')
+        if not refresh_token:
+            return Response({"detail": "No refresh token found."}, status=400)
+        print(refresh_token)
         token = RefreshToken(refresh_token)
         token.blacklist()
-        request.delete_cookie("access_token", path="/")
+        #request.delete_cookie("access_token", path="/")
         response = Response({"detail": "Logged out successfully."}, status=status.HTTP_205_RESET_CONTENT)
         response.delete_cookie("access_token", path="/")
         response.delete_cookie("refresh_token", path="/")

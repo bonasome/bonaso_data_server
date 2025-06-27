@@ -199,6 +199,8 @@ class Interaction(models.Model):
                 raise ValueError("Invalid type for interaction_date")
             thirty_days_ago = date_value - timedelta(days=30)
             thirty_days_ahead = date_value  + timedelta(days=30)
+            last_year = date_value - timedelta(days=365)
+            
             # Check for recent similar interactions
             recent_exists = Interaction.objects.filter(
                 respondent=self.respondent,
@@ -216,8 +218,8 @@ class Interaction(models.Model):
                 prereq_exists = Interaction.objects.filter(
                     respondent=self.respondent,
                     task__indicator=prerequisite,
-                    interaction_date__gte=thirty_days_ago,
-                    interaction_date__lt=self.interaction_date
+                    interaction_date__gte=last_year,
+                    interaction_date__lte=self.interaction_date
                 ).exists()
 
                 if not prereq_exists:

@@ -106,7 +106,7 @@ class RespondentViewSet(RoleRestrictedViewSet):
     @action(detail=False, methods=['get'], url_path='meta')
     def filter_options(self, request):
         districts = [district for district, _ in Respondent.District.choices]
-        district_labels = [d for d, _ in Respondent.District.choices]
+        district_labels = [d.label for d in Respondent.District]
         sexs = [sex for sex, _ in Respondent.Sex.choices]
         sex_labels = [choice.label for choice in Respondent.Sex]
         age_ranges = [ar for ar, _ in Respondent.AgeRanges.choices]
@@ -235,7 +235,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
     filter_backends = [SearchFilter]
     filterset_fields = ['task', 'respondent', 'interaction_date']
     search_fields = ['respondent__uuid', 'respondent__first_name', 'respondent__last_name', 
-                     'task__indicator__code', 'task__indicator__name'] 
+                     'task__indicator__code', 'task__indicator__name', 'task__organization__name'] 
     def get_queryset(self):
         queryset = super().get_queryset()
         respondent = self.request.query_params.get('respondent')
@@ -253,6 +253,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
         if end:
             queryset = queryset.filter(interaction_date__lte=end)
         return queryset
+
     
     def destroy(self, request, *args, **kwargs):
         user = request.user  # consistent access
@@ -264,6 +265,13 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     "detail": "You do not have permission to delete this interaction."
                 },
                 status=status.HTTP_403_FORBIDDEN 
+            )
+        if Interaction.objects.filter(respondent=instance.respondent, task__indicator__prerequisite=instance.task.indicator).exists():
+            return Response(
+                {
+                    "detail": "Another interaction is relying on this as a prerequisite interaction. Please delete that interaction first."
+                },
+                status=status.HTTP_409_CONFLICT
             )
 
         self.perform_destroy(instance)

@@ -1,5 +1,7 @@
 from rest_framework import serializers
 from indicators.models import Indicator, IndicatorSubcategory
+from projects.models import Target
+from respondents.models import Interaction
 
 class IndicatorSubcategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -77,3 +79,52 @@ class IndicatorSerializer(serializers.ModelSerializer):
             ]
             instance.subcategories.set(subcategories)
         return instance
+
+class ChartSerializer(serializers.ModelSerializer):
+    interactions = serializers.SerializerMethodField()
+    targets = serializers.SerializerMethodField()
+    subcategories = IndicatorSubcategorySerializer(many=True, read_only=True)
+    def get_interactions(self, obj):
+        interactions = Interaction.objects.filter(task__indicator=obj).select_related(
+            'respondent', 'task__organization'
+        ).prefetch_related(
+            'respondent__kp_status', 'respondent__disability_status', 'subcategories'
+        )
+        result = []
+        for interaction in interactions:
+            result.append({
+                'respondent': {
+                    'id': interaction.respondent.id,
+                    'age_range': interaction.respondent.age_range,
+                    'sex': interaction.respondent.sex,
+                    'kp_status': [kp.name for kp in interaction.respondent.kp_status.all()],
+                    'disability_status': [d.name for d in interaction.respondent.disability_status.all()],
+                    'citizenship': interaction.respondent.citizenship == 'Motswana',
+                },
+                'subcategories': [c.name for c in interaction.subcategories.all()],
+                'interaction_date': interaction.interaction_date,
+                'numeric_component': interaction.numeric_component,
+                'organization': {
+                    'id': interaction.task.organization.id,
+                    'name': interaction.task.organization.name,
+                }
+            })
+        return result   
+    def get_targets(self, obj):
+        target_qs = Target.objects.filter(task__indicator=obj).select_related('task__organization')
+        return [
+            {
+                'id': t.id,
+                'indicator': t.task.indicator.id,
+                'organization': t.task.organization.id,
+                'amount': t.amount,
+                'start': t.start,
+                'end': t.end,
+            }
+            for t in target_qs
+        ]
+    class Meta:
+        model=Indicator
+        fields = [
+            'id', 'interactions', 'targets', 'name', 'subcategories', 'require_numeric'
+        ]

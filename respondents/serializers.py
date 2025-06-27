@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType
-from projects.models import Task
+from respondents.exceptions import DuplicateExists
+from projects.models import Task, Target
 from projects.serializers import TaskSerializer
 from indicators.models import IndicatorSubcategory
 from indicators.serializers import IndicatorSubcategorySerializer
@@ -212,7 +213,7 @@ class SensitiveInfoSerializer(serializers.ModelSerializer):
     
 class RespondentSerializer(serializers.ModelSerializer):
     id_no = serializers.CharField(write_only=True, required=False, allow_blank=True, allow_null=True)
-    dob = serializers.DateField(required=False)
+    dob = serializers.DateField(required=False, allow_null=True)
     class Meta:
         model=Respondent
         fields = [
@@ -220,7 +221,21 @@ class RespondentSerializer(serializers.ModelSerializer):
             'village', 'district', 'citizenship', 'comments', 'email', 'phone_number', 'dob',
             'age_range', 'created_by', 'updated_by'
         ]
+    def validate(self, attrs):
+        id_no = attrs.get('id_no')
+        if id_no:
+            if self.instance:
+                existing = Respondent.objects.filter(id_no=id_no).exclude(id=self.instance.id)
+            else:
+                existing = Respondent.objects.filter(id_no=id_no)
+            if existing.exists():
+                raise DuplicateExists(
+                    detail="This respondent already exists.",
+                    existing_id=existing.first().id
+                )
+        return attrs
     
+
     def update(self, instance, validated_data):
         instance = super().update(instance, validated_data)
 
@@ -317,14 +332,13 @@ class InteractionSerializer(serializers.ModelSerializer):
 
         prereq = task.indicator.prerequisite
         if prereq:
-            from respondents.models import Interaction
             parent_qs = Interaction.objects.filter(
                 task__indicator=prereq,
                 interaction_date__lte=interaction_date,
                 respondent=respondent,
             )
             if not parent_qs.exists():
-                raise serializers.ValidationError("Task requires a prerequisite interaction.")
+                raise serializers.ValidationError(f"Task '{task.indicator.name}' requires that a prerequisite interaction {task.indicator.prerequisite.name} occured prior to or on the date of this interaction. If you are editing dates, please make sure you are not placing this interaciton prior to the prerequisite one.")
             most_recent = parent_qs.order_by('-interaction_date').first()
             if most_recent.subcategories.exists():
                 parent_ids = set(most_recent.task.indicator.subcategories.values_list('id', flat=True))
@@ -381,4 +395,6 @@ class InteractionSerializer(serializers.ModelSerializer):
         instance.updated_by = user
         instance.save()
         return instance
-        
+
+
+

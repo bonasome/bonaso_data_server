@@ -234,6 +234,13 @@ class InteractionViewSetTest(APITestCase):
         response = self.client.delete(f'/api/record/interactions/{self.interaction.id}/')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
     
+    def test_delete_interaction_prereq(self):
+        #also should not be allowed to delete interactions that serve as a prerequisite to others
+        interaction_child = Interaction.objects.create(respondent=self.respondent, task=self.prereq_task, interaction_date=self.today)
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.delete(f'/api/record/interactions/{self.interaction.id}/')
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+    
     def test_create_no_prereq(self):
         #should fail since respondent3 has no interaction realted to task
         self.client.force_authenticate(user=self.data_collector)

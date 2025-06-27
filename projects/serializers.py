@@ -42,11 +42,7 @@ class TaskSerializer(serializers.ModelSerializer):
     organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True)
     indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True)
     project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True)
-    parent_task = serializers.PrimaryKeyRelatedField(
-        queryset=Task.objects.all(),
-        required=False,   # optional
-        allow_null=True
-    )
+
     targets = serializers.SerializerMethodField()
 
     def get_targets(self, obj):
@@ -58,7 +54,7 @@ class TaskSerializer(serializers.ModelSerializer):
     class Meta:
         model=Task
         fields = ['id', 'indicator', 'organization', 'project', 'indicator_id', 
-                  'project_id', 'organization_id', 'parent_task', 'targets']
+                  'project_id', 'organization_id', 'targets']
 
 class ProjectDetailSerializer(serializers.ModelSerializer):
     tasks = TaskSerializer(many=True, read_only=True)

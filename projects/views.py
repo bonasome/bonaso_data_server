@@ -159,7 +159,7 @@ class TaskViewSet(RoleRestrictedViewSet):
 class ProjectViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
-    filterset_fields = ['client', 'start', 'end', 'status']
+    filterset_fields = ['client', 'start', 'end', 'status', 'indicators', 'organizations']
     ordering_fields = ['name','start', 'end', 'client']
     search_fields = ['name', 'description'] 
     queryset = Project.objects.none()

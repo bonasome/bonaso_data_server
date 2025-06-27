@@ -110,6 +110,27 @@ class RespondentViewSetTest(APITestCase):
         self.assertEqual(respondent.id_no,'1234')
         self.assertEqual(respondent.created_by, self.data_collector)
 
+
+    def test_create_duplicate(self):
+        self.client.force_authenticate(user=self.data_collector)
+        valid_payload_full = {
+            'is_anonymous':False,
+            'id_no': '1234567',
+            'first_name': 'Test',
+            'last_name': 'Testerson',
+            'dob': '2000-01-01',
+            'ward': 'Here',
+            'village': 'Place', 
+            'citizenship': 'Test',
+            'sex': Respondent.Sex.FEMALE,
+            'district': Respondent.District.CENTRAL,
+        }
+
+        response = self.client.post('/api/record/respondents/', valid_payload_full, format='json')
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertIn('existing_id', response.data)
+        self.assertEqual(int(response.data['existing_id']), self.respondent_full.id)
+
     def test_patch_respondent(self):
         #test basic patch operation
         valid_patch = {

@@ -9,7 +9,7 @@ from rest_framework.exceptions import PermissionDenied
 from users.restrictviewset import RoleRestrictedViewSet
 from rest_framework.decorators import action
 from indicators.models import Indicator, IndicatorSubcategory
-from indicators.serializers import IndicatorSerializer, IndicatorListSerializer
+from indicators.serializers import IndicatorSerializer, IndicatorListSerializer, ChartSerializer
 from projects.models import ProjectIndicator, Project
 from respondents.models import Interaction
 from rest_framework import status
@@ -69,7 +69,43 @@ class IndicatorViewSet(RoleRestrictedViewSet):
             queryset = queryset.filter(prerequisite__id = prereq_id)
         return queryset
     
+    @action(detail=False, methods=['get'], url_path='chart-data')
+    def chart_data(self, request):
+        queryset = self.get_queryset()
 
+        # Optional filters from query parameters
+        indicator_id = request.query_params.get('indicator')
+        organization_id = request.query_params.get('organization')
+        project_id = request.query_params.get('organization')
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+
+        if indicator_id:
+            queryset = queryset.filter(id=indicator_id)
+
+        if organization_id:
+            queryset = queryset.filter(interaction__organization__id=organization_id)
+        
+        if project_id:
+            queryset = queryset.filter(interaction__project__id=organization_id)
+
+        if start_date:
+            queryset = queryset.filter(interaction__interaction_date__gte=start_date)
+
+        if end_date:
+            queryset = queryset.filter(interaction__interaction_date__gte=end_date)
+
+        # Skip pagination
+        self.pagination_class = None
+        serializer = ChartSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def paginate_queryset(self, queryset):
+        # Disable pagination only for this specific action
+        if self.action == 'chart_data':
+            return None
+        return super().paginate_queryset(queryset)
+    
     def get_serializer_class(self):
         if self.action == 'list':
             return IndicatorListSerializer

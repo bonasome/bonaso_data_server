@@ -17,6 +17,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from rest_framework.permissions import AllowAny
 from datetime import timedelta
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
 
 User = get_user_model()
 
@@ -99,15 +100,17 @@ def current_user(request):
 
 @api_view(['POST'])
 def logout_view(request):
-    response = Response(
-        {'status': 'success', 'message': 'Logged out successfully'},
-        status=status.HTTP_200_OK
-    )
-    # These work fine without samesite/secure when deleting
-    response.delete_cookie('access_token', path='/')
-    response.delete_cookie('refresh_token', path='/')
-    logout(request)
-    return response
+    try:
+        refresh_token = request.data.get('refresh')
+        token = RefreshToken(refresh_token)
+        token.blacklist()
+        request.delete_cookie("access_token", path="/")
+        response = Response({"detail": "Logged out successfully."}, status=status.HTTP_205_RESET_CONTENT)
+        response.delete_cookie("access_token", path="/")
+        response.delete_cookie("refresh_token", path="/")
+        return response
+    except Exception as e:
+        return Response({"detail": "Invalid token or already blacklisted."}, status=status.HTTP_400_BAD_REQUEST)
 
 class ApplyForNewUser(APIView):
     permission_classes = [IsAuthenticated]

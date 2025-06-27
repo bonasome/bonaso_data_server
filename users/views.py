@@ -102,6 +102,8 @@ def current_user(request):
 @api_view(['POST'])
 def logout_view(request):
     refresh_token = request.COOKIES.get('refresh_token')
+    response.delete_cookie("access_token", path="/")
+    response.delete_cookie("refresh_token", path="/")
     if not refresh_token:
         return Response({"detail": "No refresh token found."}, status=400)
 
@@ -118,8 +120,6 @@ def logout_view(request):
             return Response({"detail": "Token already blacklisted."}, status=200)
 
         response = Response({"detail": "Logged out successfully."}, status=status.HTTP_205_RESET_CONTENT)
-        response.delete_cookie("access_token", path="/")
-        response.delete_cookie("refresh_token", path="/")
         return response
 
     except TokenError as e:

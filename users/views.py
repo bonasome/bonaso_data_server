@@ -99,9 +99,13 @@ def current_user(request):
 
 @api_view(['POST'])
 def logout_view(request):
-    response = Response({'status': 'success', 'message': 'Logged out successfully'}, status=status.HTTP_200_OK)
-    response.delete_cookie('access_token', samesite='None', secure=True, path='/')
-    response.delete_cookie('refresh_token', samesite='None', secure=True, path='/')
+    response = Response(
+        {'status': 'success', 'message': 'Logged out successfully'},
+        status=status.HTTP_200_OK
+    )
+    # These work fine without samesite/secure when deleting
+    response.delete_cookie('access_token', path='/')
+    response.delete_cookie('refresh_token', path='/')
     logout(request)
     return response
 

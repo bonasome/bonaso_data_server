@@ -19,7 +19,7 @@ from rest_framework.permissions import AllowAny
 from datetime import timedelta
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
 from django.http import HttpResponse
-
+from django.conf import settings
 User = get_user_model()
 
 import os
@@ -104,8 +104,8 @@ def logout_view(request):
     response = HttpResponse("Logged out successfully")
     cookie_args = {
         'path': '/',
-        'secure': not debug,
-        'samesite': 'None' if not debug else 'Lax',
+        'secure': not settings.DEBUG,
+        'samesite': 'None' if not settings.DEBUG else 'Lax',
     }
     response.delete_cookie('access_token', **cookie_args)
     response.delete_cookie('refresh_token', **cookie_args)

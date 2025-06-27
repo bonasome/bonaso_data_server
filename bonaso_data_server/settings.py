@@ -148,6 +148,8 @@ REST_FRAMEWORK = {
 SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
     'ROTATE_REFRESH_TOKENS': True,
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY,
 }
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/

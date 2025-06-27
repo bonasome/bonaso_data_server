@@ -18,6 +18,7 @@ from django.contrib.auth import authenticate
 from rest_framework.permissions import AllowAny
 from datetime import timedelta
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
+from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 
 User = get_user_model()
 
@@ -100,20 +101,31 @@ def current_user(request):
 
 @api_view(['POST'])
 def logout_view(request):
+    refresh_token = request.COOKIES.get('refresh_token')
+    if not refresh_token:
+        return Response({"detail": "No refresh token found."}, status=400)
+
     try:
-        refresh_token = request.COOKIES.get('refresh_token')
-        if not refresh_token:
-            return Response({"detail": "No refresh token found."}, status=400)
-        print(refresh_token)
         token = RefreshToken(refresh_token)
-        print('parsing', token)
-        token.blacklist()
+        # Try to blacklist the token if possible
+        try:
+            token.blacklist()
+        except AttributeError:
+            # Blacklisting app not enabled, ignore
+            pass
+        except TokenError:
+            # Already blacklisted – still return success
+            return Response({"detail": "Token already blacklisted."}, status=200)
+
         response = Response({"detail": "Logged out successfully."}, status=status.HTTP_205_RESET_CONTENT)
         response.delete_cookie("access_token", path="/")
-        response.delete_cookie("refresh_token", path="/")   
+        response.delete_cookie("refresh_token", path="/")
         return response
-    except Exception as e:
-        return Response({"detail": "Invalid token or already blacklisted."}, status=status.HTTP_400_BAD_REQUEST)
+
+    except TokenError as e:
+        return Response({"detail": "Invalid or expired refresh token."}, status=400)
+    except Exception:
+        return Response({"detail": "Logout failed."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class ApplyForNewUser(APIView):
     permission_classes = [IsAuthenticated]

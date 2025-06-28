@@ -30,6 +30,8 @@ import re
 from django.conf import settings
 import string
 from itertools import product
+from django.db import transaction
+import traceback
 
 from datetime import datetime, date
 today = date.today().isoformat()
@@ -150,13 +152,17 @@ class RespondentViewSet(RoleRestrictedViewSet):
             return Response({"detail": "Expected a list of respondents."}, status=400)
 
         created_ids = []
+        local_ids = []
         errors = []
         for i, item in enumerate(data):
             try:
                 sensitive_data = item.pop("sensitive_info", {})
                 interactions = item.pop("interactions", [])
 
-                existing = Respondent.objects.filter(id_no=item.get('id_no')).first()
+                id_no = item.get('id_no')
+                existing = None
+                if id_no is not None:
+                    existing = Respondent.objects.filter(id_no=id_no).first()
                 if existing:
                     respondent_serializer = RespondentSerializer(
                         existing, data=item, context={'request': request}, partial=True
@@ -180,32 +186,43 @@ class RespondentViewSet(RoleRestrictedViewSet):
                     sensitive_serializer.save(updated_by=request.user)
 
                 # Save interactions
-                for interaction in interactions:
-                    try:
-                        subcat_names = interaction.pop("subcategory_names", [])
-                        task_id = interaction.pop("task")
+                with transaction.atomic():
+                    for interaction in interactions:
                         try:
-                            task_instance = Task.objects.get(id=task_id)
-                        except Task.DoesNotExist:
-                            raise ValidationError({"task": f"Task with ID {task_id} not found"})
-                        interaction_obj = Interaction.objects.create(
-                            respondent=respondent,
-                            created_by=request.user,
-                            task=task_instance,
-                            **interaction
-                        )
-                        subcats = []
-                        for name in subcat_names:
-                            subcat, _ = IndicatorSubcategory.objects.get_or_create(name=name)
-                            subcats.append(subcat)
-                        interaction_obj.subcategories.set(subcats)
-                    except Exception as inter_err:
-                        errors.append({
-                            'respondent': respondent.id,
-                            'interaction_error': str(inter_err),
-                            'interaction_data': interaction
-                        })
-
+                            interaction_date = interaction.get('interaction_date')
+                            if not interaction_date:
+                                raise ValidationError({'interaction_date': 'Interaction date is required'})
+                            subcat_names = interaction.pop("subcategory_names", [])
+                            task_id = interaction.pop("task")
+                            try:
+                                task_instance = Task.objects.get(id=task_id)
+                            except Task.DoesNotExist:
+                                raise ValidationError({"task": f"Task with ID {task_id} not found"})
+                            existing = Interaction.objects.filter(respondent=respondent, created_by=request.user, task=task_instance, interaction_date=interaction_date).first()
+                            if existing:
+                                print('found existing interaction')
+                                interaction_obj = existing
+                            else:
+                                interaction_obj = Interaction.objects.create(
+                                respondent=respondent,
+                                created_by=request.user,
+                                task=task_instance,
+                                **interaction
+                            )
+                            subcats = []
+                            for name in subcat_names:
+                                subcat, _ = IndicatorSubcategory.objects.get_or_create(name=name)
+                                subcats.append(subcat)
+                            interaction_obj.subcategories.set(subcats)
+                        except Exception as inter_err:
+                            errors.append({
+                                'respondent': respondent.id,
+                                'interaction_error': str(inter_err),
+                                'interaction_traceback': traceback.format_exc(),
+                                'interaction_data': interaction
+                            })
+            
+                local_ids.append(item['local_id'])
                 created_ids.append(respondent.id)
 
             except ValidationError as ve:
@@ -224,6 +241,7 @@ class RespondentViewSet(RoleRestrictedViewSet):
         print(errors)
         return Response({
             "created_ids": created_ids,
+            "local_ids": local_ids,
             "errors": errors
         }, status=status.HTTP_207_MULTI_STATUS if errors else status.HTTP_201_CREATED)
     

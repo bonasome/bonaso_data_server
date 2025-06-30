@@ -107,10 +107,18 @@ class ChartSerializer(serializers.ModelSerializer):
     interactions = serializers.SerializerMethodField()
     targets = serializers.SerializerMethodField()
     subcategories = IndicatorSubcategorySerializer(many=True, read_only=True)
+    
     def get_interactions(self, obj):
+        organization_id = self.context.get('organization_id')
+        project_id = self.context.get('project_id')
         interactions = Interaction.objects.filter(task__indicator=obj).select_related(
             'respondent', 'task__organization'
-        ).prefetch_related(
+        )
+        if organization_id:
+            interactions = interactions.filter(task__organization__id=organization_id)
+        if project_id:
+            interactions = interactions.filter(task__project__id=project_id)
+        interactions.prefetch_related(
             'respondent__kp_status', 'respondent__disability_status', 'subcategories'
         )
         result = []
@@ -123,6 +131,7 @@ class ChartSerializer(serializers.ModelSerializer):
                     'kp_status': [kp.name for kp in interaction.respondent.kp_status.all()],
                     'disability_status': [d.name for d in interaction.respondent.disability_status.all()],
                     'citizenship': interaction.respondent.citizenship == 'Motswana',
+                    'district': interaction.respondent.district
                 },
                 'subcategories': [c.name for c in interaction.subcategories.all()],
                 'interaction_date': interaction.interaction_date,
@@ -134,7 +143,14 @@ class ChartSerializer(serializers.ModelSerializer):
             })
         return result   
     def get_targets(self, obj):
-        target_qs = Target.objects.filter(task__indicator=obj).select_related('task__organization')
+        target_qs = Target.objects.filter(task__indicator=obj)
+        organization_id = self.context.get('organization_id')
+        project_id = self.context.get('project_id')
+        if organization_id:
+            target_qs = target_qs.filter(task__organization__id=organization_id)
+        if project_id:
+            target_qs = target_qs.filter(task__project__id=project_id)
+        target_qs.select_related('task__organization')
         return [
             {
                 'id': t.id,

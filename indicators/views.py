@@ -68,7 +68,7 @@ class IndicatorViewSet(RoleRestrictedViewSet):
         if prereq_id:
             queryset = queryset.filter(prerequisite__id = prereq_id)
         return queryset
-    
+
     @action(detail=False, methods=['get'], url_path='chart-data')
     def chart_data(self, request):
         queryset = self.get_queryset()
@@ -76,28 +76,19 @@ class IndicatorViewSet(RoleRestrictedViewSet):
         # Optional filters from query parameters
         indicator_id = request.query_params.get('indicator')
         organization_id = request.query_params.get('organization')
-        project_id = request.query_params.get('organization')
+        project_id = request.query_params.get('project')
         start_date = request.query_params.get('start_date')
         end_date = request.query_params.get('end_date')
 
         if indicator_id:
             queryset = queryset.filter(id=indicator_id)
 
-        if organization_id:
-            queryset = queryset.filter(interaction__organization__id=organization_id)
-        
-        if project_id:
-            queryset = queryset.filter(interaction__project__id=organization_id)
-
-        if start_date:
-            queryset = queryset.filter(interaction__interaction_date__gte=start_date)
-
-        if end_date:
-            queryset = queryset.filter(interaction__interaction_date__gte=end_date)
+        queryset = queryset.distinct()
 
         # Skip pagination
         self.pagination_class = None
-        serializer = ChartSerializer(queryset, many=True)
+        print(organization_id)
+        serializer = ChartSerializer(queryset, context={'organization_id': organization_id, 'project_id': project_id}, many=True)
         return Response(serializer.data)
 
     def paginate_queryset(self, queryset):

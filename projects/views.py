@@ -46,6 +46,9 @@ class TaskViewSet(RoleRestrictedViewSet):
         org_param = self.request.query_params.get('organization')
         if org_param:
             queryset = queryset.filter(organization__id=org_param)
+        project_param = self.request.query_params.get('project')
+        if project_param:
+            queryset = queryset.filter(project__id=project_param)
 
         if role == 'admin':
             return queryset

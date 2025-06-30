@@ -106,10 +106,15 @@ def logout_view(request):
     # Only include samesite; secure is not supported by delete_cookie()
     samesite_policy = 'None' if not settings.DEBUG else 'Lax'
 
+    refresh_token = request.COOKIES.get('refresh_token')
+    token = RefreshToken(refresh_token)
+    token.blacklist()
+    
     response.delete_cookie('access_token', path='/', samesite=samesite_policy)
     response.delete_cookie('refresh_token', path='/', samesite=samesite_policy)
 
     logout(request)
+    
     return response
 
 class ApplyForNewUser(APIView):
@@ -118,7 +123,7 @@ class ApplyForNewUser(APIView):
         from organizations.models import Organization
         user = request.user
         if not user or user.role not in ['meofficer', 'manager', 'admin'] or not user.organization:
-            return Response({'detail': 'You do not have permission to perform this action.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'You do not have permission to perform this action.'}, status=status.HTTP_403_FORBIDDEN)
         data = request.data
         org_id = data.get('organization', user.organization.id)
         try:
@@ -127,7 +132,7 @@ class ApplyForNewUser(APIView):
             return Response({'detail': 'Organization not found.'}, status=400)
         if user.role != 'admin':
             if not (org == user.organization or org.parent_organization == user.organization):
-                return Response({'detail': 'You do not have permission to create this user.'}, status=400)
+                return Response({'detail': 'You do not have permission to create this user.'}, status=403)
         
         username = data.get('username')
         password = data.get('password')
@@ -136,7 +141,7 @@ class ApplyForNewUser(APIView):
             return Response({'detail': 'Insufficient information provided.'}, status=status.HTTP_400_BAD_REQUEST)
         
         if User.objects.filter(username=username).exists():
-            return Response({'detail': 'A user with that username already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'A user with that username already exists.'}, status=status.HTTP_409_CONFLICT)
         
         try:
             validate_password(password)
@@ -154,6 +159,30 @@ class ApplyForNewUser(APIView):
         )
         return Response({'message': 'User created successfuly. An admin will activate them shortly.', 'id': new_user.id}, status=status.HTTP_201_CREATED)
 
+class AdminResetPasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        print('request received')
+        admin_user = self.request.user
+        if admin_user.role != 'admin':
+            return Response({'detail': 'You do not have permission to perform this action.'}, status=status.HTTP_403_FORBIDDEN)
+        target_user_id = request.data.get('user_id')
+        new_password = request.data.get('new_password')
+
+        try:
+            user = User.objects.get(id=target_user_id)
+            try:
+                validate_password(new_password)
+            except ValidationError as e:
+                return Response({'errors': e.messages}, status=status.HTTP_400_BAD_REQUEST)
+            
+            user.set_password(new_password)
+            user.save()
+            return Response({'detail': 'Password reset successful.'}, status=status.HTTP_200_OK)
+        except User.DoesNotExist:
+            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        
 class MobileLoginView(TokenObtainPairView):
     permission_classes = [AllowAny]
     serializer_class = CustomMobileTokenSerializer

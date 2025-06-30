@@ -51,6 +51,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'django_filters',
     'django_extensions',
+    'djoser',
+    'rest_framework_simplejwt.token_blacklist',
 ]
 
 MIDDLEWARE = [
@@ -141,6 +143,10 @@ REST_FRAMEWORK = {
 
 SIMPLE_JWT = {
     'TOKEN_OBTAIN_SERIALIZER': 'users.serializers.CustomTokenObtainPairSerializer',
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
+    'TOKEN_BLACKLIST_ENABLED': True,
 }
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
@@ -180,4 +186,21 @@ LOGGING = {
             'level': 'INFO',
         },
     },
+}
+
+#dev only testing email
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'  # dev only
+DEFAULT_FROM_EMAIL = 'info@bonaso.org'
+
+
+DOMAIN = 'localhost:5173'
+
+DJOSER = {
+    'LOGIN_FIELD': 'email',
+    'SEND_ACTIVATION_EMAIL': False,
+    'PASSWORD_RESET_SHOW_EMAIL_NOT_FOUND': True,
+    'PASSWORD_RESET_CONFIRM_URL': 'users/reset-password-confirm/{uid}/{token}',
+    'HIDE_USERS': True,
+    # Optional: if you want to exclude registration/login
+    'DISABLE_ENDPOINTS': ['user', 'user_create', 'token_create', 'token_destroy'],
 }

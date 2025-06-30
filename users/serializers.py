@@ -30,3 +30,4 @@ class CustomMobileTokenSerializer(TokenObtainPairSerializer):
         token["organization_id"] = user.organization.id if user.organization else None
 
         return token
+

@@ -1,5 +1,5 @@
-from django.urls import path
-from .views import CookieTokenObtainPairView, CookieTokenRefreshView, ApplyForNewUser, MobileLoginView, current_user, logout_view, TestConnectionView
+from django.urls import path, include
+from .views import CookieTokenObtainPairView, CookieTokenRefreshView, ApplyForNewUser, MobileLoginView, current_user, logout_view, TestConnectionView, AdminResetPasswordView
 from rest_framework_simplejwt.views import (
     TokenRefreshView,
 )
@@ -12,5 +12,7 @@ urlpatterns = [
     path('me/', current_user),
     path('test-connection/', TestConnectionView.as_view(), name='test-connection'),
     path('logout/', logout_view),
-    path('create-user/', ApplyForNewUser.as_view(), name='create-user')
+    path('create-user/', ApplyForNewUser.as_view(), name='create-user'),
+    path('admin-reset-password/', AdminResetPasswordView.as_view(), name='admin-reset-password'),
+    path('manage/', include('djoser.urls')),
 ]

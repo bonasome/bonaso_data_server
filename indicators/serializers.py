@@ -31,10 +31,33 @@ class IndicatorSerializer(serializers.ModelSerializer):
         required=False, 
         allow_null=True,
     )
+    created_by = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
+
+    def get_created_by(self, obj):
+        print(obj.created_by)
+        if obj.created_by:
+            return {
+                "id": obj.created_by.id,
+                "username": obj.created_by.username,
+                "first_name": obj.created_by.first_name,
+                "last_name": obj.created_by.last_name,
+            }
+
+    def get_updated_by(self, obj):
+        if obj.updated_by:
+            return {
+                "id": obj.updated_by.id,
+                "username": obj.updated_by.username,
+                "first_name": obj.updated_by.first_name,
+                "last_name": obj.updated_by.last_name,
+            }
+        
     class Meta:
         model = Indicator
         fields = ['id', 'name', 'code', 'prerequisite', 'prerequisite_id', 'description', 'subcategories', 
-                  'subcategory_names', 'require_numeric', 'status']
+                  'subcategory_names', 'require_numeric', 'status', 'created_by', 'created_at', 
+                  'updated_by', 'updated_at']
 
     def validate(self, attrs):
         code = attrs.get('code', getattr(self.instance, 'code', None))

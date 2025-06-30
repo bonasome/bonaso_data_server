@@ -214,12 +214,34 @@ class SensitiveInfoSerializer(serializers.ModelSerializer):
 class RespondentSerializer(serializers.ModelSerializer):
     id_no = serializers.CharField(write_only=True, required=False, allow_blank=True, allow_null=True)
     dob = serializers.DateField(required=False, allow_null=True)
+    created_by = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
+
+    def get_created_by(self, obj):
+        print(obj.created_by)
+        if obj.created_by:
+            return {
+                "id": obj.created_by.id,
+                "username": obj.created_by.username,
+                "first_name": obj.created_by.first_name,
+                "last_name": obj.created_by.last_name,
+            }
+
+    def get_updated_by(self, obj):
+        if obj.updated_by:
+            return {
+                "id": obj.updated_by.id,
+                "username": obj.updated_by.username,
+                "first_name": obj.updated_by.first_name,
+                "last_name": obj.updated_by.last_name,
+            }
+        
     class Meta:
         model=Respondent
         fields = [
             'id','id_no', 'uuid', 'is_anonymous', 'first_name', 'last_name', 'sex', 'ward',
             'village', 'district', 'citizenship', 'comments', 'email', 'phone_number', 'dob',
-            'age_range', 'created_by', 'updated_by'
+            'age_range', 'created_by', 'updated_by', 'created_at', 'updated_at'
         ]
     def validate(self, attrs):
         id_no = attrs.get('id_no')
@@ -250,6 +272,13 @@ class RespondentSerializer(serializers.ModelSerializer):
             instance.save()  # Ensure changes are persisted
         return instance
 
+class SimpleInteractionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model=Interaction
+        fields = [
+            'id', 'interaction_date', 'flagged'
+        ]
+
 class InteractionSerializer(serializers.ModelSerializer):
     respondent = serializers.PrimaryKeyRelatedField(queryset=Respondent.objects.all())
     task = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True)
@@ -258,12 +287,33 @@ class InteractionSerializer(serializers.ModelSerializer):
     subcategory_names = serializers.ListField(
         child=serializers.CharField(), write_only=True, required=False
     )
-    created_by = serializers.PrimaryKeyRelatedField(read_only=True)
+    created_by = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
+
+    def get_created_by(self, obj):
+        print(obj.created_by)
+        if obj.created_by:
+            return {
+                "id": obj.created_by.id,
+                "username": obj.created_by.username,
+                "first_name": obj.created_by.first_name,
+                "last_name": obj.created_by.last_name,
+            }
+
+    def get_updated_by(self, obj):
+        if obj.updated_by:
+            return {
+                "id": obj.updated_by.id,
+                "username": obj.updated_by.username,
+                "first_name": obj.updated_by.first_name,
+                "last_name": obj.updated_by.last_name,
+            }
     class Meta:
         model=Interaction
         fields = [
             'id', 'respondent', 'subcategories','subcategory_names', 'task', 'task_detail',
-            'interaction_date', 'numeric_component', 'created_by', 'updated_by', 'comments', 'flagged',
+            'interaction_date', 'numeric_component', 'created_by', 'updated_by', 'created_at', 'updated_at',
+            'comments', 'flagged',
         ]
     
     def to_internal_value(self, data):

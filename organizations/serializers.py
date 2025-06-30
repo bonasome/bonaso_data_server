@@ -27,6 +27,28 @@ class OrganizationSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
     child_organizations = serializers.SerializerMethodField(read_only=True)
+    created_by = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
+
+    def get_created_by(self, obj):
+        print(obj.created_by)
+        if obj.created_by:
+            return {
+                "id": obj.created_by.id,
+                "username": obj.created_by.username,
+                "first_name": obj.created_by.first_name,
+                "last_name": obj.created_by.last_name,
+            }
+
+    def get_updated_by(self, obj):
+        if obj.updated_by:
+            return {
+                "id": obj.updated_by.id,
+                "username": obj.updated_by.username,
+                "first_name": obj.updated_by.first_name,
+                "last_name": obj.updated_by.last_name,
+            }
+        
     def get_child_organizations(self, obj):
         organizations = Organization.objects.filter(parent_organization=obj)
         return [{"id": org.id, "name": org.name} for org in organizations]
@@ -35,7 +57,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         model = Organization
         fields = ['id', 'name', 'full_name', 'parent_organization', 'parent_organization_id', 'office_address', 
                   'office_phone', 'office_email', 'executive_director', 'ed_phone', 'ed_email', 
-                  'child_organizations'
+                  'child_organizations', 'created_by', 'created_at', 'updated_by', 'updated_at'
                   ]
         
     def validate(self, attrs):

@@ -13,6 +13,7 @@ User = get_user_model()
 from organizations.serializers import OrganizationListSerializer
 from organizations.models import Organization
 
+
 class ProfileSerializer(serializers.ModelSerializer):
     organization = OrganizationListSerializer(read_only=True)
     organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True)

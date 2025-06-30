@@ -785,7 +785,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     email = email,
                     phone_number = phone_number,
                     comments = comments,
-                    created_by=respondent
+                    created_by=user
                 )
 
                 
@@ -971,14 +971,13 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     if interaction:
                         if interaction.interaction_date == interaction_date:
                             row_warnings.append(f'Interaction for respondent {respondent} and {task.indicator.code} column: {col}, row: {i} already exists.')
+                            interaction.updated_by = user
                     else:
                         interaction = Interaction.objects.create(interaction_date=interaction_date, respondent=respondent, task=task, created_by=user)
                     if task.indicator.require_numeric:
                         interaction.numeric_component = val
                     if task.indicator.subcategories.exists():
-                        print(current_subcats)
                         interaction.subcategories.set(current_subcats)
-                        print(interaction.subcategories.count())
                     interaction.save()
             errors.extend(row_errors)
             warnings.extend(row_warnings)

@@ -84,7 +84,7 @@ class ProfileViewSet(RoleRestrictedViewSet):
                     "action": "created",
                     "summary": f"Created respondent {r_label}",
                 })
-            if hasattr(ir, "updated_by") and ir.updated_by == profile_user:
+            if hasattr(r, "updated_by") and r.updated_by == profile_user:
                 feed.append({
                     "type": "respondent",
                     "id": r.id,
@@ -102,7 +102,7 @@ class ProfileViewSet(RoleRestrictedViewSet):
                     "action": "created",
                     "summary": f"Created indicator {ind.code}",
                 })
-            if hasattr(ir, "updated_by") and ir.updated_by == profile_user:
+            if hasattr(ind, "updated_by") and ind.updated_by == profile_user:
                 feed.append({
                     "type": "indicator",
                     "id": ind.id,
@@ -120,7 +120,7 @@ class ProfileViewSet(RoleRestrictedViewSet):
                     "action": "created",
                     "summary": f"Created organization {org.name}",
                 })
-            if hasattr(ir, "updated_by") and ir.updated_by == profile_user:
+            if hasattr(org, "updated_by") and org.updated_by == profile_user:
                 feed.append({
                     "type": "organization",
                     "id": org.id,
@@ -137,7 +137,7 @@ class ProfileViewSet(RoleRestrictedViewSet):
                     "action": "created",
                     "summary": f"Created project {project.name}",
                 })
-            if hasattr(ir, "updated_by") and ir.updated_by == profile_user:
+            if hasattr(project, "updated_by") and project.updated_by == profile_user:
                 feed.append({
                     "type": "respondent",
                     "id": project.id,
@@ -164,7 +164,7 @@ class ProfileViewSet(RoleRestrictedViewSet):
                     "action": "created",
                     "summary": f"Created target {target.task.indicator.name} for {target.task.organization.name}",
                 })
-            if hasattr(ir, "updated_by") and ir.updated_by == profile_user:
+            if hasattr(target, "updated_by") and target.updated_by == profile_user:
                 feed.append({
                     "type": "target",
                     "id": target.id,

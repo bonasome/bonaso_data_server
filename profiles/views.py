@@ -16,7 +16,7 @@ from respondents.models import Interaction, Respondent
 from organizations.models import Organization
 from indicators.models import Indicator
 from projects.models import Project, Task, Target
-
+from uploads.models import NarrativeReport
 from django.utils import timezone
 from datetime import datetime, timedelta
 from respondents.serializers import SimpleInteractionSerializer
@@ -54,6 +54,7 @@ class ProfileViewSet(RoleRestrictedViewSet):
         projects = Project.objects.filter(Q(created_by=profile_user) | Q(updated_by=profile_user))
         tasks = Task.objects.filter(created_by=profile_user)
         targets = Target.objects.filter(Q(created_by=profile_user) | Q(updated_by=profile_user))
+        nr = NarrativeReport.objects.filter(uploaded_by = profile_user)
         feed = []
         for ir in interactions:
             r_label = (f'{ir.respondent.first_name} {ir.respondent.last_name}') if not ir.respondent.is_anonymous else f'Anonymous respondent {ir.respondent.uuid}'
@@ -61,6 +62,7 @@ class ProfileViewSet(RoleRestrictedViewSet):
                 feed.append({
                     "type": "interaction",
                     "id": ir.id,
+                    "respondent": ir.respondent.id,
                     "date": ir.created_at,
                     "action": "created",
                     "summary": f"Created interaction for {ir.task.indicator.code} with {r_label}",
@@ -131,7 +133,7 @@ class ProfileViewSet(RoleRestrictedViewSet):
         for project in projects:
             if project.created_by == profile_user:
                 feed.append({
-                    "type": "respondent",
+                    "type": "project",
                     "id": project.id,
                     "date": project.created_at,
                     "action": "created",
@@ -139,7 +141,7 @@ class ProfileViewSet(RoleRestrictedViewSet):
                 })
             if hasattr(project, "updated_by") and project.updated_by == profile_user:
                 feed.append({
-                    "type": "respondent",
+                    "type": "project",
                     "id": project.id,
                     "date": project.updated_at,
                     "action": "updated",
@@ -147,9 +149,10 @@ class ProfileViewSet(RoleRestrictedViewSet):
                 })
         for task in tasks:
             feed.append({
-                "type": "respondent",
+                "type": "task",
                 "id": task.id,
                 "action": "created",
+                "project": task.project.id,
                 "date": task.created_at,
                 "action": "created",
                 "summary": f"Created task {task.indicator.name} for {task.organization.name}",
@@ -161,6 +164,7 @@ class ProfileViewSet(RoleRestrictedViewSet):
                     "type": "target",
                     "id": target.id,
                     "date": target.created_at,
+                    "project": target.task.project.id,
                     "action": "created",
                     "summary": f"Created target {target.task.indicator.name} for {target.task.organization.name}",
                 })
@@ -169,10 +173,20 @@ class ProfileViewSet(RoleRestrictedViewSet):
                     "type": "target",
                     "id": target.id,
                     "date": target.updated_at,
+                    "project": target.task.project.id,
                     "action": "updated",
                     "summary": f"Updated target {target.task.indicator.name} for {target.task.organization.name}",
                 })
-
+        for r in nr:
+            feed.append({
+                "type": "narrative_report",
+                "id": r.id,
+                "action": "created",
+                "project": r.project.id,
+                "date": r.created_at,
+                "action": "created",
+                "summary": f"Uploaded report {r.title}",
+            })
         # Sort descending by date
         feed.sort(key=lambda x: x['date'], reverse=True)
         if search_term:

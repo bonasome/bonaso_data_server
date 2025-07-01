@@ -67,7 +67,7 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
 
     def get_organizations(self, obj):
         user = self.context['request'].user
-        if user.role == 'admin':
+        if user.role == 'admin' or user.role=='client':
             queryset = obj.organizations.all()
         else:
             org = user.organization
@@ -78,7 +78,7 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
 
     def get_indicators(self, obj):
         user = self.context['request'].user
-        if user.role == 'admin':
+        if user.role == 'admin' or user.role == 'client':
             queryset = obj.indicators.all()
         else:
             org = user.organization
@@ -202,9 +202,9 @@ class TargetSerializer(serializers.ModelSerializer):
         
         user = self.context['request'].user
         if user.role not in ['meofficer', 'manager', 'admin']:
-            raise serializers.ValidationError("You do not have permission to create targets.")
+            raise PermissionDenied("You do not have permission to create targets.")
         if user.role != 'admin' and org.parent_organization.id != user.organization_id:
-            raise serializers.ValidationError("You may only assign tasks to your child organizations.")
+            raise PermissionDenied("You may only assign targets to your child organizations.")
         
         related = attrs.get('related_to')
         if not task:

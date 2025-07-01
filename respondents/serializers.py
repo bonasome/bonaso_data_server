@@ -244,6 +244,11 @@ class RespondentSerializer(serializers.ModelSerializer):
             'age_range', 'created_by', 'updated_by', 'created_at', 'updated_at'
         ]
     def validate(self, attrs):
+        user = self.context['request'].user
+        role = getattr(user, 'role', None)
+        if role == 'client':
+            raise PermissionDenied("You do not have permission to make edits to interactions.")
+        
         id_no = attrs.get('id_no')
         if id_no:
             if self.instance:
@@ -325,6 +330,8 @@ class InteractionSerializer(serializers.ModelSerializer):
     def validate(self, data):
         from organizations.models import Organization
         user = self.context['request'].user
+        if user.role == 'client':
+                raise PermissionDenied('You do not have permission to perform this action.')
         task = data.get('task') or getattr(self.instance, 'task', None)
         respondent = data.get('respondent') or getattr(self.instance, 'respondent', None)
         subcategory_names = data.get('subcategory_names', [])
@@ -333,9 +340,11 @@ class InteractionSerializer(serializers.ModelSerializer):
         role = getattr(user, 'role', None)
         org = getattr(user, 'organization', None)
 
+        if role == 'client':
+            raise PermissionDenied("You do not have permission to make edits to interactions.")
         if role != 'admin':
             if not org:
-                raise serializers.ValidationError("User must belong to an organization.")
+                raise PermissionDenied("User must belong to an organization.")
 
             # Ensure the task is part of the user's org or child orgs
             if role in ['meofficer', 'manager']:
@@ -423,6 +432,7 @@ class InteractionSerializer(serializers.ModelSerializer):
             for name in subcategory_names
         ]
         interaction.subcategories.set(subcategories)
+        
         return interaction
     
     def update(self, instance, validated_data):

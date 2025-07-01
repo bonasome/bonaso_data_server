@@ -21,7 +21,8 @@ class TargetViewSetTest(APITestCase):
         self.officer = User.objects.create_user(username='meofficer', password='testpass', role='meofficer')
         self.data_collector = User.objects.create_user(username='data_collector', password='testpass', role='data_collector')
         self.view_user = User.objects.create(username='uninitiated', password='testpass', role='view_only')
-
+        
+        self.client_user = User.objects.create_user(username='client', password='testpass', role='client')
         #set up a parent/child org and an unrelated org
         self.parent_org = Organization.objects.create(name='Parent')
         self.child_org = Organization.objects.create(name='Child', parent_organization=self.parent_org)
@@ -34,9 +35,13 @@ class TargetViewSetTest(APITestCase):
         self.data_collector.organization = self.parent_org
         self.view_user.organization = self.parent_org
 
+        self.client_user.organization = self.other_org
+
         #set up a client
         self.client_obj = Client.objects.create(name='Test Client', created_by=self.admin)
         self.other_client_obj = Client.objects.create(name='Loser Client', created_by=self.admin)
+
+        self.client_user.client_organization = self.client_obj
 
         self.project = Project.objects.create(
             name='Alpha Project',
@@ -92,6 +97,13 @@ class TargetViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 2)
     
+    def test_target_client_view(self):
+        #admins should be able to view all targets
+        self.client.force_authenticate(user=self.client_user)
+        response = self.client.get('/api/manage/targets/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 3)
+
     def test_target_create_admin(self):
         #admins should be allowed to create targets with either or the payloads below
         self.client.force_authenticate(user=self.admin)
@@ -148,6 +160,15 @@ class TargetViewSetTest(APITestCase):
         }
         response = self.client.patch(f'/api/manage/targets/{self.other_target.id}/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+    
+    def test_task_patch_client(self):
+        self.client.force_authenticate(user=self.client_user)
+        valid_payload = {
+            'amount': 70,
+        }
+        response = self.client.patch(f'/api/manage/targets/{self.other_target.id}/', valid_payload, format='json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
     
     def test_target_delete_admin(self):
         #admins should be allowed to delete a target

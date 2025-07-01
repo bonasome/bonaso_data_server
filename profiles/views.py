@@ -245,6 +245,14 @@ class ProfileViewSet(RoleRestrictedViewSet):
             {"detail": "Deleting users is not allowed. Mark them as inactive instead."},
             status=status.HTTP_405_METHOD_NOT_ALLOWED
         )
+    @action(detail=False, methods=['get'], url_path='meta')
+    def filter_options(self, request):
+        roles = [r for r, _ in User.Role.choices]
+        role_labels = [d.label for d in User.Role]
+        return Response({
+            'roles': roles,
+            'role_labels': role_labels,
+        })
 
 class FavoriteTaskViewSet(RoleRestrictedViewSet):
     serializer_class = FavoriteTaskSerializer

@@ -22,6 +22,7 @@ class TaskViewSetTest(APITestCase):
         self.data_collector = User.objects.create_user(username='data_collector', password='testpass', role='data_collector')
         self.view_user = User.objects.create(username='uninitiated', password='testpass', role='view_only')
 
+        self.client_user = User.objects.create_user(username='client', password='testpass', role='client')
         #set up a parent/child org and an unrelated org
         self.parent_org = Organization.objects.create(name='Parent')
         self.child_org = Organization.objects.create(name='Child', parent_organization=self.parent_org)
@@ -33,11 +34,13 @@ class TaskViewSetTest(APITestCase):
         self.officer.organization = self.child_org
         self.data_collector.organization = self.parent_org
         self.view_user.organization = self.parent_org
+        self.client_user.organization = self.other_org
 
         #set up a client
         self.client_obj = Client.objects.create(name='Test Client', created_by=self.admin)
         self.other_client_obj = Client.objects.create(name='Loser Client', created_by=self.admin)
 
+        self.client_user.client_organization = self.client_obj
         self.project = Project.objects.create(
             name='Alpha Project',
             client=self.client_obj,
@@ -84,6 +87,13 @@ class TaskViewSetTest(APITestCase):
         response = self.client.get('/api/manage/tasks/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 1)
+    
+    def test_task_client_view(self):
+        #admins should be able to view all tasks
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get('/api/manage/tasks/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 3)
     
     def test_task_create_admin(self):
         self.client.force_authenticate(user=self.admin)
@@ -174,6 +184,17 @@ class TaskViewSetTest(APITestCase):
     def test_task_assign_other(self):
         #but not any others
         self.client.force_authenticate(user=self.manager)
+        valid_payload = {
+            'organization_id': self.other_org.id,
+            'indicator_id': self.child_indicator.id,
+            'project_id': self.project.id,
+        }
+        response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+    
+    def test_task_assign_client(self):
+        #but not any others
+        self.client.force_authenticate(user=self.client_user)
         valid_payload = {
             'organization_id': self.other_org.id,
             'indicator_id': self.child_indicator.id,

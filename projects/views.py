@@ -41,6 +41,7 @@ class TaskViewSet(RoleRestrictedViewSet):
         user = self.request.user
         role = getattr(user, 'role', None)
         user_org = getattr(user, 'organization', None)
+        user_client = getattr(user, 'client_organization', None)
         queryset = Task.objects.all()
 
         org_param = self.request.query_params.get('organization')
@@ -54,6 +55,8 @@ class TaskViewSet(RoleRestrictedViewSet):
             return queryset
         elif role in ['meofficer', 'manager'] and user_org:
             return queryset.filter(Q(organization=user_org) | Q(organization__parent_organization=user_org), project__status=Project.Status.ACTIVE)
+        elif role in ['client'] and user_client:
+            return queryset.filter(project__client=user_client)
         elif role in ['data_collector'] and user_org:
             return queryset.filter(organization=user_org, project__status=Project.Status.ACTIVE)
         else:
@@ -178,14 +181,16 @@ class ProjectViewSet(RoleRestrictedViewSet):
         user = self.request.user
         role = getattr(user, 'role', None)
         org = getattr(user, 'organization', None)
-
+        client_org = getattr(user, 'client_organization', None)
+        print('client', client_org, role)
         if role == 'admin':
             queryset = Project.objects.all()
             status = self.request.query_params.get('status')
             if status:
                 queryset = queryset.filter(status=status)
             return queryset
-
+        elif role == 'client' and client_org:
+            return Project.objects.filter(client=client_org)
         elif role and org:
             return Project.objects.filter(organizations=org, status=Project.Status.ACTIVE)
 
@@ -372,11 +377,14 @@ class TargetViewSet(RoleRestrictedViewSet):
         user = self.request.user
         role = getattr(user, 'role', None)
         org = getattr(user, 'organization', None)
+        client_org = getattr(user, 'client_organization', None)
         if not role or not org:
             return Target.objects.none()
         
         if role == 'admin':
             queryset= Target.objects.all()
+        elif role == 'client' and client_org:
+            queryset= Target.objects.filter(task__project__client = client_org)
         else:
             queryset= Target.objects.filter(Q(task__organization=org) | Q(task__organization__parent_organization=org))
             queryset = queryset.filter(task__project__status=Project.Status.ACTIVE)
@@ -422,252 +430,3 @@ class TargetViewSet(RoleRestrictedViewSet):
 class ClientViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = ClientSerializer
-
-
-'''
-class CreateProject(APIView):
-    permission_classes = [IsAuthenticated]
-    def post(self, request):
-        messages = []
-        user=request.user
-        data = json.loads(request.body)
-        form = data['formData']
-
-        name = form['name']
-        status = form['status']
-        clientID = form['client']
-        desc = form['description']
-        start = form['start']
-        end = form['end']
-        #codes should be unique so check if one exists
-        checkName = Project.objects.filter(name=name)
-        if checkName:
-            messages.append(f'A project with name {name} already exists. Please give this project a new unqiue one.')
-        #client (if provided) should be a valid client instance
-
-        client=None
-        if clientID != '':
-            client = Client.objects.filter(id=clientID).first()
-            if not client:
-                messages.append(f'The client provided is not a valid client instance. Please double check this field.')
-         
-        #confirm date values are dates
-        try:
-            datetime.strptime(start, '%Y-%m-%d')
-        except ValueError:
-            messages.append(f'Project start date is not a valid date. Please double check this field.')
-        try:
-            datetime.strptime(end, '%Y-%m-%d')
-        except ValueError:
-            messages.append(f'Project end date is not a valid date. Please double check this field.')
-        
-        if start >= end:
-            messages.append(f'Project end date must be after its start date. Plese double check that start and end dates were filled in correctly.')
-        if len(messages) > 0:
-            return JsonResponse({'status': 'warning', 'message': messages })
-        
-        project = Project(name=name, status=status, description=desc, client=client, start=start, end=end, created_by=user)
-        project.save()
-
-        return JsonResponse({'status': 'success', 'redirect_id': project.id})
-
-class GetModelInfo(APIView):
-    permission_classes = [IsAuthenticated]
-    def get(self, request):
-        clients = Client.objects.all()
-        clientLabels = []
-        clientValues = []
-        for client in clients:
-            clientLabels.append(client.name)
-            clientValues.append(client.id)
-        statusLabels = []
-        statusValues = []
-        for value, label in Project.status.field.choices:
-            statusValues.append(value)
-            statusLabels.append(label)
-        data = {
-            'values': {
-                'status': statusValues,
-                'clients': clientValues,
-            },
-            'labels': {
-                'status': statusLabels,
-                'clients': clientLabels,
-            }
-        }
-
-        return JsonResponse(data, safe=False)
-    
-class AddProjectIndicator(APIView):
-    permission_classes = [IsAuthenticated]
-    def post(self, request):
-        from indicators.models import Indicator
-        messages = []
-        user=request.user
-        if user.role != 'admin':
-            return
-        data = json.loads(request.body)
-        print(data)
-        indicatorID = data['indicator']
-        projectID = data['project']
-        indicator = Indicator.objects.filter(id=indicatorID).first()
-        project = Project.objects.filter(id=projectID).first()
-        if not indicator:
-            return
-        checkInProject = ProjectIndicator.objects.filter(indicator=indicator, project=project).first()
-        if checkInProject:
-            messages.append(f'Indicator is already in project.')
-            return JsonResponse({'status': 'warning', 'message': messages })
-        projectInd = ProjectIndicator(project=project, indicator=indicator)
-        projectInd.save()
-        return JsonResponse({'status': 'success', 'message': [f'Indicator {indicator.code} added to project!']})
-
-class AddProjectOrg(APIView):
-    permission_classes = [IsAuthenticated]
-    def post(self, request):
-        from organizations.models import Organization
-        messages = []
-        user=request.user
-        if user.role != 'admin':
-            return
-        data = json.loads(request.body)
-        print(data)
-        orgID = data['organization']
-        projectID = data['project']
-        org = Organization.objects.filter(id=orgID).first()
-        project = Project.objects.filter(id=projectID).first()
-        if not org:
-            return
-        checkInProject = ProjectOrganization.objects.filter(organization=org, project=project).first()
-        if checkInProject:
-            messages.append(f'Organization is already in project.')
-            return JsonResponse({'status': 'warning', 'message': messages })
-        projectOrg = ProjectOrganization(project=project, organization=org)
-        projectOrg.save()
-        return JsonResponse({'status': 'success', 'message': [f'Organizaton {org.name} added to project!']})
-    
-class AddTask(APIView):
-    permission_classes = [IsAuthenticated]
-    def post(self, request):
-        from organizations.models import Organization
-        from indicators.models import Indicator
-        messages = []
-        user=request.user
-        if user.role != 'admin':
-            return
-        data = json.loads(request.body)
-        print(data)
-        indicatorCode = data['indicator']
-        orgID = data['organization']
-        projectID = data['project']
-        indicator = Indicator.objects.filter(code=indicatorCode).first()
-        org = Organization.objects.filter(id=orgID).first()
-        project = Project.objects.filter(id=projectID).first()
-
-        if not org or not project or not indicator:   
-            return
-        checkInProject = Task.objects.filter(organization=org, project=project, indicator=indicator).first()
-        if checkInProject:
-            messages.append(f'Task already assigned.')
-            return JsonResponse({'status': 'warning', 'message': messages })
-        task = Task(project=project, organization=org, indicator=indicator)
-        task.save()
-        return JsonResponse({'status': 'success', 'message': [f'Indicator {indicator.code} assigned to {org.name} for project!']})
-
-class ProjectTasks(APIView):
-    permission_classes = [IsAuthenticated]
-    def get(self, request, pk):
-        from respondents.models import Interaction
-        user = self.request.user
-        if user.role != 'admin':
-            return
-        tasks = Task.objects.filter(project_id=pk).order_by('organization')
-        interactions = Interaction.objects.filter(task__in=tasks).order_by('task')
-        targets = Target.objects.filter(task__in=tasks).order_by('task')
-        data = {}
-
-        for task in tasks:
-            orgID = task.organization.id
-            if orgID not in data:
-                data[orgID] = {
-                    'id': orgID,
-                    'name': task.organization.name,
-                    'tasks': {}
-                }
-
-            indicatorID = task.indicator.id
-            if indicatorID not in data[orgID]['tasks']:
-                data[orgID]['tasks'][indicatorID] = {
-                    'task': task.id,
-                    'id': indicatorID,
-                    'code': task.indicator.code,
-                    'name': task.indicator.name,
-                    'interactions': [],
-                    'targets': []
-                }
-        for interaction in interactions:
-            orgID = interaction.task.organization.id
-            indicatorID = interaction.task.indicator.id
-            data[orgID]['tasks'][indicatorID]['interactions'].append({
-                'id': interaction.id,
-                'respondent': interaction.respondent.id,
-                'date': interaction.interaction_date,
-                'category_id': interaction.subcategory.id if interaction.subcategory else None,
-                'category_name': interaction.subcategory.name if interaction.subcategory else None,
-            })
-        print(targets)
-        for target in targets:
-            orgID = target.task.organization.id
-            indicatorID = interaction.task.indicator.id
-            data[orgID]['tasks'][indicatorID]['targets'].append({
-                'id': target.id,
-                'amount': target.amount,
-                'start': target.start,
-                'end': target.end,
-            })
-        for org in data.values():
-            org['tasks'] = list(org['tasks'].values())
-
-        return JsonResponse({'organizations': list(data.values())}, safe=False)
-            
-
-
-#this is the view the lay user uses to access tasks
-class MyTasks(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        user = self.request.user
-        org = user.organization
-        tasks = Task.objects.filter(organization=org)
-        projects = Project.objects.filter(organization=org, status='Active')
-        print(projects)
-        data = {
-            'projects': [],
-        }
-        project_map = {}
-
-        for project in projects:
-            proj_data = {
-                'id': project.id,
-                'name': project.name,
-                'indicators': [],
-            }
-            data['projects'].append(proj_data)
-            project_map[project.id] = proj_data
-
-        # Attach indicators by project
-        for task in tasks:
-            project_id = task.project.id
-            if project_id in project_map:
-                indicator = task.indicator
-                project_map[project_id]['indicators'].append({
-                    'task': task.id,
-                    'id': indicator.id,
-                    'code': indicator.code,
-                    'name': indicator.name,
-                    'description': indicator.description,
-                })
-        print(data)
-        return JsonResponse(data, safe=False)
-'''

@@ -19,12 +19,13 @@ class RespondentViewSetTest(APITestCase):
         self.admin = User.objects.create_user(username='testuser', password='testpass', role='admin')
         self.officer = User.objects.create_user(username='testuser2', password='testpass', role='meofficer')
         self.data_collector = User.objects.create_user(username='data_collector', password='testpass', role='data_collector')
-        
+        self.client_user = User.objects.create_user(username='client', password='testpass', role='client')
         self.org = Organization.objects.create(name='Test Org')
         
         self.admin.organization = self.org
         self.officer.organization = self.org
         self.data_collector.organization = self.org
+        self.client_user.organization = self.org
 
         self.respondent_anon= Respondent.objects.create(
             is_anonymous=True,
@@ -51,6 +52,13 @@ class RespondentViewSetTest(APITestCase):
     def test_respondent_list_view(self):
         #make sure respondents list returns all respondents
         self.client.force_authenticate(user=self.admin)
+        response = self.client.get('/api/record/respondents/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 2)
+    
+    def test_respondent_client_list_view(self):
+        #make sure respondents list returns all respondents
+        self.client.force_authenticate(user=self.client_user)
         response = self.client.get('/api/record/respondents/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 2)
@@ -206,7 +214,29 @@ class RespondentViewSetTest(APITestCase):
         response = self.client.delete(f'/api/record/respondents/{self.respondent_full.id}/')
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
 
+    def test_create_respondent_client(self):
+        #test creating both anonymous and full respondent_anonprofiles
+        self.client.force_authenticate(user=self.client_user)
+        valid_payload_anon = {
+            'is_anonymous':True,
+            'age_range': Respondent.AgeRanges.ET_24,
+            'village': 'Here', 
+            'citizenship': 'Test',
+            'sex': Respondent.Sex.FEMALE,
+            'district': Respondent.District.CENTRAL,
+        }
 
+        response = self.client.post('/api/record/respondents/', valid_payload_anon, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_patch_respondent_client(self):
+        #test basic patch operation
+        valid_patch = {
+            'ward': 'There'
+        }
+        self.client.force_authenticate(user=self.client_user)
+        response = self.client.patch(f'/api/record/respondents/{self.respondent_full.id}/', valid_patch, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
 class SensitiveInfoViewSetTest(APITestCase):
@@ -216,12 +246,13 @@ class SensitiveInfoViewSetTest(APITestCase):
         self.admin = User.objects.create_user(username='testuser', password='testpass', role='admin')
         self.officer = User.objects.create_user(username='testuser2', password='testpass', role='meofficer')
         self.data_collector = User.objects.create_user(username='data_collector', password='testpass', role='data_collector')
-        
+        self.client_user = User.objects.create_user(username='client', password='testpass', role='client')
         self.org = Organization.objects.create(name='Test Org')
         
         self.admin.organization = self.org
         self.officer.organization = self.org
         self.data_collector.organization = self.org
+        self.client_user.organization = self.org
 
         self.respondent_anon= Respondent.objects.create(
             is_anonymous=True,
@@ -307,13 +338,24 @@ class SensitiveInfoViewSetTest(APITestCase):
         self.assertEqual(pregnancy.is_pregnant, False)
         self.assertEqual(pregnancy.term_ended, date.today())
 
+    def test_sensitive_info_client_patch(self):
+        #edit patch
+        self.client.force_authenticate(user=self.client_user)
+        valid_payload = {
+            'kp_status_names': ['MSM'],
+            'disability_status_names': ['VI', 'PD', 'SI'],
+        }
+        response = self.client.patch(f'/api/record/respondents/{self.respondent_anon.id}/sensitive-info/', valid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
 class RespondentBulkUploadTest(APITestCase):
     def setUp(self):
         self.user = User.objects.create_user(username='admin', password='pass', role='admin')
         self.client.force_authenticate(self.user)
-
+        self.client_user = User.objects.create_user(username='client', password='testpass', role='client')
         self.org = Organization.objects.create(name="Org")
-
+        self.client_user.organization = self.org
         self.user.organization = self.org
 
         self.project = Project.objects.create(name="Delta Project", start='2024-01-01', end='2025-12-31')
@@ -377,3 +419,38 @@ class RespondentBulkUploadTest(APITestCase):
         response = self.client.post(self.url, payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_207_MULTI_STATUS)
         self.assertEqual(len(response.data['errors']), 1)
+    
+    def test_bulk_client(self):
+        #edit patch
+        self.client.force_authenticate(user=self.client_user)
+        payload = [
+            {
+                "id_no": "123456",
+                "first_name": "Test",
+                "last_name": "User",
+                "dob": "2000-01-01",
+                "sex": "M",
+                "village": 'here',
+                "district": "Central",
+                "citizenship": "Motswana",
+                "is_anonymous": False,
+                "sensitive_info": {
+                    "hiv_positive": True,
+                    "date_positive": "2020-01-01"
+                },
+                "interactions": [
+                    {
+                        "interaction_date": '2025-05-01',
+                        "task": self.task.id,
+                        "subcategory_names": ["foo", "bar"]
+                    },
+                    {
+                        "interaction_date": '2025-05-02',
+                        "task": self.task_num.id,
+                        "numeric_component": 12
+                    }
+                ]
+            }
+        ]
+        response = self.client.post(self.url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

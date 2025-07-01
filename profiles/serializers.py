@@ -4,8 +4,8 @@ from profiles.models import FavoriteProject, FavoriteRespondent, FavoriteTask
 from respondents.serializers import RespondentSerializer
 from respondents.models import Respondent
 
-from projects.serializers import TaskSerializer, ProjectDetailSerializer
-from projects.models import Task, Project
+from projects.serializers import TaskSerializer, ProjectDetailSerializer, ClientSerializer
+from projects.models import Task, Project, Client
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -17,9 +17,11 @@ from organizations.models import Organization
 class ProfileSerializer(serializers.ModelSerializer):
     organization = OrganizationListSerializer(read_only=True)
     organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True)
+    client_organization = ClientSerializer(read_only=True)
+
     class Meta:
         model=User
-        fields = ['id', 'username', 'first_name', 'last_name', 'email','organization', 'organization_id', 'role', 'is_active']
+        fields = ['id', 'username', 'first_name', 'last_name', 'email','organization', 'organization_id', 'role', 'is_active', 'client_organization']
         read_only_fields = ['id']
 
     def get_fields(self):

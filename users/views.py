@@ -13,7 +13,7 @@ from django.core.exceptions import ValidationError
 from rest_framework import status
 from django.db.models import Q
 from django.contrib.auth import get_user_model
-from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 from django.contrib.auth import authenticate
 from rest_framework.permissions import AllowAny
 from datetime import timedelta
@@ -102,25 +102,29 @@ def current_user(request):
 @api_view(['POST'])
 def logout_view(request):
     response = HttpResponse("Logged out successfully")
-
-    # Only include samesite; secure is not supported by delete_cookie()
     samesite_policy = 'None' if not settings.DEBUG else 'Lax'
 
     refresh_token = request.COOKIES.get('refresh_token')
-    token = RefreshToken(refresh_token)
-    token.blacklist()
-    
+
+    if refresh_token:
+        try:
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+        except TokenError:
+            # Token is already blacklisted or invalid
+            pass
+
     response.delete_cookie('access_token', path='/', samesite=samesite_policy)
     response.delete_cookie('refresh_token', path='/', samesite=samesite_policy)
 
     logout(request)
-    
     return response
 
 class ApplyForNewUser(APIView):
     permission_classes = [IsAuthenticated]
     def post(self, request):
         from organizations.models import Organization
+        from projects.models import Client
         user = request.user
         if not user or user.role not in ['meofficer', 'manager', 'admin'] or not user.organization:
             return Response({'detail': 'You do not have permission to perform this action.'}, status=status.HTTP_403_FORBIDDEN)
@@ -147,7 +151,11 @@ class ApplyForNewUser(APIView):
             validate_password(password)
         except ValidationError as e:
             return Response({'detail': e.messages}, status=400)
-        
+        client_id = data.get('client_id')
+        if user.role=='admin' and client_id:
+            client = Client.objects.get(id=client_id)
+        else:
+            client = None
         new_user = User.objects.create_user(
             username=username,
             password=password,
@@ -156,6 +164,7 @@ class ApplyForNewUser(APIView):
             email=data.get('email', ''),
             organization=org,
             role='view_only',
+            client_organization=client,
         )
         return Response({'message': 'User created successfuly. An admin will activate them shortly.', 'id': new_user.id}, status=status.HTTP_201_CREATED)
 

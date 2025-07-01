@@ -56,7 +56,7 @@ class IndicatorViewSet(RoleRestrictedViewSet):
     def get_queryset(self):
         queryset = super().get_queryset() 
         user = self.request.user
-        if user.role != 'admin':
+        if user.role != 'admin' and user.role !='client':
             queryset = queryset.filter(status=Indicator.Status.ACTIVE)
             queryset = queryset.filter(
                 projectindicator__project__organizations__id=user.organization.id
@@ -87,7 +87,6 @@ class IndicatorViewSet(RoleRestrictedViewSet):
 
         # Skip pagination
         self.pagination_class = None
-        print(organization_id)
         serializer = ChartSerializer(queryset, context={'organization_id': organization_id, 'project_id': project_id}, many=True)
         return Response(serializer.data)
 

@@ -20,6 +20,7 @@ class ProjectViewSetTest(APITestCase):
         self.manager = User.objects.create_user(username='manager', password='testpass', role='manager')
         self.officer = User.objects.create_user(username='meofficer', password='testpass', role='meofficer')
         self.data_collector = User.objects.create_user(username='data_collector', password='testpass', role='data_collector')
+        self.client_user = User.objects.create_user(username='client', password='testpass', role='client')
         self.view_user = User.objects.create(username='uninitiated', password='testpass', role='view_only')
 
         #set up a parent/child org and an unrelated org
@@ -33,10 +34,13 @@ class ProjectViewSetTest(APITestCase):
         self.data_collector.organization = self.parent_org
         self.view_user.organization = self.parent_org
 
+        self.client_user.organization = self.other_org
+
         #set up a client
         self.client_obj = Client.objects.create(name='Test Client', created_by=self.admin)
         self.other_client_obj = Client.objects.create(name='Loser Client', created_by=self.admin)
 
+        self.client_user.client_organization = self.client_obj
         self.project = Project.objects.create(
             name='Alpha Project',
             client=self.client_obj,
@@ -58,6 +62,16 @@ class ProjectViewSetTest(APITestCase):
             created_by=self.admin,
         )
 
+        self.planned_project = Project.objects.create(
+            name='Beta Project',
+            client=self.other_client_obj,
+            status=Project.Status.PLANNED,
+            start='2024-02-01',
+            end='2024-10-31',
+            description='Third project',
+            created_by=self.admin,
+        )
+
         self.indicator = Indicator.objects.create(code='1', name='Parent')
         self.child_indicator = Indicator.objects.create(code='2', name='Child', prerequisite=self.indicator)
         self.not_in_project = Indicator.objects.create(code='3', name='Unrelated')
@@ -69,7 +83,7 @@ class ProjectViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.admin)
         response = self.client.get('/api/manage/projects/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 2)
+        self.assertEqual(len(response.data['results']), 3)
 
     def test_me_mgr_view(self):
         #meofficer or manager should see the one active project
@@ -77,6 +91,13 @@ class ProjectViewSetTest(APITestCase):
         response = self.client.get('/api/manage/projects/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 1)
+    
+    def test_client_view(self):
+        #meofficer or manager should see the one active project
+        self.client.force_authenticate(user=self.client_user)
+        response = self.client.get('/api/manage/projects/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 2)
     
     def test_no_orgs_match(self):
         #the meofficer from the child org is not in the project, so they should see nothing
@@ -138,7 +159,16 @@ class ProjectViewSetTest(APITestCase):
         response = self.client.patch(f'/api/manage/projects/{self.project.id}/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
     
-    def test_craeate_invalid_project(self):
+    def test_patch_client(self):
+        #no one else should be able to edit project details
+        self.client.force_authenticate(user=self.client_user)
+        valid_payload = {
+            'start': '2024-02-01',
+        }
+        response = self.client.patch(f'/api/manage/projects/{self.project.id}/', valid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+    
+    def test_create_invalid_project(self):
         #should trigger date error
         self.client.force_authenticate(user=self.admin)
         invalid_payload = {

@@ -134,12 +134,13 @@ class RespondentViewSet(RoleRestrictedViewSet):
     @action(detail=True, methods=['get', 'post', 'patch'], url_path='sensitive-info')
     def sensitive_info(self, request, pk=None):
         respondent = self.get_object()
-
         if request.method == 'GET':
             serializer = SensitiveInfoSerializer(respondent)
             return Response(serializer.data)
 
         elif request.method == 'POST' or request.method == 'PATCH':
+            if request.user.role == 'client':
+                raise PermissionDenied('You do not have permission to perform this action.')
             serializer = SensitiveInfoSerializer(respondent, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             serializer.save(updated_by=request.user)
@@ -147,6 +148,8 @@ class RespondentViewSet(RoleRestrictedViewSet):
         
     @action(detail=False, methods=['post'], url_path='bulk')
     def bulk_upload(self, request):
+        if request.user.role == 'client':
+                raise PermissionDenied('You do not have permission to perform this action.')
         data = request.data
         if not isinstance(data, list):
             return Response({"detail": "Expected a list of respondents."}, status=400)
@@ -297,6 +300,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
     @action(detail=False, methods=['post', 'patch'], url_path='batch')
     def batch_create(self, request):
+        if request.user.role == 'client':
+                raise PermissionDenied('You do not have permission to perform this action.')
         respondent_id = request.data.get('respondent')
         tasks = request.data.get('tasks', [])
         top_level_date = request.data.get('interaction_date')

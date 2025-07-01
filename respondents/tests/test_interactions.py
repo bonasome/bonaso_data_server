@@ -23,6 +23,8 @@ class InteractionViewSetTest(APITestCase):
         self.data_collector = User.objects.create_user(username='data_collector', password='testpass', role='data_collector')
         self.view_user = User.objects.create(username='uninitiated', password='testpass', role='view_only')
 
+        self.client_user = User.objects.create_user(username='client', password='testpass', role='client')
+
         #set up a parent/child org and an unrelated org
         self.parent_org = Organization.objects.create(name='Parent')
         self.child_org = Organization.objects.create(name='Child', parent_organization=self.parent_org)
@@ -32,10 +34,12 @@ class InteractionViewSetTest(APITestCase):
         self.manager.organization = self.parent_org
         self.officer.organization = self.child_org
         self.data_collector.organization = self.parent_org
+        self.client_user.organization = self.parent_org
 
         #set up a client
         self.client_obj = Client.objects.create(name='Test Client', created_by=self.admin)
         self.other_client_obj = Client.objects.create(name='Loser Client', created_by=self.admin)
+        self.client_user.client_organization = self.client_obj
 
         self.project = Project.objects.create(
             name='Alpha Project',
@@ -152,6 +156,18 @@ class InteractionViewSetTest(APITestCase):
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
     
+    def test_create_interaction_client(self):
+        #nor client
+        self.client.force_authenticate(user=self.client_user)
+        valid_payload = {
+            'task': self.child_task.id,
+            'interaction_date': '2025-06-15',
+            'respondent': self.respondent.id,
+        }
+        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_patch_interaction(self):
         #dc can patch own interactions
         self.client.force_authenticate(user=self.data_collector)
@@ -488,3 +504,29 @@ class InteractionViewSetTest(APITestCase):
         }, format='json')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+    
+    def test_bulk_create_client(self):
+        self.client.force_authenticate(user=self.client_user)
+        
+        ind_number = Indicator.objects.create(code='4', name='Numeric Ind', require_numeric=True)
+        ind_subcat = Indicator.objects.create(code='10', name='GimmeDemSubcats')
+        ind_subcat_prereq = Indicator.objects.create(code='11', name='GimmeDemSubcatsV2')
+        category = IndicatorSubcategory.objects.create(name='Cat 1')
+        category2 = IndicatorSubcategory.objects.create(name='Cat 2')
+        ind_subcat.subcategories.set([category, category2])
+        ind_subcat_prereq.subcategories.set([category, category2])
+        task_number = Task.objects.create(project=self.project, organization=self.parent_org, indicator=ind_number)
+        task_subcat = Task.objects.create(project=self.project, organization=self.parent_org, indicator=ind_subcat)
+        task_subcat_prereq = Task.objects.create(project=self.project, organization=self.parent_org, indicator=ind_subcat_prereq)
+        response = self.client.post('/api/record/interactions/batch/', {
+            'interaction_date': date(2025, 6, 1),
+            'respondent': self.respondent3.id,
+            'tasks': [
+                {'task': self.task.id},
+                {'task': task_number.id, 'numeric_component': 10},
+                {'task': task_subcat_prereq.id, 'subcategory_names': ['Cat 1', 'Cat 2']},
+                {'task': task_subcat.id, 'subcategory_names': ['Cat 1', 'Cat 2']}
+            ]
+        }, format='json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

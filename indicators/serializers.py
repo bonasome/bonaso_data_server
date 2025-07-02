@@ -107,6 +107,23 @@ class ChartSerializer(serializers.ModelSerializer):
     interactions = serializers.SerializerMethodField()
     targets = serializers.SerializerMethodField()
     subcategories = IndicatorSubcategorySerializer(many=True, read_only=True)
+    legend = serializers.SerializerMethodField()
+    legend_labels = serializers.SerializerMethodField()
+    def get_legend(self, obj):
+        legend = ['age_range', 'sex', 'kp_status', 'disability_status', 'citizenship', 'district']
+        if IndicatorSubcategory.objects.filter(indicator=obj).exists():
+            legend.append('subcategories')
+        if Target.objects.filter(task__indicator=obj).exists():
+            legend.append('targets')
+        return legend
+
+    def get_legend_labels(self, obj):
+        legend = ['Age Range', 'Sex', 'Key Population Status', 'Disability Status', 'Citizenship', 'District']
+        if IndicatorSubcategory.objects.filter(indicator=obj).exists():
+            legend.append('Subcategories')
+        if Target.objects.filter(task__indicator=obj).exists():
+            legend.append('vs. Targets')
+        return legend
     
     def get_interactions(self, obj):
         organization_id = self.context.get('organization_id')
@@ -165,5 +182,5 @@ class ChartSerializer(serializers.ModelSerializer):
     class Meta:
         model=Indicator
         fields = [
-            'id', 'interactions', 'targets', 'name', 'subcategories', 'require_numeric'
+            'id', 'interactions', 'targets', 'name', 'subcategories', 'require_numeric', 'legend', 'legend_labels'
         ]

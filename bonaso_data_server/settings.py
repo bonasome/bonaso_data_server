@@ -3,7 +3,7 @@ import os
 import dj_database_url
 from dotenv import load_dotenv
 import dj_database_url
-
+from datetime import timedelta
 """
 Django settings for bonaso_data_server project.
 
@@ -147,6 +147,8 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
     'TOKEN_BLACKLIST_ENABLED': True,
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=5),
+    'REFRESH_TOKEN_LIFETIME': timedelta(hours=8),
 }
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/

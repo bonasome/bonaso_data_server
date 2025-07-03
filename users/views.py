@@ -59,9 +59,9 @@ class CookieTokenObtainPairView(TokenObtainPairView):
 
 class CookieTokenRefreshView(TokenRefreshView):
     serializer_class = TokenRefreshSerializer
+
     def post(self, request, *args, **kwargs):
         refresh_token = request.COOKIES.get('refresh_token')
-        print(refresh_token)
         if not refresh_token:
             return Response({'detail': 'Refresh token missing.'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -72,20 +72,30 @@ class CookieTokenRefreshView(TokenRefreshView):
             return Response({'detail': 'Invalid refresh token.'}, status=status.HTTP_401_UNAUTHORIZED)
 
         access_token = serializer.validated_data.get('access')
-        response = Response()
-        
+        new_refresh_token = serializer.validated_data.get('refresh')
+
+        response = Response({'message': 'Access and refresh tokens refreshed.'})
+
         if access_token:
             response.set_cookie(
                 key='access_token',
                 value=access_token,
                 httponly=True,
-                secure=not debug, 
+                secure=not debug,
                 samesite='None' if not debug else 'Lax',
                 max_age=60 * 5
             )
-        
-        # Optional: return limited user data if needed
-        response.data = {'message': 'Access token refreshed.'}
+
+        if new_refresh_token:
+            response.set_cookie(
+                key='refresh_token',
+                value=new_refresh_token,
+                httponly=True,
+                secure=not debug,
+                samesite='None' if not debug else 'Lax',
+                max_age=60 * 60 * 8
+            )
+
         return response
 
 @api_view(['GET'])

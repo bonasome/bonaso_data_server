@@ -165,7 +165,7 @@ class ChartSerializer(serializers.ModelSerializer):
 
             # Pregnancy lookup
             pregnancy = any(
-                p.term_began <= interaction.interaction_date <= p.term_ended else date.today()
+                p.term_began <= interaction.interaction_date <= p.term_ended if p.term_ended else date.today()
                 for p in pregnancies_by_respondent.get(respondent.id, [])
             )
             result.append({

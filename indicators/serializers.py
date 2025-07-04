@@ -2,6 +2,7 @@ from rest_framework import serializers
 from indicators.models import Indicator, IndicatorSubcategory
 from projects.models import Target
 from respondents.models import Interaction
+from datetime import date
 
 class IndicatorSubcategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -110,7 +111,7 @@ class ChartSerializer(serializers.ModelSerializer):
     legend = serializers.SerializerMethodField()
     legend_labels = serializers.SerializerMethodField()
     def get_legend(self, obj):
-        legend = ['age_range', 'sex', 'kp_status', 'disability_status', 'citizenship', 'district', 'organization']
+        legend = ['age_range', 'sex', 'kp_status', 'disability_status', 'citizenship', 'district', 'organization', 'hiv_status', 'pregnant']
         if IndicatorSubcategory.objects.filter(indicator=obj).exists():
             legend.append('subcategories')
         if Target.objects.filter(task__indicator=obj).exists():
@@ -118,7 +119,7 @@ class ChartSerializer(serializers.ModelSerializer):
         return legend
 
     def get_legend_labels(self, obj):
-        legend = ['Age Range', 'Sex', 'Key Population Status', 'Disability Status', 'Citizenship', 'District', 'Organization']
+        legend = ['Age Range', 'Sex', 'Key Population Status', 'Disability Status', 'Citizenship', 'District', 'Organization', 'HIV Status', 'Is Pregnant']
         if IndicatorSubcategory.objects.filter(indicator=obj).exists():
             legend.append('Subcategories')
         if Target.objects.filter(task__indicator=obj).exists():
@@ -138,8 +139,35 @@ class ChartSerializer(serializers.ModelSerializer):
         interactions.prefetch_related(
             'respondent__kp_status', 'respondent__disability_status', 'subcategories'
         )
+
+        respondent_ids = {i.respondent_id for i in interactions}
+    
+        hiv_statuses = HIVStatus.objects.filter(respondent_id__in=respondent_ids)
+        pregnancies = Pregnancy.objects.filter(respondent_id__in=respondent_ids)
+
+        # Group by respondent_id for quick lookup
+        hiv_status_by_respondent = {}
+        for hs in hiv_statuses:
+            if hs and hs.date_positive:
+                hiv_status_by_respondent.setdefault(hs.respondent_id, []).append(hs)
+
+        pregnancies_by_respondent = {}
+        for p in pregnancies:
+            if p and p.term_began:
+                pregnancies_by_respondent.setdefault(p.respondent_id, []).append(p)
+
         result = []
         for interaction in interactions:
+            hiv_status = any(
+                hs.date_positive >= interaction.interaction_date
+                for hs in hiv_status_by_respondent.get(respondent.id, [])
+            )
+
+            # Pregnancy lookup
+            pregnancy = any(
+                p.term_began <= interaction.interaction_date <= p.term_ended else date.today()
+                for p in pregnancies_by_respondent.get(respondent.id, [])
+            )
             result.append({
                 'respondent': {
                     'id': interaction.respondent.id,
@@ -148,7 +176,9 @@ class ChartSerializer(serializers.ModelSerializer):
                     'kp_status': [kp.name for kp in interaction.respondent.kp_status.all()],
                     'disability_status': [d.name for d in interaction.respondent.disability_status.all()],
                     'citizenship': interaction.respondent.citizenship == 'Motswana',
-                    'district': interaction.respondent.district
+                    'district': interaction.respondent.district,
+                    'hiv_status': hiv_status,
+                    'pregnant': pregnancy,
                 },
                 'subcategories': [c.name for c in interaction.subcategories.all()],
                 'interaction_date': interaction.interaction_date,

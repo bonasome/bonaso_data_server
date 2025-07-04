@@ -42,7 +42,7 @@ class OrganizationViewSet(RoleRestrictedViewSet):
             return Organization.objects.none()
         parent_organization = self.request.query_params.get('parent_organization')
         if parent_organization:
-            queryset = queryset.filter(Q(parent_organization=org) | Q(id=org.id)).annotate(priority=Case(
+            queryset = queryset.filter(Q(parent_organization__id=parent_organization) | Q(id=parent_organization)).annotate(priority=Case(
                    When(pk=parent_organization, then=Value(0)),
                    default=Value(1),
                    output_field=IntegerField(),

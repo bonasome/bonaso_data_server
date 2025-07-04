@@ -297,7 +297,63 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)
+    
+    @action(detail=False, methods=['get'], url_path='flagged')
+    def get_flagged(self, request):
+        user = request.user
+        role = user.role
+        org = user.organization
 
+        # Start with flagged interactions
+        queryset = Interaction.objects.filter(flagged=True)
+
+        # Role-based filtering
+        if role == 'client':
+            raise PermissionDenied('You do not have permission to view this page.')
+        elif role in ['meofficer', 'manager']:
+            queryset = queryset.filter(
+                Q(task__organization=org) |
+                Q(task__organization__parent_organization=org)
+            )
+        elif role == 'data_collector':
+            queryset = queryset.filter(created_by=user)
+
+        project_id = request.query_params.get('project')
+        organization_id = request.query_params.get('organization')
+        indicator_id = request.query_params.get('indicator')
+        
+        if project_id:
+            queryset = queryset.filter(task__project__id = project_id)
+        if organization_id:
+            queryset = queryset.filter(task__organization__id = organization_id)
+        if indicator_id:
+            queryset = queryset.filter(task__indicator__id = indicator_id)
+
+        # Search filter (e.g., by respondent name or ID or comment)
+        search_term = request.query_params.get('search')
+        if search_term:
+            queryset = queryset.filter(
+                Q(respondent__first_name__icontains=search_term) |
+                Q(respondent__last_name__icontains=search_term) |
+                Q(respondent__village__icontains=search_term) |
+                Q(respondent__uuid__icontains=search_term) |
+                Q(comments__icontains=search_term) |
+                Q(task__indicator__name__icontains=search_term) |
+                Q(task__indicator__code__icontains=search_term) |
+                Q(task__organization__name__icontains=search_term) |
+                Q(task__project__name__icontains=search_term)
+            )
+
+        # Pagination
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = InteractionSerializer(page, many=True, context={'request': request})
+            return self.get_paginated_response(serializer.data)
+
+        # No pagination fallback
+        serializer = InteractionSerializer(queryset, many=True, context={'request': request})
+        return Response(serializer.data)
+    
     @action(detail=False, methods=['post', 'patch'], url_path='batch')
     def batch_create(self, request):
         if request.user.role == 'client':

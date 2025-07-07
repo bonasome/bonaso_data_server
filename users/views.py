@@ -140,6 +140,9 @@ class ApplyForNewUser(APIView):
             return Response({'detail': 'You do not have permission to perform this action.'}, status=status.HTTP_403_FORBIDDEN)
         data = request.data
         org_id = data.get('organization', user.organization.id)
+        role = data.get('role')
+        if not role: 
+            role ='view_only'
         try:
             org = Organization.objects.get(id=org_id)
         except Organization.DoesNotExist:
@@ -173,7 +176,7 @@ class ApplyForNewUser(APIView):
             last_name = data.get('last_name', ''),
             email=data.get('email', ''),
             organization=org,
-            role='view_only',
+            role='view_only' if user.role !='admin' else role,
             client_organization=client,
         )
         return Response({'message': 'User created successfuly. An admin will activate them shortly.', 'id': new_user.id}, status=status.HTTP_201_CREATED)

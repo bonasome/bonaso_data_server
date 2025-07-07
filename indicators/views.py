@@ -64,9 +64,9 @@ class IndicatorViewSet(RoleRestrictedViewSet):
         project_id = self.request.query_params.get('project')
         if project_id:
             queryset = queryset.filter(projectindicator__project__id=project_id)
-        prereq_id = self.request.query_params.get('prerequisite')
-        if prereq_id:
-            queryset = queryset.filter(prerequisite__id = prereq_id)
+        organization_id = self.request.query_params.get('organization')
+        if organization_id:
+            queryset = queryset.filter(projectindicator__project__organizations__organization__id = organization_id)
         return queryset
 
     @action(detail=False, methods=['get'], url_path='chart-data')
@@ -77,8 +77,6 @@ class IndicatorViewSet(RoleRestrictedViewSet):
         indicator_id = request.query_params.get('indicator')
         organization_id = request.query_params.get('organization')
         project_id = request.query_params.get('project')
-        start_date = request.query_params.get('start_date')
-        end_date = request.query_params.get('end_date')
 
         if indicator_id:
             queryset = queryset.filter(id=indicator_id)

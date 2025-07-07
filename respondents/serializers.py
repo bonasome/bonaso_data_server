@@ -1,12 +1,13 @@
 from rest_framework import serializers
-from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType
+from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType, InteractionSubcategory
 from respondents.exceptions import DuplicateExists
 from projects.models import Task, Target
 from projects.serializers import TaskSerializer
 from indicators.models import IndicatorSubcategory
 from indicators.serializers import IndicatorSubcategorySerializer
 from datetime import datetime, date
-from django.db.models import Q
+from django.db.models.functions import Abs
+from django.db.models import Q, F, ExpressionWrapper, IntegerField
 from rest_framework.exceptions import PermissionDenied
 from django.contrib.auth import get_user_model
 User = get_user_model()
@@ -284,17 +285,32 @@ class SimpleInteractionSerializer(serializers.ModelSerializer):
             'id', 'interaction_date', 'flagged'
         ]
 
+class InteractionSubcategoryInputSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    numeric_component = serializers.IntegerField(required=False, allow_null=True)
+
+class InteractionSubcategoryOutputSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='subcategory.id')
+    name = serializers.CharField(source='subcategory.name')
+
+    class Meta:
+        model = InteractionSubcategory
+        fields = ['id', 'name', 'numeric_component']
+
 class InteractionSerializer(serializers.ModelSerializer):
     respondent = serializers.PrimaryKeyRelatedField(queryset=Respondent.objects.all())
     task = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True)
     task_detail = TaskSerializer(source='task', read_only=True)
-    subcategories = IndicatorSubcategorySerializer(many=True, read_only=True)
-    subcategory_names = serializers.ListField(
-        child=serializers.CharField(), write_only=True, required=False
-    )
+    subcategories = serializers.SerializerMethodField()
+    subcategories_data = InteractionSubcategoryInputSerializer(many=True, write_only=True, required=False)
     created_by = serializers.SerializerMethodField()
     updated_by = serializers.SerializerMethodField()
 
+    def get_subcategories(self, obj):
+        interaction_subcats = InteractionSubcategory.objects.filter(interaction=obj)
+        return InteractionSubcategoryOutputSerializer(interaction_subcats, many=True).data
+    
     def get_created_by(self, obj):
         print(obj.created_by)
         if obj.created_by:
@@ -316,15 +332,15 @@ class InteractionSerializer(serializers.ModelSerializer):
     class Meta:
         model=Interaction
         fields = [
-            'id', 'respondent', 'subcategories','subcategory_names', 'task', 'task_detail',
+            'id', 'respondent', 'subcategories', 'subcategories_data', 'task', 'task_detail',
             'interaction_date', 'numeric_component', 'created_by', 'updated_by', 'created_at', 'updated_at',
             'comments', 'flagged',
         ]
     
     def to_internal_value(self, data):
-        subcat = data.get('subcategory_names', None)
+        subcat = data.get('subcategories_data', None)
         if subcat == '':
-            data['subcategory_names'] = []
+            data['subcategories_data'] = []
         return super().to_internal_value(data)
 
     def validate(self, data):
@@ -334,7 +350,7 @@ class InteractionSerializer(serializers.ModelSerializer):
                 raise PermissionDenied('You do not have permission to perform this action.')
         task = data.get('task') or getattr(self.instance, 'task', None)
         respondent = data.get('respondent') or getattr(self.instance, 'respondent', None)
-        subcategory_names = data.get('subcategory_names', [])
+        subcategories = data.get('subcategories_data', [])
         interaction_date = data.get('interaction_date')
         number = data.get('numeric_component')
         role = getattr(user, 'role', None)
@@ -369,7 +385,7 @@ class InteractionSerializer(serializers.ModelSerializer):
         
 
         requires_number = task.indicator.require_numeric
-        if requires_number:
+        if requires_number and not task.indicator.subcategories.exists():
             try:
                 if number in [None, '']:
                     raise ValueError
@@ -383,11 +399,26 @@ class InteractionSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Task does not expect a number.")
 
         if task.indicator.subcategories.exists():
-            if not subcategory_names or subcategory_names in [None, '', []]:
-                raise serializers.ValidationError("Subcategories required for this task.")
+            if not subcategories or subcategories in [None, '', []]:
+                raise serializers.ValidationError("Subcategories are required for this task.")
+            if task.indicator.require_numeric:
+                for cat in subcategories:
+                    print(cat)
+                    numeric_value = cat.get('numeric_component', None)
+
+                    if numeric_value is None:
+                        raise serializers.ValidationError(
+                            f"Subcategory {cat.get('name')} requires a numeric component."
+                        )
+                    try:
+                        int(numeric_value)
+                    except (ValueError, TypeError):
+                        raise serializers.ValidationError(
+                            f"Numeric component for subcategory {cat.get('name')} must be a valid integer."
+                        )
         else:
-            if not subcategory_names or subcategory_names in [None, '', []]:
-                data['subcategory_names'] = []
+            if not subcategories or subcategories in [None, '', []]:
+                data['subcategory_data'] = []
 
         prereq = task.indicator.prerequisite
         if prereq:
@@ -401,14 +432,29 @@ class InteractionSerializer(serializers.ModelSerializer):
             most_recent = parent_qs.order_by('-interaction_date').first()
             if most_recent.subcategories.exists():
                 parent_ids = set(most_recent.task.indicator.subcategories.values_list('id', flat=True))
-                if set(task.indicator.subcategories.values_list('id', flat=True)) == parent_ids:
-                    current_ids = set(
-                        IndicatorSubcategory.objects.filter(name__in=subcategory_names).values_list('id', flat=True)
-                    )
+                child_ids = set(task.indicator.subcategories.values_list('id', flat=True))
+                if child_ids.issubset(parent_ids):
+                    current_ids = set([c.get('id') for c in subcategories])
                     previous_ids = set(most_recent.subcategories.values_list('id', flat=True))
                     if not current_ids.issubset(previous_ids):
                         raise serializers.ValidationError(
                             "Subcategories must be consistent with the prerequisite interaction."
+                        )
+        if task.indicator.subcategories:
+            children = Interaction.objects.filter(task__indicator__prerequisite=task.indicator, respondent=respondent, interaction_date__gte=interaction_date)
+            if children:
+                child = closest = min(
+                    Interaction.objects.all(),
+                    key=lambda x: abs((x.interaction_date - interaction_date).days)
+                )
+                parent_ids = set(task.indicator.subcategories.values_list('id', flat=True))
+                child_ids = set(child.task.indicator.subcategories.values_list('id', flat=True))
+                if child_ids.issubset(parent_ids):
+                    parent_subcats = set([c.get('id') for c in subcategories])
+                    child_subcats = set(child.subcategories.values_list('id', flat=True))
+                    if not child_subcats.issubset(parent_subcats):
+                        raise serializers.ValidationError(
+                            "Making these subcategory edits will invalidate a child interaction. Please edit that interaction first."
                         )
         return data
     
@@ -420,19 +466,30 @@ class InteractionSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         user = self.context['request'].user
         respondent = validated_data.pop('respondent', None) or self.context.get('respondent')
+        subcategories = validated_data.pop('subcategories_data', [])
 
-        subcategory_names = validated_data.pop('subcategory_names', [])
+        # Create the interaction
         interaction = Interaction.objects.create(
             respondent=respondent,
             created_by=user,
             **validated_data
         )
-        subcategories = [
-            IndicatorSubcategory.objects.get_or_create(name=name)[0]
-            for name in subcategory_names
-        ]
-        interaction.subcategories.set(subcategories)
-        
+
+        for subcat in subcategories:
+            subcat_id = subcat['id']
+            numeric_value = subcat.get('numeric_component')
+
+            try:
+                subcategory = IndicatorSubcategory.objects.get(pk=subcat_id)
+            except IndicatorSubcategory.DoesNotExist:
+                raise serializers.ValidationError(f"Subcategory with id {subcat_id} not found.")
+
+            InteractionSubcategory.objects.create(
+                interaction=interaction,
+                subcategory=subcategory,
+                numeric_component=numeric_value
+            )
+
         return interaction
     
     def update(self, instance, validated_data):
@@ -442,16 +499,29 @@ class InteractionSerializer(serializers.ModelSerializer):
             if instance.created_by != user:
                 raise PermissionDenied("You may only edit your interactions.")
 
-        subcategory_names = validated_data.pop('subcategory_names', [])
-        subcategories = [
-            IndicatorSubcategory.objects.get_or_create(name=name)[0]
-            for name in subcategory_names
-        ]
-        instance.subcategories.set(subcategories)
+        subcategories = validated_data.pop('subcategories_data', [])
+        if subcategories not in ['', [], None]:
+            InteractionSubcategory.objects.filter(interaction=instance).delete()
 
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
+            for subcat in subcategories:
+                subcat_id = subcat['id']
+                numeric_value = subcat.get('numeric_component')
 
+                try:
+                    subcategory = IndicatorSubcategory.objects.get(pk=subcat_id)
+                except IndicatorSubcategory.DoesNotExist:
+                    raise serializers.ValidationError(f"Subcategory with id {subcat_id} not found.")
+
+                InteractionSubcategory.objects.create(
+                    interaction=instance,
+                    subcategory=subcategory,
+                    numeric_component=numeric_value
+                )
+
+            for attr, value in validated_data.items():
+                setattr(instance, attr, value)
+        else:
+            raise serializers.ValidationError(f'Subcategories are required for this interaction.')
         instance.updated_by = user
         instance.save()
         return instance

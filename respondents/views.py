@@ -386,7 +386,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 'interaction_date': task_date,
                 'task': task['task'],
                 'numeric_component': task.get('numeric_component'),
-                'subcategory_names': task.get('subcategory_names', []),
+                'subcategories_data': task.get('subcategories_data', []),
                 'comments': task.get('comments', ''),
             }, context={'request': request, 'respondent': respondent})
 
@@ -985,7 +985,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                         row_warnings.append(f'Number at column: {col}, row: {i} is not a valid number.')
                         continue
                 if task.indicator.subcategories.exists():
-                    val = re.split(r'[,:;]', val) if val else []
+                    val = re.split(',', val) if val else []
                     val = [v.strip().lower() for v in val if v.strip()]
 
                     if not val:
@@ -1001,6 +1001,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     if len(current_subcats) == 0:
                         row_errors.append(f'Task {task.indicator.name} at column: {col}, row: {i} requires valid subcategories.')
                         continue
+                    subcategories = []
+
                 if val:
                     print(respondent, val)
                     if task.indicator.prerequisite:

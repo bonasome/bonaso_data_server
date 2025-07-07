@@ -1,13 +1,13 @@
 from rest_framework import serializers
 from indicators.models import Indicator, IndicatorSubcategory
 from projects.models import Target
-from respondents.models import Interaction
+from respondents.models import Interaction, HIVStatus, Pregnancy
 from datetime import date
 
 class IndicatorSubcategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = IndicatorSubcategory
-        fields = ['name']
+        fields = ['id', 'name']
 
 class IndicatorListSerializer(serializers.ModelSerializer):
     class Meta:
@@ -158,6 +158,7 @@ class ChartSerializer(serializers.ModelSerializer):
 
         result = []
         for interaction in interactions:
+            respondent = interaction.respondent
             hiv_status = any(
                 hs.date_positive >= interaction.interaction_date
                 for hs in hiv_status_by_respondent.get(respondent.id, [])

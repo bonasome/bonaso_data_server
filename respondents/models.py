@@ -230,4 +230,5 @@ class Interaction(models.Model):
 
 class InteractionSubcategory(models.Model):
     interaction = models.ForeignKey(Interaction, on_delete=models.CASCADE)
+    numeric_component = models.IntegerField(null=True, blank=True, default=None)
     subcategory = models.ForeignKey(IndicatorSubcategory, on_delete=models.CASCADE)

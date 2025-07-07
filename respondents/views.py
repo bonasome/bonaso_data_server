@@ -373,6 +373,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
         created = []
         for i, task in enumerate(tasks):
+            print(task)
             task_date = task.get('interaction_date') or top_level_date
 
             if not task_date:
@@ -380,7 +381,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
             if not all(k in task for k in ['task']):
                 return Response({'error': f'Missing required task fields at index {i}'}, status=status.HTTP_400_BAD_REQUEST)
-
+        
             serializer = self.get_serializer(data={
                 'respondent': respondent_id,
                 'interaction_date': task_date,
@@ -975,73 +976,65 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 if isinstance(val, str):
                     val = val.lower().replace(' ', '')
 
-                if task.indicator.require_numeric and isinstance(val, str):
+                valid_subcats = []
+                numeric_component = None
+                if task.indicator.subcategories.exists():
+                    val = val.split(',') if val else []
+                    subcats = []
+                    for v in val:
+                        v = v.strip().lower()
+                        if task.indicator.require_numeric:
+                            v = v.split(':')
+                            print('split', v)
+                            print({'slug': v[0], 'numeric_component': v[1]})
+                            subcats.append({'slug': v[0], 'numeric_component': v[1]})
+                        else:
+                            subcats.append({'slug': v})
+                    valid_subcats = []
+                    valid_slugs = list(task.indicator.subcategories.values_list('slug', flat=True))
+                    for cat in subcats:
+                        if cat['slug'] in valid_slugs:
+                            isc = IndicatorSubcategory.objects.filter(slug=cat['slug']).first()
+                            sc_data = {'id': isc.id, 'name': isc.name}
+                            if task.indicator.require_numeric:
+                                sc_data['numeric_component'] = cat['numeric_component']
+                            valid_subcats.append(sc_data)
+                    if len(valid_subcats) == 0:
+                        row_errors.append(f'Task {task.indicator.name} at column: {col}, row: {i} requires valid subcategories.')
+                        continue
+
+                elif task.indicator.require_numeric and isinstance(val, str):
                     try:
-                        val = float(val)
-                        if val < 0:
+                        numeric_component = float(val)
+                        if numeric_component < 0:
                             row_warnings.append(f'Number at column: {col}, row: {i} must be greater than 0.')
                             continue
                     except (ValueError, TypeError):
                         row_warnings.append(f'Number at column: {col}, row: {i} is not a valid number.')
                         continue
-                if task.indicator.subcategories.exists():
-                    val = re.split(',', val) if val else []
-                    val = [v.strip().lower() for v in val if v.strip()]
-
-                    if not val:
-                        continue
-                    valid_slugs = list(task.indicator.subcategories.values_list('slug', flat=True))
-                    matched = [name for name in val if name in valid_slugs]
-                    current_subcats = []
-                    for slug in matched:
-                        subcat = IndicatorSubcategory.objects.filter(slug=slug).first()
-                        if subcat:
-                            current_subcats.append(subcat)
-                    print(val, valid_slugs)
-                    if len(current_subcats) == 0:
-                        row_errors.append(f'Task {task.indicator.name} at column: {col}, row: {i} requires valid subcategories.')
-                        continue
-                    subcategories = []
-
-                if val:
-                    print(respondent, val)
-                    if task.indicator.prerequisite:
-                        one_year_ago = interaction_date - timedelta(days=365)
-                        prereq =  Interaction.objects.filter(task__indicator=task.indicator.prerequisite, 
-                                                             respondent = respondent, interaction_date__gte=one_year_ago
-                                                             ).order_by('-interaction_date').first()
-                        if not prereq:
-                            row_errors.append(f'Task {task.indicator.name} at column: {col}, row: {i} requires that {task.indicator.prerequisite} has a valid interaction.')
-                            continue
-                        if prereq.subcategories.exists():
-                            parent_ids = set(prereq.task.indicator.subcategories.values_list('id', flat=True))
-                            if set(task.indicator.subcategories.values_list('id', flat=True)) == parent_ids:
-                                current_ids = set(
-                                    IndicatorSubcategory.objects.filter(name__in=current_subcats).values_list('id', flat=True)
-                                )
-                                previous_interaction_ids = set(prereq.subcategories.values_list('id', flat=True))
-                                current_interaction_ids = set([cat.id for cat in current_subcats])
-                                print('cur/prev', current_interaction_ids, previous_interaction_ids)
-                                if not current_interaction_ids.issubset(previous_interaction_ids):
-                                    row_errors.append(f'Subcategories for task {task.indicator.name} at column: {col}, row: {i} do not match with prerequisite categories.')
-                                    continue
-                    last_month = now().date() - timedelta(days=30)
-                    recent = Interaction.objects.filter(respondent=respondent, task=task, interaction_date__gte=last_month)
-                    if recent.exists():
-                        row_warnings.append(f'Respondent {respondent} has already had an interaction related to {task.indicator.code} (column: {col}, row: {i}) in the last 30 days. Please verify this result.')
                     
-                    interaction = Interaction.objects.filter(respondent=respondent, task=task, interaction_date=interaction_date).first()
-                    if interaction:
-                        if interaction.interaction_date == interaction_date:
-                            row_warnings.append(f'Interaction for respondent {respondent} and {task.indicator.code} column: {col}, row: {i} already exists.')
-                            interaction.updated_by = user
-                    else:
-                        interaction = Interaction.objects.create(interaction_date=interaction_date, respondent=respondent, task=task, created_by=user)
-                    if task.indicator.require_numeric:
-                        interaction.numeric_component = val
-                    if task.indicator.subcategories.exists():
-                        interaction.subcategories.set(current_subcats)
-                    interaction.save()
+                if val:
+                    serializer = self.get_serializer(data={
+                        'respondent': respondent.id,
+                        'interaction_date': interaction_date,
+                        'task': task.id,
+                        'numeric_component': numeric_component,
+                        'subcategories_data': valid_subcats,
+                        'comments': '',
+                    }, context={'request': request, 'respondent': respondent})
+
+                    try:
+                        serializer.is_valid(raise_exception=True)
+                        serializer.save()
+                    except ValidationError as e:
+                        # Flatten error details for easier reading
+                        error_details = serializer.errors
+                        for field, msgs in error_details.items():
+                            if isinstance(msgs, list):
+                                for msg in msgs:
+                                    row_errors.append(f"Row {i}, Column {col}, Field '{field}': {msg}")
+                            else:
+                                errors.append(f"Row {i}, Column {col}, Field '{field}': {msgs}")
             errors.extend(row_errors)
             warnings.extend(row_warnings)
         print('warnings', warnings)

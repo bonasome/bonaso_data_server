@@ -205,26 +205,38 @@ class AdminResetPasswordView(APIView):
         except User.DoesNotExist:
             return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
         
+
 class MobileLoginView(TokenObtainPairView):
     permission_classes = [AllowAny]
     serializer_class = CustomMobileTokenSerializer
+
     def post(self, request, *args, **kwargs):
-        username = request.data.get("username")
-        password = request.data.get("password")
-
-        user = authenticate(username=username, password=password)
-        if not user:
-            return Response({"detail": "Invalid credentials."}, status=401)
-
-        refresh = RefreshToken.for_user(user)
-        refresh.access_token.set_exp(lifetime=timedelta(minutes=15))
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
         return Response({
-            "access": str(refresh.access_token),
-            "refresh": str(refresh),
-            "user_id": user.id,
+            "access": serializer.validated_data["access"],
+            "refresh": serializer.validated_data["refresh"],
+            "user_id": serializer.user.id,
         })
 
+class MobileRefreshView(TokenRefreshView):
+    def post(self, request, *args, **kwargs):
+        refresh_token = request.data.get('refresh_token')
+        if not refresh_token:
+            return Response({'detail': 'Refresh token missing.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = self.get_serializer(data={'refresh': refresh_token})
+        try:
+            serializer.is_valid(raise_exception=True)
+        except Exception:
+            return Response({'detail': 'Invalid refresh token.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        return Response({
+            "access": serializer.validated_data.get("access"),
+            "refresh": serializer.validated_data.get("refresh"),
+        })
+    
 class TestConnectionView(APIView):
     permission_classes = [AllowAny]
 

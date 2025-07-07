@@ -17,7 +17,7 @@ class ConflictError(APIException):
 class ClientSerializer(serializers.ModelSerializer):
     class Meta:
         model = Client
-        fields = ['id', 'name']
+        fields = ['id', 'name', 'full_name']
 
     def create(self, validated_data):
         request = self.context.get('request')

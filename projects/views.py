@@ -428,5 +428,38 @@ class TargetViewSet(RoleRestrictedViewSet):
     
 
 class ClientViewSet(RoleRestrictedViewSet):
+    queryset = Client.objects.all()
+    filter_backends = [filters.SearchFilter, OrderingFilter]
+    filterset_fields = ['name', 'full_name']
+    search_fields = ['name', 'full_name'] 
     permission_classes = [IsAuthenticated]
     serializer_class = ClientSerializer
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = self.request.user
+        role = getattr(user, 'role', None)
+        
+        if role != 'admin':
+            queryset= Client.objects.none()
+
+        return queryset
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+    
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
+
+    def destroy(self, request, *args, **kwargs):
+        user = request.user
+        instance = self.get_object()
+
+        # Role check
+        if user.role not in ['admin']:
+            return Response(
+                {"detail": "You do not have permission to delete a client."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)

@@ -28,7 +28,7 @@ class ProfileViewSet(RoleRestrictedViewSet):
     serializer_class = ProfileSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['organization', 'role', 'is_active']
+    filterset_fields = ['organization', 'role', 'is_active', 'client_organization']
     ordering_fields = ['last_name']
     search_fields = ['last_name','first_name', 'username']
 

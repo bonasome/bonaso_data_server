@@ -26,7 +26,7 @@ class OrganizationViewSet(RoleRestrictedViewSet):
     queryset = Organization.objects.none()
     serializer_class = OrganizationSerializer
     filter_backends = [SearchFilter, OrderingFilter]
-    filterset_fields = ['project', 'parent_organization']
+    filterset_fields = ['project', 'parent_organization', 'indicator']
     ordering_fields = ['name']
     search_fields = ['name'] 
     def get_queryset(self):
@@ -52,7 +52,14 @@ class OrganizationViewSet(RoleRestrictedViewSet):
         project_id = self.request.query_params.get('project')
         if project_id:
             queryset = queryset.filter(projectorganization__project__id=project_id)
+            
+        indicator_id = self.request.query_params.get('indicator')
+        if indicator_id:
+            tasks = Task.objects.filter(organization__in=queryset, indicator__id=indicator_id)
+            queryset = queryset.filter(id__in=tasks.values_list('organization_id', flat=True))
         return queryset
+        
+
 
     def get_serializer_class(self):
         if self.action == 'list':

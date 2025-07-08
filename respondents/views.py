@@ -195,28 +195,36 @@ class RespondentViewSet(RoleRestrictedViewSet):
                             interaction_date = interaction.get('interaction_date')
                             if not interaction_date:
                                 raise ValidationError({'interaction_date': 'Interaction date is required'})
-                            subcat_names = interaction.pop("subcategory_names", [])
-                            task_id = interaction.pop("task")
+                            subcats = interaction.get("subcategories_data", [])
+                            task_id = interaction.get("task")
+                            numeric_component = interaction.get('numeric_component')
                             try:
                                 task_instance = Task.objects.get(id=task_id)
                             except Task.DoesNotExist:
                                 raise ValidationError({"task": f"Task with ID {task_id} not found"})
-                            existing = Interaction.objects.filter(respondent=respondent, created_by=request.user, task=task_instance, interaction_date=interaction_date).first()
-                            if existing:
-                                print('found existing interaction')
-                                interaction_obj = existing
-                            else:
-                                interaction_obj = Interaction.objects.create(
-                                respondent=respondent,
-                                created_by=request.user,
-                                task=task_instance,
-                                **interaction
+                            lookup_fields = {
+                                'respondent': respondent,
+                                'interaction_date': interaction_date,
+                                'task': task_id,
+                            }
+                            # Try to fetch the existing interaction
+                            instance = Interaction.objects.filter(**lookup_fields).first()
+
+                            # Pass instance to serializer if it exists (update), otherwise it will create
+                            serializer = InteractionSerializer(
+                                instance=instance,
+                                data={
+                                    'respondent': respondent.id,
+                                    'interaction_date': interaction_date,
+                                    'task': task_id,
+                                    'numeric_component': numeric_component,
+                                    'subcategories_data': subcats,
+                                    'comments': '',
+                                },
+                                context={'request': request, 'respondent': respondent}
                             )
-                            subcats = []
-                            for name in subcat_names:
-                                subcat, _ = IndicatorSubcategory.objects.get_or_create(name=name)
-                                subcats.append(subcat)
-                            interaction_obj.subcategories.set(subcats)
+                            serializer.is_valid(raise_exception=True)
+                            serializer.save()
                         except Exception as inter_err:
                             errors.append({
                                 'respondent': respondent.id,
@@ -225,7 +233,7 @@ class RespondentViewSet(RoleRestrictedViewSet):
                                 'interaction_data': interaction
                             })
             
-                local_ids.append(item['local_id'])
+                local_ids.append(item.get('local_id'))
                 created_ids.append(respondent.id)
 
             except ValidationError as ve:
@@ -463,6 +471,9 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 field_info['options'] = []
             headers.append(field_info)
         
+        headers.append({'header': 'HIV Status', 'options': ['HIV Positive', 'HIV Negative'], 'multiple': False})
+        headers.append({'header': 'Date Positive', 'options': [], 'multiple': False})
+        headers.append({'header': 'Pregnant', 'options': ['Yes', 'No'], 'multiple': False})
         headers.append({'header': 'Date of Interaction', 'options': [], 'multiple': False})
         tasks = Task.objects.filter(organization__id=org_id, project__id=project_id).order_by('indicator__code')
         if not tasks:
@@ -606,6 +617,12 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
         if not 'Date of Interaction' in headers:
             errors.append('Template is missing Date of Interaction column.')
+        if not 'HIV Status' in headers:
+            errors.append('Template is missing HIV Status column.')
+        if not 'Date Positive' in headers:
+            errors.append('Template is missing Date Positive column.')
+        if not 'Pregnant' in headers:
+            errors.append('Template is missing Pregnant column.')
         
         tasks = Task.objects.filter(organization__id=org_id, project__id=project_id).order_by('indicator__code')
         if not tasks:
@@ -738,13 +755,15 @@ class InteractionViewSet(RoleRestrictedViewSet):
             return False
 
         for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            respondent = None
             row_errors = []
             row_warnings = []
             anon = is_truthy(get_cell_value(row, 'is_anonymous'))
             id_no = get_cell_value(row, 'id_no') or None
-            respondent = Respondent.objects.filter(id_no=id_no).first()
-            if respondent:
-                row_warnings.append(f"Respondent {respondent} at column: {get_column('id_no')}, row: {i} already exists.")
+            if id_no and not anon:
+                respondent = Respondent.objects.filter(id_no=id_no).first()
+                if respondent:
+                    row_warnings.append(f"Respondent {respondent} at column: {get_column('id_no')}, row: {i} already exists.")
             
             first_name = get_cell_value(row, 'first_name') or None
             last_name = get_cell_value(row, 'last_name') or None
@@ -850,63 +869,93 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     created_by=user
                 )
 
-                
-                kp_status_names_raw = get_cell_value(row, 'kp_status') or ''
-                if kp_status_names_raw:
-                    # Clean and split
-                    cleaned = kp_status_names_raw.replace(' ', '').lower()
-                    input_kp_names = set(re.split(r'[,:;]', cleaned))
-
-                    valid_labels = get_options('kp_status')
-                    valid_lookup = {label.replace(' ', '').lower(): label for label in valid_labels}
-
-                    matched = [name for name in input_kp_names if name in valid_lookup]
-                    invalid_kp = input_kp_names - set(matched)
-
-                    if invalid_kp:
-                        row_warnings.append(
-                            f"Invalid key population statuses at row {i}: {', '.join(invalid_kp)}"
-                        )
-
-                    kp_types = []
-                    for cleaned_name in matched:
-                        key = get_choice_key_from_label(KeyPopulation.KeyPopulations.choices, cleaned_name)
-                        if not key:
-                            continue
-                        kp, _ = KeyPopulation.objects.get_or_create(name=key)
-                        kp_types.append(kp)
-
-                    if kp_types:
-                        respondent.kp_status.set(kp_types)
-                
-
-                disability_status_names_raw = get_cell_value(row, 'disability_status') or ''
-                if disability_status_names_raw:
-                    # Clean and split
-                    cleaned = disability_status_names_raw.replace(' ', '').lower()
-                    input_disability_names = set(re.split(r'[,:;]', cleaned))
-
-                    valid_labels = get_options('disability_status')
-                    valid_lookup = {label.replace(' ', '').lower(): label for label in valid_labels}
-
-                    matched = [name for name in input_disability_names if name in valid_lookup]
-                    invalid_disability = input_disability_names - set(matched)
-
-                    if invalid_disability:
-                        row_warnings.append(
-                            f"Invalid disability statuses at row {i}: {', '.join(invalid_disability)}"
-                        )
-                    disability_types = []
-                    for cleaned_name in matched:
-                        key = get_choice_key_from_label(DisabilityType.DisabilityTypes.choices, cleaned_name)
-                        if not key:
-                            continue
-                        dis, _ = DisabilityType.objects.get_or_create(name=key)
-                        disability_types.append(dis)
-
-                    if disability_types:
-                        respondent.disability_status.set(disability_types)
+            print(respondent)
             
+                
+            kp_status_names_raw = get_cell_value(row, 'kp_status') or ''
+            if kp_status_names_raw:
+                # Clean and split
+                cleaned = kp_status_names_raw.replace(' ', '').lower()
+                input_kp_names = set(re.split(r'[,:;]', cleaned))
+
+                valid_labels = get_options('kp_status')
+                valid_lookup = {label.replace(' ', '').lower(): label for label in valid_labels}
+
+                matched = [name for name in input_kp_names if name in valid_lookup]
+                invalid_kp = input_kp_names - set(matched)
+
+                if invalid_kp:
+                    row_warnings.append(
+                        f"Invalid key population statuses at row {i}: {', '.join(invalid_kp)}"
+                    )
+
+                kp_types = []
+                for cleaned_name in matched:
+                    key = get_choice_key_from_label(KeyPopulation.KeyPopulations.choices, cleaned_name)
+                    if not key:
+                        continue
+                    kp, _ = KeyPopulation.objects.get_or_create(name=key)
+                    kp_types.append(kp)
+
+                if kp_types:
+                    respondent.kp_status.set(kp_types)
+            
+
+            disability_status_names_raw = get_cell_value(row, 'disability_status') or ''
+            if disability_status_names_raw:
+                # Clean and split
+                cleaned = disability_status_names_raw.replace(' ', '').lower()
+                input_disability_names = set(re.split(r'[,:;]', cleaned))
+
+                valid_labels = get_options('disability_status')
+                valid_lookup = {label.replace(' ', '').lower(): label for label in valid_labels}
+
+                matched = [name for name in input_disability_names if name in valid_lookup]
+                invalid_disability = input_disability_names - set(matched)
+
+                if invalid_disability:
+                    row_warnings.append(
+                        f"Invalid disability statuses at row {i}: {', '.join(invalid_disability)}"
+                    )
+                disability_types = []
+                for cleaned_name in matched:
+                    key = get_choice_key_from_label(DisabilityType.DisabilityTypes.choices, cleaned_name)
+                    if not key:
+                        continue
+                    dis, _ = DisabilityType.objects.get_or_create(name=key)
+                    disability_types.append(dis)
+
+                if disability_types:
+                    respondent.disability_status.set(disability_types)
+            
+            hs_col = headers['HIV Status']['column']-1 
+            hiv_status = row[hs_col] if len(row) > hs_col else None
+            if hiv_status:
+                if hiv_status.lower().replace(' ', '') == 'yes':
+                    hiv_status = True
+                    dp_col = headers['Date Positive']['column']-1 
+                    date_positive = row[dp_col] if len(row) > dp_col else None
+                    parsed = valid_excel_date(date_positive)
+                    if not parsed:
+                        row_errors.append(
+                            f"Date positive '{date_positive}' at column: {dp_col}, row: {i} is invalid."
+                            "Double check the format and make sure that it is not in the future."
+                        )
+                    else:
+                        date_positive = parsed
+                    HIVStatus.objects.create(respondent=respondent, hiv_positive=hiv_status, date_positive=date_positive)
+            preg_col = headers['Pregnant']['column']-1 
+            pregnancy = row[preg_col] if len(row) > preg_col else None
+            if pregnancy:
+                if pregnancy.lower().replace(' ', '') == 'yes':
+                    Pregnancy.objects.create(respondent=respondent, is_pregnant=True, term_began=date.today())
+                elif pregnancy.lower().replace(' ', '') == 'no' and Pregnancy.objects.filter(respondent=respondent, is_pregnant=True).exists():
+                    pregnancy = Pregnancy.objects.filter(respondent=respondent, is_pregnant=True).first()
+                    pregnancy.is_pregnant = False
+                    pregnancy.term_ended = date.today()
+                    pregnancy.save()
+
+
             doi_col = headers['Date of Interaction']['column']-1 
             interaction_date = row[doi_col] if len(row) > doi_col else None
 
@@ -970,7 +1019,6 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 val = str(get_task_value(row, task))
                 val = val.lower().replace(' ', '')
                 if val in ['', 'no', 'none', 'na', 'n/a', 'false', 'unsure', 'maybe']:
-                    row_warnings.append(f'Task {task.indicator} at {col}, row: {i} was blank. No interaction will be recorded for this task. If this was intentional, you can safely ignore this warning.')
                     continue
 
                 if isinstance(val, str):
@@ -1014,14 +1062,28 @@ class InteractionViewSet(RoleRestrictedViewSet):
                         continue
                     
                 if val:
-                    serializer = self.get_serializer(data={
-                        'respondent': respondent.id,
+                    lookup_fields = {
+                        'respondent': respondent,
                         'interaction_date': interaction_date,
-                        'task': task.id,
-                        'numeric_component': numeric_component,
-                        'subcategories_data': valid_subcats,
-                        'comments': '',
-                    }, context={'request': request, 'respondent': respondent})
+                        'task': task,
+                    }
+
+                    # Try to fetch the existing interaction
+                    instance = Interaction.objects.filter(**lookup_fields).first()
+
+                    # Pass instance to serializer if it exists (update), otherwise it will create
+                    serializer = self.get_serializer(
+                        instance=instance,
+                        data={
+                            'respondent': respondent.id,
+                            'interaction_date': interaction_date,
+                            'task': task.id,
+                            'numeric_component': numeric_component,
+                            'subcategories_data': valid_subcats,
+                            'comments': '',
+                        },
+                        context={'request': request, 'respondent': respondent}
+                    )
 
                     try:
                         serializer.is_valid(raise_exception=True)

@@ -28,7 +28,7 @@ class KeyPopulation(models.Model):
         PWID = 'PWID', _('People Who Inject Drugs')
         TG = 'TG', _('Transgender')
         INTERSEX = 'INTERSEX', _('Intersex')
-        LBQ = 'LBQ', _('Lesbian, Bisexual, or Queer')
+        LBQ = 'LBQ', _('Lesbian Bisexual or Queer')
         OTHER = 'OTHER', _('Other Key Population Status')
     
     name = models.CharField(max_length=10, choices=KeyPopulations.choices, unique=True)

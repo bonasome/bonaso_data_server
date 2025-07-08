@@ -94,7 +94,8 @@ class TaskViewSet(RoleRestrictedViewSet):
             project = Project.objects.get(id=project_id)
         except (Organization.DoesNotExist, Indicator.DoesNotExist, Project.DoesNotExist):
             raise ValidationError("One or more provided IDs are invalid.")
-
+        if Task.objects.filter(organization=organization, indicator=indicator, project=project).exists():
+            raise ValidationError('This task already exists.')
         if role == 'admin':
             if not project.organizations.filter(id=organization.id).exists() or \
             not project.indicators.filter(id=indicator.id).exists():

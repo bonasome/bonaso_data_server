@@ -10,7 +10,7 @@ from users.restrictviewset import RoleRestrictedViewSet
 from rest_framework.decorators import action
 from indicators.models import Indicator, IndicatorSubcategory
 from indicators.serializers import IndicatorSerializer, IndicatorListSerializer, ChartSerializer
-from projects.models import ProjectIndicator, Project
+from projects.models import Task
 from respondents.models import Interaction
 from rest_framework import status
 
@@ -66,7 +66,8 @@ class IndicatorViewSet(RoleRestrictedViewSet):
             queryset = queryset.filter(projectindicator__project__id=project_id)
         organization_id = self.request.query_params.get('organization')
         if organization_id:
-            queryset = queryset.filter(projectindicator__project__organizations__organization__id = organization_id)
+            tasks = Task.objects.filter(indicator__in=queryset, organization__id=organization_id)
+            queryset = queryset.filter(id__in=tasks.values_list('indicator_id', flat=True))
         return queryset
 
     @action(detail=False, methods=['get'], url_path='chart-data')

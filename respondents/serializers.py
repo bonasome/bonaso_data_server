@@ -418,7 +418,7 @@ class InteractionSerializer(serializers.ModelSerializer):
                         )
         else:
             if not subcategories or subcategories in [None, '', []]:
-                data['subcategory_data'] = []
+                data['subcategories_data'] = []
 
         prereq = task.indicator.prerequisite
         if prereq:

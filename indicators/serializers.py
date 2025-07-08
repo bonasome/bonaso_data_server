@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from indicators.models import Indicator, IndicatorSubcategory
 from projects.models import Target
-from respondents.models import Interaction, HIVStatus, Pregnancy
+from respondents.models import Interaction, HIVStatus, Pregnancy, InteractionSubcategory
 from datetime import date
 
 class IndicatorSubcategorySerializer(serializers.ModelSerializer):
@@ -137,7 +137,7 @@ class ChartSerializer(serializers.ModelSerializer):
         if project_id:
             interactions = interactions.filter(task__project__id=project_id)
         interactions.prefetch_related(
-            'respondent__kp_status', 'respondent__disability_status', 'subcategories'
+            'respondent__kp_status', 'respondent__disability_status'
         )
 
         respondent_ids = {i.respondent_id for i in interactions}
@@ -155,20 +155,19 @@ class ChartSerializer(serializers.ModelSerializer):
         for p in pregnancies:
             if p and p.term_began:
                 pregnancies_by_respondent.setdefault(p.respondent_id, []).append(p)
-
         result = []
         for interaction in interactions:
             respondent = interaction.respondent
             hiv_status = any(
-                hs.date_positive >= interaction.interaction_date
+                hs. date_positive <= interaction.interaction_date
                 for hs in hiv_status_by_respondent.get(respondent.id, [])
             )
-
             # Pregnancy lookup
             pregnancy = any(
                 p.term_began <= interaction.interaction_date <= p.term_ended if p.term_ended else date.today()
                 for p in pregnancies_by_respondent.get(respondent.id, [])
             )
+            subcats = InteractionSubcategory.objects.filter(interaction=interaction)
             result.append({
                 'respondent': {
                     'id': interaction.respondent.id,
@@ -181,7 +180,7 @@ class ChartSerializer(serializers.ModelSerializer):
                     'hiv_status': hiv_status,
                     'pregnant': pregnancy,
                 },
-                'subcategories': [c.name for c in interaction.subcategories.all()],
+                'subcategories': [{'name': c.subcategory.name, 'numeric_component': c.numeric_component} for c in subcats],
                 'interaction_date': interaction.interaction_date,
                 'numeric_component': interaction.numeric_component,
                 'organization': {

@@ -175,6 +175,7 @@ class Interaction(models.Model):
     respondent = models.ForeignKey(Respondent, on_delete=models.PROTECT)
     task = models.ForeignKey(Task, on_delete=models.PROTECT)
     interaction_date = models.DateField()
+    interaction_location = models.CharField(max_length=255, null=True, blank=True, verbose_name='Interaction Location')
     subcategories = models.ManyToManyField(IndicatorSubcategory, through='InteractionSubcategory', blank=True)
     comments = models.TextField(verbose_name='Comments', null=True, blank=True, default=None)
     numeric_component = models.IntegerField(null=True, blank=True, default=None)

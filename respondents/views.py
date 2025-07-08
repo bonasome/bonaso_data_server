@@ -195,6 +195,7 @@ class RespondentViewSet(RoleRestrictedViewSet):
                             interaction_date = interaction.get('interaction_date')
                             if not interaction_date:
                                 raise ValidationError({'interaction_date': 'Interaction date is required'})
+                            interaction_location = interaction.get('interaction_location') or None
                             subcats = interaction.get("subcategories_data", [])
                             task_id = interaction.get("task")
                             numeric_component = interaction.get('numeric_component')
@@ -216,6 +217,7 @@ class RespondentViewSet(RoleRestrictedViewSet):
                                 data={
                                     'respondent': respondent.id,
                                     'interaction_date': interaction_date,
+                                    'interaction_location': interaction_location,
                                     'task': task_id,
                                     'numeric_component': numeric_component,
                                     'subcategories_data': subcats,
@@ -369,7 +371,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
         respondent_id = request.data.get('respondent')
         tasks = request.data.get('tasks', [])
         top_level_date = request.data.get('interaction_date')
-
+        top_level_location = request.data.get('interaction_location')
         if not respondent_id or not tasks:
             return Response({'error': 'Missing respondent or tasks'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -383,7 +385,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
         for i, task in enumerate(tasks):
             print(task)
             task_date = task.get('interaction_date') or top_level_date
-
+            task_location = task.get('interaction_location') or top_level_location
             if not task_date:
                 return Response({'error': f'Missing interaction_date for task index {i}'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -393,6 +395,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
             serializer = self.get_serializer(data={
                 'respondent': respondent_id,
                 'interaction_date': task_date,
+                'interaction_location': task_location,
                 'task': task['task'],
                 'numeric_component': task.get('numeric_component'),
                 'subcategories_data': task.get('subcategories_data', []),
@@ -475,6 +478,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
         headers.append({'header': 'Date Positive', 'options': [], 'multiple': False})
         headers.append({'header': 'Pregnant', 'options': ['Yes', 'No'], 'multiple': False})
         headers.append({'header': 'Date of Interaction', 'options': [], 'multiple': False})
+        headers.append({'header': 'Interaction Location', 'options': [], 'multiple': False})
         tasks = Task.objects.filter(organization__id=org_id, project__id=project_id).order_by('indicator__code')
         if not tasks:
             raise serializers.ValidationError('There are no tasks associated with this project for your organization.')
@@ -617,6 +621,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
         if not 'Date of Interaction' in headers:
             errors.append('Template is missing Date of Interaction column.')
+        if not 'Interaction Location' in headers:
+            errors.append('Template is missing Interaction Location column.')
         if not 'HIV Status' in headers:
             errors.append('Template is missing HIV Status column.')
         if not 'Date Positive' in headers:
@@ -977,6 +983,9 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 row_errors.append(
                     f"Date of interaction  at column: {doi_col}, row: {i} is required. "
                 )
+            loc_col = headers['Interaction Location']['column']-1 
+            interaction_location = row[loc_col] if len(row) > loc_col else None
+
             if len(row_errors) > 0:
                 row_errors.append(f"This respondent has been saved, but none of their interactions will until this date is fixed.")
                 errors.extend(row_errors)
@@ -1077,6 +1086,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                         data={
                             'respondent': respondent.id,
                             'interaction_date': interaction_date,
+                            'interaction_location': interaction_location,
                             'task': task.id,
                             'numeric_component': numeric_component,
                             'subcategories_data': valid_subcats,

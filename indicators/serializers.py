@@ -197,18 +197,22 @@ class ChartSerializer(serializers.ModelSerializer):
             target_qs = target_qs.filter(task__organization__id=organization_id)
         if project_id:
             target_qs = target_qs.filter(task__project__id=project_id)
-        target_qs.select_related('task__organization')
-        return [
-            {
-                'id': t.id,
-                'indicator': t.task.indicator.id,
-                'organization': t.task.organization.id,
-                'amount': t.amount,
-                'start': t.start,
-                'end': t.end,
-            }
-            for t in target_qs
-        ]
+        target_qs = target_qs.select_related('task__organization')
+        targets = []
+        for t in target_qs:
+            percentage = None
+            print(t)
+            if not t.amount and t.related_to and t.percentage_of_related:
+                percentage = Interaction.objects.filter(task = t.related_to, interaction_date__gte = t.start, interaction_date__lte=t.end, flagged=False).count() * (t.percentage_of_related/100)
+            targets.append({
+                    'id': t.id,
+                    'indicator': t.task.indicator.id,
+                    'organization': t.task.organization.id,
+                    'amount': t.amount if t.amount else percentage or None,
+                    'start': t.start,
+                    'end': t.end,
+                })
+        return targets
     class Meta:
         model=Indicator
         fields = [

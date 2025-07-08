@@ -15,13 +15,13 @@ from organizations.models import Organization
 
 
 class ProfileSerializer(serializers.ModelSerializer):
-    organization = OrganizationListSerializer(read_only=True)
-    organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True)
+    organization_detail = OrganizationListSerializer(source='organization', read_only=True)
+    organization = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True)
     client_organization = ClientSerializer(read_only=True)
 
     class Meta:
         model=User
-        fields = ['id', 'username', 'first_name', 'last_name', 'email','organization', 'organization_id', 'role', 'is_active', 'client_organization']
+        fields = ['id', 'username', 'first_name', 'last_name', 'email','organization_detail', 'organization', 'role', 'is_active', 'client_organization']
         read_only_fields = ['id']
 
     def get_fields(self):
@@ -31,14 +31,8 @@ class ProfileSerializer(serializers.ModelSerializer):
         if user.role != 'admin':
             fields['is_active'].read_only = True
             fields['role'].read_only = True
-            fields['organization'].read_only = True
 
         return fields
-    def update(self, instance, validated_data):
-        organization = validated_data.pop('organization_id', None)
-        if organization:
-            validated_data['organization'] = organization
-        return super().update(instance, validated_data)
 
 class FavoriteTaskSerializer(serializers.ModelSerializer):
     task = TaskSerializer(read_only=True)

@@ -36,6 +36,7 @@ ALLOWED_HOSTS = ['*']
 
 INSTALLED_APPS = [
     'users.apps.UsersConfig',
+    'events.apps.EventsConfig',
     'indicators.apps.IndicatorsConfig',
     'projects.apps.ProjectsConfig',
     'respondents.apps.RespondentsConfig',

@@ -1041,9 +1041,10 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     for v in val:
                         v = v.strip().lower()
                         if task.indicator.require_numeric:
+                            if not ':' in v:
+                                row_errors.append(f'Task {task.indicator.name} at column: {col}, row {i} requires a number (make sure that you have the category name and number seperated by a colon, for example "Category: 5")')
+                                continue
                             v = v.split(':')
-                            print('split', v)
-                            print({'slug': v[0], 'numeric_component': v[1]})
                             subcats.append({'slug': v[0], 'numeric_component': v[1]})
                         else:
                             subcats.append({'slug': v})

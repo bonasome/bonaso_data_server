@@ -362,9 +362,9 @@ class RespondentBulkUploadTest(APITestCase):
         self.project.organizations.set([self.org])
 
         self.indicator = Indicator.objects.create(code='TEST', name='Test Indicator')
-        category = IndicatorSubcategory.objects.create(name='Cat 1')
-        category2 = IndicatorSubcategory.objects.create(name='Cat 2')
-        self.indicator.subcategories.set([category, category2])
+        self.category = IndicatorSubcategory.objects.create(name='Cat 1')
+        self.category2 = IndicatorSubcategory.objects.create(name='Cat 2')
+        self.indicator.subcategories.set([self.category, self.category2])
         self.indicator_num = Indicator.objects.create(code='TEST', name='Test Indicator', require_numeric=True)
         self.project.indicators.set([self.indicator, self.indicator_num])
         self.task = Task.objects.create(indicator=self.indicator, organization=self.org, project=self.project)
@@ -391,7 +391,7 @@ class RespondentBulkUploadTest(APITestCase):
                     {
                         "interaction_date": '2025-05-01',
                         "task": self.task.id,
-                        "subcategory_names": ["foo", "bar"]
+                        "subcategories_data": [{'name':'Cat 1', 'id': self.category.id}, {'name': 'Cat 2', 'id': self.category2.id}]
                     },
                     {
                         "interaction_date": '2025-05-02',
@@ -442,7 +442,7 @@ class RespondentBulkUploadTest(APITestCase):
                     {
                         "interaction_date": '2025-05-01',
                         "task": self.task.id,
-                        "subcategory_names": ["foo", "bar"]
+                        "subcategory_names": [{'name':'Cat 1', 'id': self.category.id}, {'name': 'Cat 2', 'id': self.category2.id}]
                     },
                     {
                         "interaction_date": '2025-05-02',

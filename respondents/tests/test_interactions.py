@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.contrib.auth import get_user_model
 
 from projects.models import Project, Client, Task, Target
-from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus
+from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, InteractionSubcategory
 from organizations.models import Organization
 from indicators.models import Indicator, IndicatorSubcategory
 from datetime import date, timedelta
@@ -336,12 +336,13 @@ class InteractionViewSetTest(APITestCase):
             'task': task.id,
             'interaction_date': '2025-06-15',
             'respondent': self.respondent3.id,
-            'subcategory_names': ['Cat 1']
+            'subcategories_data': [{'name': 'Cat 1', 'id': category.id}]
         }
         response = self.client.post('/api/record/interactions/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_create_interaction_mismatched_subcat(self):
+    
+    def test_create_interaction_prereq_subcats(self):
         self.client.force_authenticate(user=self.data_collector)
         ind1 = Indicator.objects.create(code='10', name='ParentSubcat')
         ind2 = Indicator.objects.create(code='11', name='ChildSubcat', prerequisite=ind1)
@@ -358,7 +359,7 @@ class InteractionViewSetTest(APITestCase):
             'interaction_date': self.today,
             'respondent': self.respondent.id,
             'task': task_parent.id,
-            'subcategory_names': ['Cat 1']
+            'subcategories_data': [{'name': 'Cat 1', 'id': category.id}]
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -366,7 +367,7 @@ class InteractionViewSetTest(APITestCase):
             'interaction_date': self.today,
             'respondent': self.respondent.id,
             'task': task_child.id,
-            'subcategory_names': ['Cat 1', 'Cat 2']
+            'subcategories_data': [{'name': 'Cat 1', 'id': category.id}, {'name': 'Cat 2', 'id': category2.id}]
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -375,7 +376,7 @@ class InteractionViewSetTest(APITestCase):
             'interaction_date': self.today,
             'respondent': self.respondent.id,
             'task': task_child.id,
-            'subcategory_names': ['Cat 1']
+            'subcategories_data': [{'name': 'Cat 1', 'id': category.id}]
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
     
@@ -412,6 +413,26 @@ class InteractionViewSetTest(APITestCase):
         response = self.client.post('/api/record/interactions/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
     
+    def test_create_interaction_numeric_subcats(self):
+        self.client.force_authenticate(user=self.admin)
+        ind = Indicator.objects.create(code='10', name='GimmeANummieANDDatSubcat', require_numeric=True)
+        category = IndicatorSubcategory.objects.create(name='Cat 1')
+        category2 = IndicatorSubcategory.objects.create(name='Cat 2')
+        ind.subcategories.set([category, category2])
+        task_numsub = Task.objects.create(project=self.project, organization=self.parent_org, indicator=ind)
+        response = self.client.post('/api/record/interactions/', {
+            'interaction_date': self.today,
+            'respondent': self.respondent.id,
+            'task': task_numsub.id,
+            'subcategories_data': [{'name': 'Cat 1', 'id': category.id, 'numeric_component': 5}, {'name': 'Cat 2', 'id': category2.id, 'numeric_component': 10}]
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        ir = Interaction.objects.get(task=task_numsub, respondent=self.respondent.id)
+        self.assertEqual(ir.subcategories.count(), 2)
+        irsc1 = InteractionSubcategory.objects.get(subcategory=category, interaction=ir)
+        irsc2 = InteractionSubcategory.objects.get(subcategory=category2, interaction=ir)
+        self.assertEqual(irsc1.numeric_component, 5)
+        self.assertEqual(irsc2.numeric_component, 10)
 
     def test_no_flag(self):
         #interactions 30 days away or greater should not be flagged
@@ -473,7 +494,7 @@ class InteractionViewSetTest(APITestCase):
             'tasks': [
                 {'task': self.task.id},
                 {'task': task_number.id, 'numeric_component': 10},
-                {'task': task_subcat.id, 'subcategory_names': ['Cat 1', 'Cat 2']}
+                {'task': task_subcat.id, 'subcategories_data': [{'name': 'Cat 1', 'id': category.id}, {'name': 'Cat 2', 'id': category2.id}]}
             ]
         }, format='json')
         print(response.json())
@@ -498,8 +519,8 @@ class InteractionViewSetTest(APITestCase):
             'tasks': [
                 {'task': self.task.id},
                 {'task': task_number.id, 'numeric_component': 10},
-                {'task': task_subcat_prereq.id, 'subcategory_names': ['Cat 1', 'Cat 2']},
-                {'task': task_subcat.id, 'subcategory_names': ['Cat 1', 'Cat 2']}
+                {'task': task_subcat_prereq.id, 'subcategories_data': [{'name': 'Cat 1', 'id': category.id}, {'name': 'Cat 2', 'id': category2.id}]},
+                {'task': task_subcat.id, 'subcategories_data': [{'name': 'Cat 1', 'id': category.id}, {'name': 'Cat 2', 'id': category2.id}]}
             ]
         }, format='json')
         print(response.json())
@@ -524,8 +545,8 @@ class InteractionViewSetTest(APITestCase):
             'tasks': [
                 {'task': self.task.id},
                 {'task': task_number.id, 'numeric_component': 10},
-                {'task': task_subcat_prereq.id, 'subcategory_names': ['Cat 1', 'Cat 2']},
-                {'task': task_subcat.id, 'subcategory_names': ['Cat 1', 'Cat 2']}
+                {'task': task_subcat_prereq.id, 'subcategories_data': [{'name': 'Cat 1', 'id': category.id}, {'name': 'Cat 2', 'id': category2.id}]},
+                {'task': task_subcat.id, 'subcategories_data': [{'name': 'Cat 1', 'id': category.id}, {'name': 'Cat 2', 'id': category2.id}]}
             ]
         }, format='json')
         print(response.json())

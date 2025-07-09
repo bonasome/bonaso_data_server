@@ -83,23 +83,29 @@ class IndicatorSerializer(serializers.ModelSerializer):
     
     def create(self, validated_data):
         subcategory_names = validated_data.pop('subcategory_names', [])
+        cleaned_names = [
+            name.replace(',', '').replace(':', '') for name in subcategory_names
+        ]
         indicator = Indicator.objects.create(**validated_data)
         subcategories = [
             IndicatorSubcategory.objects.get_or_create(name=name)[0]
-            for name in subcategory_names
+            for name in cleaned_names
         ]
         indicator.subcategories.set(subcategories)
         return indicator
 
     def update(self, instance, validated_data):
         subcategory_names = validated_data.pop('subcategory_names', None)
+        cleaned_names = [
+            name.replace(',', '').replace(':', '') for name in subcategory_names
+        ]
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
         if subcategory_names is not None:
             subcategories = [
                 IndicatorSubcategory.objects.get_or_create(name=name)[0]
-                for name in subcategory_names
+                for name in cleaned_names
             ]
             instance.subcategories.set(subcategories)
         return instance

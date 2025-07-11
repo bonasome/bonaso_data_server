@@ -90,6 +90,9 @@ class DemographicCount(models.Model):
     organization = models.ForeignKey(Organization, on_delete=models.PROTECT, null=True, blank=True)
     task = models.ForeignKey(Task, on_delete=models.PROTECT, null=True, blank=True)
     subcategory = models.ForeignKey(IndicatorSubcategory, on_delete=models.PROTECT, null=True, blank=True)
+
+    flagged = models.BooleanField(default=False)
+
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='count_created_by')
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='count_updated_by')
     created_at = models.DateTimeField(auto_now_add=True)

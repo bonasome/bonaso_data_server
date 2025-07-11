@@ -8,7 +8,11 @@ from organizations.models import Organization
 from organizations.serializers import OrganizationListSerializer, OrganizationSerializer
 from projects.serializers import TaskSerializer
 
-
+class DCSerializer(serializers.ModelSerializer):
+    class Meta:
+        model=DemographicCount
+        fields = '__all__'
+        
 class EventSerializer(serializers.ModelSerializer):
     host = OrganizationListSerializer(read_only=True)
     host_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, required=False, allow_null=True, source='host')
@@ -38,24 +42,39 @@ class EventSerializer(serializers.ModelSerializer):
         EventOrganization.objects.bulk_create(new_links)
 
     def _add_tasks(self, event, tasks, user):
-        existing_task_ids = set(
-            EventTask.objects.filter(event=event).values_list('task_id', flat=True)
-        )
+        existing_task_ids = [t.task.id for t in EventTask.objects.filter(event=event)]
+        new_indicators = [t.indicator.id for t in tasks]
+        old_indicators = [t.task.indicator.id for t in EventTask.objects.filter(event=event)]
         new_links = []
         for task in tasks:
+            if user.role != 'admin':
+                if not task.organization == user.organization and not task.organization.parent_organization == user.organization:
+                    raise PermissionDenied(
+                        f"Cannot assign a task that is not associcated with your organization or child organization."
+                    )
+            org = task.organization
+            if not EventOrganization.objects.filter(organization=org).exists():
+                raise serializers.ValidationError(
+                    f"Task '{task.indicator.name}' is associated with '{task.organization.name}' who is not associated with this event. Please add them first."
+                )
             start = task.project.start
             end = task.project.end
             if not start <= event.event_date <= end:
                 raise serializers.ValidationError(
                     f"Task '{task.indicator.name}' for organization '{task.organization.name}' is associcated with a project whose start and end dates do not align with this events date."
                 )
-            if user.role != 'admin':
-                if not task.organization == user.organization and not task.organization.parent_organization == user.organization:
-                    raise PermissionDenied(
-                        f"Cannot assign a task that is not associcated with your organization or child organization."
-                    )
+            prereq = task.indicator.prerequisite
+            if prereq and prereq.id not in old_indicators and prereq.id not in new_indicators:
+                raise serializers.ValidationError(
+                    f"Task '{task.indicator.name}' has a prerequisite that must be added first."
+                )
+            print(task.id, existing_task_ids)
             if task.id not in existing_task_ids:
                 new_links.append(EventTask(event=event, task=task, added_by=user))
+            else:
+                raise serializers.ValidationError(
+                    f"Task '{task.indicator.name} is already in this project"
+                )
 
         EventTask.objects.bulk_create(new_links)
 

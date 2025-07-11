@@ -10,7 +10,7 @@ from projects.models import Project, Client, Task
 from respondents.models import Respondent, Interaction
 from organizations.models import Organization
 from indicators.models import Indicator, IndicatorSubcategory
-from datetime import date
+from datetime import date, timedelta
 
 User = get_user_model()
 
@@ -357,6 +357,15 @@ class DemographicCountsTest(APITestCase):
         )
         self.event.tasks.set([self.task, self.subcats_task, self.prereq_task, self.dependent_task, self.child_task])
         self.event.organizations.set([self.parent_org, self.child_org])
+
+        self.event_future = Event.objects.create(
+            name='Event',
+            event_date=date.today()+timedelta(days=1),
+            location='here',
+            host=self.parent_org
+        )
+        self.event.tasks.set([self.task, self.subcats_task, self.prereq_task, self.dependent_task, self.child_task])
+        self.event.organizations.set([self.parent_org, self.child_org])
     
     def test_count_creation(self):
         self.client.force_authenticate(user=self.admin)
@@ -561,6 +570,24 @@ class DemographicCountsTest(APITestCase):
         response = self.client.patch(f'/api/activities/events/{self.event.id}/update-counts/', valid_payload, content_type='application/json')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+    
+    def test_future(self):
+        self.client.force_authenticate(user=self.admin)
+        valid_payload = {
+            'counts': [
+                {
+                    'count': 35,
+                    'sex': 'M',
+                    'age_range': 'under_18',
+                    'citizenship': 'citizen',
+                    'status': 'Staff',
+                    'task_id': self.task.id,
+                },
+            ]
+        }
+        response = self.client.patch(f'/api/activities/events/{self.event_future.id}/update-counts/', valid_payload, content_type='application/json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_duplicate_rows(self):
         self.client.force_authenticate(user=self.admin)

@@ -65,6 +65,9 @@ class IndicatorViewSet(RoleRestrictedViewSet):
         project_id = self.request.query_params.get('project')
         if project_id:
             queryset = queryset.filter(projectindicator__project__id=project_id)
+        exclude_project_id = self.request.query_params.get('exclude_project')
+        if exclude_project_id:
+            queryset = queryset.exclude(projectindicator__project__id=exclude_project_id)
         organization_id = self.request.query_params.get('organization')
         if organization_id:
             tasks = Task.objects.filter(indicator__in=queryset, organization__id=organization_id)

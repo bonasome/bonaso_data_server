@@ -21,6 +21,7 @@ from indicators.models import Indicator, IndicatorSubcategory
 from events.serializers import EventSerializer, DCSerializer
 from django.contrib.auth import get_user_model
 from collections import defaultdict
+from datetime import date
 
 User = get_user_model()
 
@@ -256,7 +257,7 @@ class EventViewSet(RoleRestrictedViewSet):
         event=self.get_object()
         user = request.user
         counts = request.data.get('counts', [])
-
+        
         if user.role not in ['meofficer', 'admin', 'manager']:
             return Response(
                 {'detail': 'You do not have permission to edit event counts.'},
@@ -271,6 +272,11 @@ class EventViewSet(RoleRestrictedViewSet):
                 return Response(
                 {'detail': 'You do not have permission to edit counts for this event.'},
                 status=status.HTTP_403_FORBIDDEN
+            )
+        if event.event_date > date.today():
+            return Response(
+                {'detail': 'You cannot add counts for events in the future.'},
+                status=status.HTTP_400_BAD_REQUEST
             )
         task_ids = set(c['task_id'] for c in counts if 'task_id' in c)
         org_ids = set(c['organization_id'] for c in counts if 'organization_id' in c)

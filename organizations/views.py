@@ -48,11 +48,16 @@ class OrganizationViewSet(RoleRestrictedViewSet):
                    output_field=IntegerField(),
                )
            ).order_by('priority', 'name')
-            
+        
         project_id = self.request.query_params.get('project')
         if project_id:
             queryset = queryset.filter(projectorganization__project__id=project_id)
-            
+        exclude_project_id = self.request.query_params.get('exclude_project')
+        if exclude_project_id:
+            queryset = queryset.exclude(projectorganization__project__id=exclude_project_id)
+        exclude_event_id = self.request.query_params.get('exclude_event')
+        if exclude_event_id:
+            queryset = queryset.exclude(eventorganization__event__id=exclude_event_id)
         indicator_id = self.request.query_params.get('indicator')
         if indicator_id:
             tasks = Task.objects.filter(organization__in=queryset, indicator__id=indicator_id)

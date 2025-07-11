@@ -27,7 +27,7 @@ today = date.today().isoformat()
 from projects.models import Project, ProjectIndicator, ProjectOrganization, Client, Task, Target
 from projects.serializers import ProjectListSerializer, ProjectDetailSerializer, TaskSerializer, TargetSerializer, ClientSerializer
 from respondents.models import Interaction
-
+from events.models import Event
 
 class TaskViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
@@ -55,6 +55,16 @@ class TaskViewSet(RoleRestrictedViewSet):
         type_param = self.request.query_params.get('indicator_type')
         if type_param:
             queryset = queryset.filter(indicator__indicator_type=type_param)
+
+        event_param = self.request.query_params.get('event')
+        if event_param:
+            try:
+                event = Event.objects.get(id=event_param)
+            except Event.DoesNotExist:
+                return queryset.none()
+
+            queryset = queryset.exclude(eventtask__event__id=event_param)
+            queryset = queryset.filter(organization__in=event.organizations.all())
 
         if role == 'admin':
             return queryset

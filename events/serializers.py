@@ -7,7 +7,7 @@ from projects.models import Project, Task
 from organizations.models import Organization
 from organizations.serializers import OrganizationListSerializer, OrganizationSerializer
 from projects.serializers import TaskSerializer
-
+from datetime import date
 class DCSerializer(serializers.ModelSerializer):
     class Meta:
         model=DemographicCount
@@ -93,7 +93,11 @@ class EventSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def update(self, instance, validated_data):
         user = self.context.get('request').user if self.context.get('request') else None
-
+        event_date = validated_data.pop('event_date', None)
+        if not event_date or (event_date > date.today() and DemographicCount.objects.filter(event=instance).exists()):
+            raise serializers.ValidationError(
+                "You cannot set an event for the future if it already has counts associated with it."
+            )
         organizations = validated_data.pop('organizations', [])
         tasks = validated_data.pop('tasks', [])
 

@@ -238,14 +238,14 @@ class UploadViewSetTest(APITestCase):
             "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
             "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
             "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "HIV Status", "Date Positive", "Pregnant",
+            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
             "Date of Interaction", "Interaction Location", "TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"
         ]
         ws.append(headers)
         row = [
             "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row)
         file_obj = BytesIO()
@@ -269,7 +269,7 @@ class UploadViewSetTest(APITestCase):
             "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
             "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
             "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "HIV Status", "Date Positive", "Pregnant",
+            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
             "Date of Interaction", "Interaction Location", 
             "TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"
         ]
@@ -278,7 +278,7 @@ class UploadViewSetTest(APITestCase):
         row = [
             "TRUE", "", "", "", "somewhere around 30, id say", "", "a guy", "Wardplace", "Testington",
             "you know that place, right?", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row)
 
@@ -286,7 +286,7 @@ class UploadViewSetTest(APITestCase):
         row2 = [
             "FALSE","T2", "Test", "", "", 'yesterday', "", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row2)  
 
@@ -294,7 +294,7 @@ class UploadViewSetTest(APITestCase):
         row3 = [
             "FALSE", "T2", "Test", "Testerson", "Under 18", "", "male", "Wardplace", "Testington",
             "Central District", "Motswana", "", "", "transgender, Intersex", 
-            "hearing   Impaired; Visually Impaired", "", "", "", '45447', "Mochudi" "Yes", "Yes", ""
+            "hearing   Impaired; Visually Impaired", "", "", "", "", '45447', "Mochudi" "Yes", "Yes", ""
         ]
         ws.append(row3) 
 
@@ -320,7 +320,7 @@ class UploadViewSetTest(APITestCase):
            "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
             "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
             "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "HIV Status", "Date Positive", "Pregnant",
+            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
             "Date of Interaction", "Interaction Location", "TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"
         ]
         ws.append(headers)
@@ -328,7 +328,7 @@ class UploadViewSetTest(APITestCase):
         row = [
             "FALSE", "T1", "Test", "Testerson", "", date(2028, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row)
 
@@ -336,7 +336,7 @@ class UploadViewSetTest(APITestCase):
         row2 = [
             "FALSE","T2", "Test", "Testerson", "", 'yesterday', "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row2)  
 
@@ -362,7 +362,7 @@ class UploadViewSetTest(APITestCase):
             "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
             "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
             "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "HIV Status", "Date Positive", "Pregnant",
+            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
             "Date of Interaction", "Interaction Location", "TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"
         ]
         ws.append(headers)
@@ -370,7 +370,7 @@ class UploadViewSetTest(APITestCase):
         row = [
             "FALSE", "T1", "Test", "Testerson", "", date(2000, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2000, 5, 1), "Mochudi", "Yes", "Yes", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2000, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row)
 
@@ -401,7 +401,7 @@ class UploadViewSetTest(APITestCase):
             "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
             "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
             "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "HIV Status", "Date Positive", "Pregnant",
+            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
             "Date of Interaction", "Interaction Location", "TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"
         ]
         ws.append(headers)
@@ -409,7 +409,7 @@ class UploadViewSetTest(APITestCase):
         row = [
             "FALSE", "1234567", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row)
 
@@ -457,7 +457,7 @@ class UploadViewSetTest(APITestCase):
             "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
             "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
             "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "HIV Status", "Date Positive", "Pregnant",
+            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
             "Date of Interaction", "Interaction Location", "NUM: Number (Requires a Number)", "SC: Subcat", "Comments"
         ]
         ws.append(headers)
@@ -465,7 +465,7 @@ class UploadViewSetTest(APITestCase):
         row = [
             "FALSE", "1234567", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "10", "Cat 1, Cat 2", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "10", "Cat 1, Cat 2", ""
         ]
         ws.append(row)
 
@@ -500,21 +500,21 @@ class UploadViewSetTest(APITestCase):
             "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
             "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
             "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "HIV Status", "Date Positive", "Pregnant",
+            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
             "Date of Interaction", "Interaction Location", "TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"
         ]
         ws.append(headers)
         row = [
             "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "", ""
         ]
         ws.append(row)
 
         row2 = [
             "FALSE", "T2", "Test2", "Testerson II", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row2)
 
@@ -550,14 +550,14 @@ class UploadViewSetTest(APITestCase):
             "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
             "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
             "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "HIV Status", "Date Positive", "Pregnant",
+            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
             "Date of Interaction", "Interaction Location", "TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"
         ]
         ws.append(headers)
         row = [
             "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "No", "Yes", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "No", "Yes", ""
         ]
         ws.append(row)
 
@@ -591,7 +591,7 @@ class UploadViewSetTest(APITestCase):
             "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
             "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
             "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "HIV Status", "Date Positive", "Pregnant",
+            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
             "Date of Interaction", "Interaction Location", "NUM: Number (Requires a Number)", "Comments"
         ]
         ws.append(headers)
@@ -599,7 +599,7 @@ class UploadViewSetTest(APITestCase):
         row = [
             "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "6", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "6", ""
         ]
         ws.append(row)
 
@@ -639,7 +639,7 @@ class UploadViewSetTest(APITestCase):
             "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
             "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
             "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "HIV Status", "Date Positive", "Pregnant",
+            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
             "Date of Interaction", "Interaction Location", "SC: Subcat", "Comments"
         ]
         ws.append(headers)
@@ -647,14 +647,14 @@ class UploadViewSetTest(APITestCase):
         row = [
             "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "Cat 1", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Cat 1", ""
         ]
         ws.append(row)
         #should also work
         row2 = [
             "FALSE", "T2", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "cat2,Cat1  ", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "cat2,Cat1  ", ""
         ]
         ws.append(row2)
 
@@ -699,7 +699,7 @@ class UploadViewSetTest(APITestCase):
             "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
             "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
             "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "HIV Status", "Date Positive", "Pregnant",
+            "Disability Status","Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
             "Date of Interaction", "Interaction Location", "SC: Subcat (Requires a Number)", "Comments"
         ]
         ws.append(headers)
@@ -707,14 +707,14 @@ class UploadViewSetTest(APITestCase):
         row = [
             "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "Cat 1: 12", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Cat 1: 12", ""
         ]
         ws.append(row)
         #should also work
         row2 = [
             "FALSE", "T2", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "cat2:3,Cat1:5  ", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "cat2:3,Cat1:5  ", ""
         ]
         ws.append(row2)
 
@@ -764,7 +764,7 @@ class UploadViewSetTest(APITestCase):
             "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
             "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
             "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "HIV Status", "Date Positive", "Pregnant",
+            "Disability Status","Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
             "Date of Interaction", "Interaction Location", "SC: Subcat (Requires a Number)", "Comments"
         ]
         ws.append(headers)
@@ -772,7 +772,7 @@ class UploadViewSetTest(APITestCase):
         row = [
             "FALSE", "T2", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "Cat 1: p", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Cat 1: p", ""
         ]
         ws.append(row)
 
@@ -804,7 +804,7 @@ class UploadViewSetTest(APITestCase):
             "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
             "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
             "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "HIV Status", "Date Positive", "Pregnant",
+            "Disability Status","Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
             "Date of Interaction", "Interaction Location", "SC: Subcat (Requires a Number)", "Comments"
         ]
         ws.append(headers)
@@ -812,7 +812,7 @@ class UploadViewSetTest(APITestCase):
         row = [
             "FALSE", "T2", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "Cat 1", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Cat 1", ""
         ]
         ws.append(row)
 
@@ -844,7 +844,7 @@ class UploadViewSetTest(APITestCase):
             "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
             "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
             "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "HIV Status", "Date Positive", "Pregnant",
+            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
             "Date of Interaction", "Interaction Location", "SC: Subcat", "Comments"
         ]
         ws.append(headers)
@@ -852,14 +852,14 @@ class UploadViewSetTest(APITestCase):
         row = [
             "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "", ""
         ]
         ws.append(row)
         #forgot the comma
         row2 = [
             "FALSE", "T2", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "cat1Cat1  ", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "cat1Cat1  ", ""
         ]
         ws.append(row2)
 
@@ -905,14 +905,14 @@ class UploadViewSetTest(APITestCase):
             "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
             "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
             "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "HIV Status", "Date Positive", "Pregnant",
+            "Disability Status","Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
             "Date of Interaction", "Interaction Location", "PSC: Subcat Parent", "CSC: Subcat Child", "Comments"
         ]
         ws.append(headers)
         row = [
             "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "Cat 1", "Cat 1, Cat 2", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Cat 1", "Cat 1, Cat 2", ""
         ]
         ws.append(row)
 
@@ -953,14 +953,14 @@ class UploadViewSetTest(APITestCase):
             "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
             "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
             "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "HIV Status", "Date Positive", "Pregnant",
+            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
             "Date of Interaction", "Interaction Location", "PSC: Subcat Parent", "CSC: Subcat Child", "Comments"
         ]
         ws.append(headers)
         row = [
             "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", date(2024, 5, 1), "Mochudi", "Cat 1", "Cat 1", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Cat 1", "Cat 1", ""
         ]
         ws.append(row)
 

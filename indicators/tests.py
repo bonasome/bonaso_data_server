@@ -105,6 +105,10 @@ class TestIndicatorValidation(APITestCase):
         self.parent = Organization.objects.create(name='Parent Org')
         self.admin = User.objects.create_user(username='admin', password='testpass', role='admin', organization=self.parent)
         self.indicator = Indicator.objects.create(name='Test Indicator', code='TEST101')
+        self.prereq_resp = Indicator.objects.create(name='Prereq', code='PRE')
+        self.prereq_planned = Indicator.objects.create(name='Planned', code='PL', status='Planned')
+        self.dep =Indicator.objects.create(name='Dep', code='DEP', prerequisite = self.prereq_resp)
+    
     def test_create(self):
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
@@ -160,4 +164,50 @@ class TestIndicatorValidation(APITestCase):
             'code': 'TEST102',
         }
         response = self.client.post(f'/api/indicators/', invalid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_valid_prereq(self):
+        self.client.force_authenticate(user=self.admin)
+        invalid_payload = {
+            'name': 'Ind 3',
+            'code': 'PRE102',
+            'indicator_type': 'Respondent',
+            'status': 'Planned',
+            'prerequisite_id': self.prereq_planned.id
+        }
+        response = self.client.post(f'/api/indicators/', invalid_payload, format='json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_invalid_prereq(self):
+        self.client.force_authenticate(user=self.admin)
+        #wrong type should fail
+        invalid_payload = {
+            'name': 'Ind 3',
+            'code': 'PRE102',
+            'indicator_type': 'Count',
+            'prerequisite_id': self.prereq_resp.id
+        }
+        response = self.client.post(f'/api/indicators/', invalid_payload, format='json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        #as should bad mixed statuses
+        invalid_payload = {
+            'name': 'Ind 3',
+            'code': 'PRE102',
+            'status': 'Active',
+            'indicator_type': 'Respondent',
+            'prerequisite_id': self.prereq_planned.id
+        }
+        response = self.client.post(f'/api/indicators/', invalid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+    
+    def test_dependency(self):
+        self.client.force_authenticate(user=self.admin)
+        #wrong type should fail
+        invalid_payload = {
+            'status': 'Planned'
+        }
+        response = self.client.patch(f'/api/indicators/{self.prereq_resp.id}', invalid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

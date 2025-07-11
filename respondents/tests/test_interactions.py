@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.contrib.auth import get_user_model
 
 from projects.models import Project, Client, Task, Target
-from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, InteractionSubcategory
+from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, InteractionSubcategory, RespondentAttributeType
 from organizations.models import Organization
 from indicators.models import Indicator, IndicatorSubcategory
 from datetime import date, timedelta
@@ -66,12 +66,17 @@ class InteractionViewSetTest(APITestCase):
         self.child_indicator = Indicator.objects.create(code='2', name='Child', prerequisite=self.indicator)
         self.not_in_project = Indicator.objects.create(code='3', name='Unrelated')
         
-        self.attr_indicator = Indicator.objects.create('code=5001', name='I NEED AN ATTRIBUTE', )
-        self.project.indicators.set([self.indicator, self.child_indicator])
+        self.req1 = RespondentAttributeType.objects.create(name='PLWHIV')
+        self.req2 = RespondentAttributeType.objects.create(name='CHW')
+
+        self.attr_indicator = Indicator.objects.create(code='5001', name='I NEED AN ATTRIBUTE')
+        self.attr_indicator.required_attribute.set([self.req1, self.req2])
+        
+        self.project.indicators.set([self.indicator, self.child_indicator, self.attr_indicator])
 
         self.task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.indicator)
         self.prereq_task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.child_indicator)
-
+        self.attr_task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.attr_indicator)
         self.child_task = Task.objects.create(project=self.project, organization=self.child_org, indicator=self.indicator)
         self.other_task =Task.objects.create(project=self.project, organization=self.other_org, indicator=self.indicator)
 
@@ -259,36 +264,38 @@ class InteractionViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
     
 
-    def test_create_attr_fail(self):
-        #should fail since respondent3 has no interaction realted to task
-
+    def test_create_attr_success(self):
+        #should fail since respondent3 does not have the attributes
+        self.respondent3.special_attribute.set([self.req1, self.req2])
         self.client.force_authenticate(user=self.data_collector)
         valid_payload = {
-            'task': self.prereq_task.id,
+            'task': self.attr_task.id,
+            'interaction_date': '2025-06-15',
+            'respondent': self.respondent3.id,
+        }
+        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_create_attr_fail(self):
+        #should fail since respondent3 does not have the attributes
+        self.client.force_authenticate(user=self.data_collector)
+        valid_payload = {
+            'task': self.attr_task.id,
             'interaction_date': '2025-06-15',
             'respondent': self.respondent3.id,
         }
         response = self.client.post('/api/record/interactions/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-        #try again with prereq and it should work
+        self.respondent3.special_attribute.set([self.req1])
         self.client.force_authenticate(user=self.data_collector)
         valid_payload = {
-            'task': self.task.id,
+            'task': self.attr_task.id,
             'interaction_date': '2025-06-15',
             'respondent': self.respondent3.id,
         }
         response = self.client.post('/api/record/interactions/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        self.client.force_authenticate(user=self.data_collector)
-        valid_payload = {
-            'task': self.prereq_task.id,
-            'interaction_date': '2025-06-15',
-            'respondent': self.respondent3.id,
-        }
-        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_no_prereq(self):
         #should fail since respondent3 has no interaction realted to task

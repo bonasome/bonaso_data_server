@@ -53,6 +53,7 @@ class IndicatorViewSet(RoleRestrictedViewSet):
     filterset_fields = ['project', 'prerequisite', 'status']
     ordering_fields = ['code', 'name']
     search_fields = ['name', 'code', 'description'] 
+
     def get_queryset(self):
         queryset = super().get_queryset() 
         user = self.request.user
@@ -145,9 +146,16 @@ class IndicatorViewSet(RoleRestrictedViewSet):
 
     @action(detail=False, methods=['get'], url_path='meta')
     def filter_options(self, request):
+        from respondents.models import RespondentAttributeType
         statuses = [status for status, _ in Indicator.Status.choices]
+        indicator_types = [t for t, _ in Indicator.IndicatorType.choices]
+        required_attribute = [t for t, _ in RespondentAttributeType.Attributes.choices]
+        required_attribute_labels = [t.label for t in RespondentAttributeType.Attributes]
         return Response({
             'statuses': statuses,
+            'indicator_types': indicator_types,
+            'required_attributes': required_attribute,
+            'required_attribute_labels': required_attribute_labels,
         })
 
 '''

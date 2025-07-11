@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.contrib.auth import get_user_model
 from datetime import datetime
 from projects.models import Project, Client, Task, Target
-from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus
+from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, RespondentAttributeType
 from organizations.models import Organization
 from indicators.models import Indicator, IndicatorSubcategory
 from datetime import date
@@ -262,6 +262,9 @@ class SensitiveInfoViewSetTest(APITestCase):
             citizenship='test',
             sex = Respondent.Sex.FEMALE,
         )
+        self.hiv = RespondentAttributeType.objects.get_or_create(name='PLWHIV')
+        self.kp = RespondentAttributeType.objects.get_or_create(name='KP')
+        self.pwd = RespondentAttributeType.objects.create(name='PWD')
 
     def test_sensitive_info_create(self):
         #test a patch akin to how to website sends this information
@@ -280,7 +283,7 @@ class SensitiveInfoViewSetTest(APITestCase):
         self.respondent_anon.refresh_from_db()
         self.assertEqual(self.respondent_anon.disability_status.count(), 2)
         self.assertEqual(self.respondent_anon.kp_status.count(), 2)
-    
+
     def test_sensitive_info_patch(self):
         #edit patch
         self.client.force_authenticate(user=self.data_collector)

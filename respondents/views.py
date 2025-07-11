@@ -36,7 +36,7 @@ import traceback
 from datetime import datetime, date
 today = date.today().isoformat()
 from projects.models import Task
-from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType
+from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType, RespondentAttributeType
 from respondents.serializers import RespondentSerializer, RespondentListSerializer, InteractionSerializer, SensitiveInfoSerializer
 from indicators.models import IndicatorSubcategory
 
@@ -117,6 +117,9 @@ class RespondentViewSet(RoleRestrictedViewSet):
         kp_type_labels = [choice.label for choice in KeyPopulation.KeyPopulations]
         dis_types = [dis for dis, _ in DisabilityType.DisabilityTypes.choices]
         dis_labels = [dis.label for dis in DisabilityType.DisabilityTypes]
+        auto_attr = [RespondentAttributeType.Attributes.PLWHIV, RespondentAttributeType.Attributes.KP, RespondentAttributeType.Attributes.PWD]
+        special_attributes = [attr for attr, _ in RespondentAttributeType.Attributes.choices if attr not in auto_attr]
+        special_attribute_labels = [attr.label for attr in RespondentAttributeType.Attributes if attr not in auto_attr]
         return Response({
             'districts': districts,
             'district_labels': district_labels,
@@ -127,7 +130,9 @@ class RespondentViewSet(RoleRestrictedViewSet):
             'kp_types': kp_types,
             'kp_type_labels': kp_type_labels,
             'disability_types': dis_types,
-            'disability_type_labels': dis_labels
+            'disability_type_labels': dis_labels,
+            'special_attributes': special_attributes,
+            'special_attribute_labels': special_attribute_labels
         })
     
     #we should write some tests for this at some point

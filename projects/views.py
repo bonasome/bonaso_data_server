@@ -35,7 +35,7 @@ class TaskViewSet(RoleRestrictedViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
     ordering_fields = ['indicator__code']
     search_fields = ['indicator__code', 'indicator__name', 'project__name', 'organization__name']
-    filterset_fields = ['project', 'organization', 'indicator']
+    filterset_fields = ['project', 'organization', 'indicator', 'indicator__indicator_type']
     
     def get_queryset(self):
         user = self.request.user

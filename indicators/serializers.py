@@ -24,6 +24,11 @@ class IndicatorSerializer(serializers.ModelSerializer):
     subcategory_names = serializers.ListField(
         child=serializers.CharField(), write_only=True, required=False
     )
+
+    required_attribute_names = serializers.ListField(
+        child=serializers.CharField(), write_only=True, required=False
+    )
+
     prerequisite = PrerequisiteSerializer(read_only=True)
     prerequisite_id = serializers.PrimaryKeyRelatedField(
         source='prerequisite',
@@ -58,11 +63,29 @@ class IndicatorSerializer(serializers.ModelSerializer):
         model = Indicator
         fields = ['id', 'name', 'code', 'prerequisite', 'prerequisite_id', 'description', 'subcategories', 
                   'subcategory_names', 'require_numeric', 'status', 'created_by', 'created_at', 
-                  'updated_by', 'updated_at']
+                  'updated_by', 'updated_at', 'required_attribute', 'required_attribute_names', 'indicator_type']
+        
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
 
+        # Lazy import to avoid circular dependency
+        from respondents.serializers import RespondentAttributeTypeSerializer
+
+        representation['required_attribute'] = RespondentAttributeTypeSerializer(
+            instance.required_attribute.all(), many=True
+        ).data
+
+        return representation
+    
     def validate(self, attrs):
         code = attrs.get('code', getattr(self.instance, 'code', None))
         name = attrs.get('name', getattr(self.instance, 'name', None))
+        status = attrs.get('status', getattr(self.instance, 'status', None))
+        indicator_type = attrs.get('indicator_type', getattr(self.instance, 'indicator_type', None))
+        prerequisite = attrs.get('prerequisite', getattr(self.instance, 'prerequisite', None))
+        required_attribute = attrs.get('require_attribute_names', getattr(self.instance, 'require_attribute_names', None))
+        ind_id = self.instance.id if self.instance else None
+        
         if not code:
             raise serializers.ValidationError({"code": "Code is required."})
         if not name:
@@ -79,11 +102,41 @@ class IndicatorSerializer(serializers.ModelSerializer):
             qs = qs.exclude(pk=self.instance.pk)
         if qs.exists():
             raise serializers.ValidationError({"name": "Name must be unique."})
+        if prerequisite:
+            if prerequisite == self.instance:
+                raise serializers.ValidationError({"prerequisite": "An indicator cannot be its own prerequisite."})
+            if prerequisite.status == 'Deprecated':
+                raise serializers.ValidationError({"prerequisite": "This selected prerequisite indicator has been marked as deprecated, and therefore cannot be used as a prerequiste."})
+            if status == 'Active' and prerequisite.status == 'Planned':
+                raise serializers.ValidationError({"prerequisite": "This indicator's prerequisite is not active although this indicator was marked as active. Please set that indicator as active first."})
+            if indicator_type != prerequisite.indicator_type:
+                raise serializers.ValidationError({"prerequisite": f"This indicator is marked as type {indicator_type} which does not match the selected prerequisite {prerequisite.indicator_type} ."})
+        if ind_id:
+            dependencies = Indicator.objects.filter(prerequisite__id = ind_id)
+            if dependencies:
+                for dep in dependencies:
+                    if indicator_type != dep.indicator_type:
+                        raise serializers.ValidationError({"indicator type": f"Indicator {dep.name} uses this indicator as a prerequisite. You may not change this indicators type, as it will invalidate that indicator."})
+                    if dep.status != 'Deprecated' and status =='Deprecated':
+                        raise serializers.ValidationError({"status": f"Indicator {dep.name} uses this indicator as a prerequisite. You must deprecate that indicator first."})
+                    elif dep.status == 'Active' and status == 'Planned':
+                        raise serializers.ValidationError({"status": f"Indicator {dep.name} is active and uses this indicator as a prerequisite. You must mark that indicator as planned first."})
+        if required_attribute and indicator_type != 'Respondent':
+            raise serializers.ValidationError({"required attribute": "For this indicator to have required attributes, its type must be set to 'Respondent."})
         return attrs
     
+    def validate_required_attribute_names(self, value):
+        from respondents.models import RespondentAttributeType
+        valid_choices = set(choice[0] for choice in RespondentAttributeType.Attributes.choices)
+        for name in value:
+            if name not in valid_choices:
+                raise serializers.ValidationError(f"{name} is not a valid attribute.")
+        return value
+
     def create(self, validated_data):
+        from respondents.models import RespondentAttributeType
         subcategory_names = validated_data.pop('subcategory_names', [])
-        required_attribute = validated_data.pop('required_attribute', [])
+        required_attribute_names = validated_data.pop('required_attribute_names', [])
         cleaned_names = [
             name.replace(',', '').replace(':', '') for name in subcategory_names
         ]
@@ -93,10 +146,19 @@ class IndicatorSerializer(serializers.ModelSerializer):
             for name in cleaned_names
         ]
         indicator.subcategories.set(subcategories)
+
+        attrs = [
+            RespondentAttributeType.objects.get_or_create(name=name)[0]
+            for name in required_attribute_names
+        ]
+        indicator.required_attribute.set(attrs)
+
         return indicator
 
     def update(self, instance, validated_data):
+        from respondents.models import RespondentAttributeType
         subcategory_names = validated_data.pop('subcategory_names', None)
+        required_attribute_names = validated_data.pop('required_attribute_names', None)
         cleaned_names = [
             name.replace(',', '').replace(':', '') for name in subcategory_names
         ]
@@ -109,6 +171,12 @@ class IndicatorSerializer(serializers.ModelSerializer):
                 for name in cleaned_names
             ]
             instance.subcategories.set(subcategories)
+        if required_attribute_names is not None:
+            attrs = [
+                RespondentAttributeType.objects.get_or_create(name=name)[0]
+                for name in required_attribute_names
+            ]
+            instance.required_attribute.set(attrs)
         return instance
 
 class ChartSerializer(serializers.ModelSerializer):

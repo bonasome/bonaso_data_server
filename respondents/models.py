@@ -32,7 +32,19 @@ class KeyPopulation(models.Model):
         OTHER = 'OTHER', _('Other Key Population Status')
     
     name = models.CharField(max_length=10, choices=KeyPopulations.choices, unique=True)
-    
+
+class RespondentAttributeType(models.Model):
+    class Attributes(models.TextChoices):
+        PLWHIV = 'PLWHIV', _('Person Living with HIV')
+        PWD = 'PWD', _('Person Living with a Disability')
+        KP = 'KP', _('Key Population')
+        COMMUNITY_LEADER = 'Community_Leader', _('Community Leader')
+        CHW = 'CHW', _('Community Health Worker')
+
+    name = models.CharField(max_length=25, choices=Attributes.choices, unique=True)
+    def __str__(self):
+        return self.name
+      
 class Respondent(models.Model):
     class Sex(models.TextChoices):
         FEMALE = 'F', _('Female')
@@ -71,6 +83,7 @@ class Respondent(models.Model):
     village = models.CharField(max_length=255, verbose_name='Village')
     district = models.CharField(max_length=25, choices=District.choices, verbose_name='District')
     citizenship = models.CharField(max_length=255, verbose_name='Citizenship/Nationality')
+    special_attribute = models.ManyToManyField(RespondentAttributeType, through='RespondentAttribute', blank=True, verbose_name='Special Respondent Attributes')
     kp_status = models.ManyToManyField(KeyPopulation, through='KeyPopulationStatus', blank=True, verbose_name='Key Population Status')
     disability_status = models.ManyToManyField(DisabilityType, through='DisabilityStatus', blank=True, verbose_name='Disability Status')
     email = models.EmailField(verbose_name='Email Address', null=True, blank=True)
@@ -141,6 +154,16 @@ class Respondent(models.Model):
 
     def __str__(self):
         return self.get_full_name() if not self.is_anonymous else f'Anonymous Respondent ({self.uuid})'
+
+class RespondentAttribute(models.Model):
+    respondent = models.ForeignKey(Respondent, on_delete=models.CASCADE, blank=True, null=True)
+    attribute = models.ForeignKey(RespondentAttributeType, on_delete=models.CASCADE, blank=True, null=True)
+    auto_assigned = models.BooleanField(default=False)
+    class Meta:
+        unique_together = ('respondent', 'attribute')
+
+    def __str__(self):
+        return f'{self.respondent} - {self.attribute}'
 
 class KeyPopulationStatus(models.Model):
     respondent = models.ForeignKey(Respondent, on_delete=models.CASCADE, blank=True, null=True)

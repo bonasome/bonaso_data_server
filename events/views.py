@@ -44,7 +44,7 @@ class EventViewSet(RoleRestrictedViewSet):
         elif user.role in ['meofficer', 'manager']:
             queryset = Event.objects.filter(
                 Q(host=user.organization) | Q(organizations=user.organization)
-            )
+            ).distinct()
         else:
             return Event.objects.none()
 
@@ -265,7 +265,8 @@ class EventViewSet(RoleRestrictedViewSet):
         if user.role != 'admin':
            if not event.host or not (
                 user.organization == event.host or
-                user.organization == event.host.parent_organization
+                user.organization == event.host.parent_organization or
+                EventOrganization.objects.filter(organization = user.organization).exists() 
             ):
                 return Response(
                 {'detail': 'You do not have permission to edit counts for this event.'},
@@ -300,11 +301,17 @@ class EventViewSet(RoleRestrictedViewSet):
             if not task_id:
                 return Response({'detail': 'Each count must include a task_id.'}, status=400)
             grouped_counts[task_id].append(count)
-        to_create = []
+
         for task_id, group in grouped_counts.items():
             task = tasks.get(task_id)
             if not task or task.id not in event_task_ids:
                 return Response({'detail': f'Invalid or unauthorized Task: {task_id}'}, status=400)
+            elif user.role !='admin':
+                if not (task.organization == user.organization or task.organization.parent_organization == user.organization):
+                    return Response(
+                        {'detail': 'You do not have permission to edit counts for this task.'},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
 
             # Delete existing counts for this task in this event
             DemographicCount.objects.filter(event=event, task=task).delete()

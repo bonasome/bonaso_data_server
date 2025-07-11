@@ -32,7 +32,7 @@ from respondents.models import Interaction
 class TaskViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = TaskSerializer
-    filter_backends = [filters.SearchFilter, OrderingFilter]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
     ordering_fields = ['indicator__code']
     search_fields = ['indicator__code', 'indicator__name', 'project__name', 'organization__name']
     filterset_fields = ['project', 'organization', 'indicator']
@@ -47,9 +47,14 @@ class TaskViewSet(RoleRestrictedViewSet):
         org_param = self.request.query_params.get('organization')
         if org_param:
             queryset = queryset.filter(organization__id=org_param)
+            
         project_param = self.request.query_params.get('project')
         if project_param:
             queryset = queryset.filter(project__id=project_param)
+
+        type_param = self.request.query_params.get('indicator_type')
+        if type_param:
+            queryset = queryset.filter(indicator__indicator_type=type_param)
 
         if role == 'admin':
             return queryset

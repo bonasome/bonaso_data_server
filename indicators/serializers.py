@@ -83,6 +83,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
     
     def create(self, validated_data):
         subcategory_names = validated_data.pop('subcategory_names', [])
+        required_attribute = validated_data.pop('required_attribute', [])
         cleaned_names = [
             name.replace(',', '').replace(':', '') for name in subcategory_names
         ]

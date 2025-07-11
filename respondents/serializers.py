@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType, InteractionSubcategory
+from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType, InteractionSubcategory, RespondentAttribute
 from respondents.exceptions import DuplicateExists
 from projects.models import Task, Target
 from projects.serializers import TaskSerializer
@@ -421,6 +421,16 @@ class InteractionSerializer(serializers.ModelSerializer):
             if not subcategories or subcategories in [None, '', []]:
                 data['subcategories_data'] = []
 
+        required_attributes = task.indicator.required_attribute.all()
+        
+        if required_attributes.exists():
+            respondent_attrs = set(respondent.special_attribute.values_list('id', flat=True))
+            for attribute in required_attributes:
+                if attribute.id not in respondent_attrs:
+                    raise serializers.ValidationError(
+                        f"This task requires that the respondent be a {attribute.name}."
+                    )
+                
         prereq = task.indicator.prerequisite
         if prereq:
             parent_qs = Interaction.objects.filter(

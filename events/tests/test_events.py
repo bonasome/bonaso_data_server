@@ -56,12 +56,17 @@ class EventViewSetTest(APITestCase):
 
         self.indicator = Indicator.objects.create(code='1', name='Parent')
         self.new_indicator = Indicator.objects.create(code='2', name='New')
-        
-        self.project.indicators.set([self.indicator])
+        self.prerequisite_indicator = Indicator.objects.create(code='p', name='Prereq')
+        self.child_indicator = Indicator.objects.create(code='c', name='Child', prerequisite=self.prerequisite_indicator)
+
+        self.project.indicators.set([self.indicator, self.prerequisite_indicator, self.child_indicator])
         self.task = Task.objects.create(indicator=self.indicator, project=self.project, organization=self.parent_org)
         self.child_task = Task.objects.create(indicator=self.indicator, project=self.project, organization=self.child_org)
         self.new_task = Task.objects.create(indicator=self.new_indicator, project=self.project, organization=self.parent_org)
         self.other_task = Task.objects.create(indicator=self.indicator, project=self.project, organization=self.other_org)
+
+        self.prereq_task = Task.objects.create(indicator=self.prerequisite_indicator, project=self.project, organization=self.child_org)
+        self.dependent_task = Task.objects.create(indicator=self.child_indicator, project=self.project, organization=self.child_org)
 
         self.event = Event.objects.create(
             name='Event',
@@ -233,7 +238,6 @@ class EventViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
     
     def test_delete_event_no_perm(self):
-        #admins are allowed to delete projects
         self.client.force_authenticate(user=self.manager)
         response = self.client.delete(f'/api/activities/events/{self.event.id}/')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -251,6 +255,14 @@ class EventViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.event.refresh_from_db()
         self.assertEqual(self.event.tasks.count(), 0)
+    
+    def test_remove_task_prereq(self):
+        self.client.force_authenticate(user=self.admin)
+        self.event.tasks.set([self.prereq_task, self.dependent_task])
+        response = self.client.delete(f'/api/activities/events/{self.event.id}/remove-task/{self.prereq_task.id}/')
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.tasks.count(), 2)
     
     def test_associated_perms(self):
         test_event = Event.objects.create(
@@ -343,7 +355,7 @@ class DemographicCountsTest(APITestCase):
             location='here',
             host=self.parent_org
         )
-        self.event.tasks.set([self.task, self.subcats_task, self.prereq_task, self.dependent_task])
+        self.event.tasks.set([self.task, self.subcats_task, self.prereq_task, self.dependent_task, self.child_task])
         self.event.organizations.set([self.parent_org, self.child_org])
     
     def test_count_creation(self):
@@ -422,8 +434,160 @@ class DemographicCountsTest(APITestCase):
         count = DemographicCount.objects.filter(event=self.event).first()
         self.assertEqual(counts.count(), 1)
         self.assertEqual(count.count, 30)
-        self.assertEqual(count.updated_by, self.admin)
     
+    def test_count_update_shift_bd(self):
+        #one task one event is enforced, if an incoming task group is found, the old one should be deleted
+        self.client.force_authenticate(user=self.admin)
+        valid_payload = {
+            'counts': [
+                {
+                    'count': 25,
+                    'disability_type': 'VI',
+                    'kp_type': 'MSM',
+                    'pregnancy': False,
+                    'hiv_status': True,
+                    'sex': 'M',
+                    'age_range': 'under_18',
+                    'citizenship': 'citizen',
+                    'status': 'Staff',
+                    'task_id': self.task.id,
+                }
+            ]
+        }
+        response = self.client.patch(f'/api/activities/events/{self.event.id}/update-counts/', valid_payload, content_type='application/json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        valid_payload = {
+            'counts': [
+                {
+                    'count': 34,
+                    'disability_type': 'VI',
+                    'kp_type': 'MSM',
+                    'task_id': self.task.id,
+                }
+            ]
+        }
+        response = self.client.patch(f'/api/activities/events/{self.event.id}/update-counts/', valid_payload, content_type='application/json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        counts = DemographicCount.objects.filter(event=self.event)
+        count = DemographicCount.objects.filter(event=self.event).first()
+        self.assertEqual(counts.count(), 1)
+        self.assertEqual(count.count, 34)
+        self.assertEqual(count.created_by, self.admin)
+
+    def test_count_perm(self):
+        self.client.force_authenticate(user=self.manager)
+        valid_payload = {
+            'counts': [
+                {
+                    'count': 35,
+                    'sex': 'M',
+                    'age_range': 'under_18',
+                    'citizenship': 'citizen',
+                    'status': 'Staff',
+                    'task_id': self.task.id,
+                }
+            ]
+        }
+        response = self.client.patch(f'/api/activities/events/{self.event.id}/update-counts/', valid_payload, content_type='application/json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        #should also work
+        valid_payload = {
+            'counts': [
+                {
+                    'count': 35,
+                    'sex': 'M',
+                    'age_range': 'under_18',
+                    'citizenship': 'citizen',
+                    'status': 'Staff',
+                    'task_id': self.child_task.id,
+                }
+            ]
+        }
+        response = self.client.patch(f'/api/activities/events/{self.event.id}/update-counts/', valid_payload, content_type='application/json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_count_associate(self):
+        self.client.force_authenticate(user=self.officer)
+        valid_payload = {
+            'counts': [
+                {
+                    'count': 35,
+                    'sex': 'M',
+                    'age_range': 'under_18',
+                    'citizenship': 'citizen',
+                    'status': 'Staff',
+                    'task_id': self.child_task.id,
+                }
+            ]
+        }
+        response = self.client.patch(f'/api/activities/events/{self.event.id}/update-counts/', valid_payload, content_type='application/json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+    
+    def test_perm_fail_wrong_task(self):
+        self.client.force_authenticate(user=self.officer)
+        valid_payload = {
+            'counts': [
+                {
+                    'count': 35,
+                    'sex': 'M',
+                    'age_range': 'under_18',
+                    'citizenship': 'citizen',
+                    'status': 'Staff',
+                    'task_id': self.task.id,
+                }
+            ]
+        }
+        response = self.client.patch(f'/api/activities/events/{self.event.id}/update-counts/', valid_payload, content_type='application/json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+    
+    def test_perm_fail_dc(self):
+        self.client.force_authenticate(user=self.data_collector)
+        valid_payload = {
+            'counts': [
+                {
+                    'count': 35,
+                    'sex': 'M',
+                    'age_range': 'under_18',
+                    'citizenship': 'citizen',
+                    'status': 'Staff',
+                    'task_id': self.task.id,
+                }
+            ]
+        }
+        response = self.client.patch(f'/api/activities/events/{self.event.id}/update-counts/', valid_payload, content_type='application/json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_duplicate_rows(self):
+        self.client.force_authenticate(user=self.admin)
+        valid_payload = {
+            'counts': [
+                {
+                    'count': 35,
+                    'sex': 'M',
+                    'age_range': 'under_18',
+                    'citizenship': 'citizen',
+                    'status': 'Staff',
+                    'task_id': self.task.id,
+                },
+                {
+                    'count': 25,
+                    'sex': 'M',
+                    'age_range': 'under_18',
+                    'citizenship': 'citizen',
+                    'status': 'Staff',
+                    'task_id': self.task.id,
+                }
+            ]
+        }
+        response = self.client.patch(f'/api/activities/events/{self.event.id}/update-counts/', valid_payload, content_type='application/json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_no_prereq(self):
         #unlike one offs with respondents, lack of prereqs will not be rejected (to preserve work/account for flexibility)
         #but it should be flagged

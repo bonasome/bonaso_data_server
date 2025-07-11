@@ -445,6 +445,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
         sex_labels = [choice.label for choice in Respondent.Sex]
         kp_type_labels = [choice.label for choice in KeyPopulation.KeyPopulations]
         dis_labels = [dis.label for dis in DisabilityType.DisabilityTypes]
+        auto_attr = [RespondentAttributeType.Attributes.PLWHIV, RespondentAttributeType.Attributes.KP, RespondentAttributeType.Attributes.PWD]
+        special_attribute_labels = [attr.label for attr in RespondentAttributeType.Attributes if attr not in auto_attr]
 
         headers = []
         for field in Respondent._meta.get_fields():
@@ -475,6 +477,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 field_info['options'] = kp_type_labels
             elif field.name == 'disability_status':
                 field_info['options'] = dis_labels
+            elif field.name == 'special_attribute':
+                field_info['options'] = special_attribute_labels
             else:
                 field_info['options'] = []
             headers.append(field_info)
@@ -596,6 +600,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
         age_range_labels = [choice.label.lower().replace(' ', '')  for choice in Respondent.AgeRanges]
         kp_type_labels = [choice.label.lower().replace(' ', '')  for choice in KeyPopulation.KeyPopulations]
         dis_labels = [dis.label.lower().replace(' ', '')  for dis in DisabilityType.DisabilityTypes]
+        auto_attr = [RespondentAttributeType.Attributes.PLWHIV, RespondentAttributeType.Attributes.KP, RespondentAttributeType.Attributes.PWD]
+        special_attribute_labels = [attr.label.lower().replace(' ', '') for attr in RespondentAttributeType.Attributes if attr not in auto_attr]
         
         def get_verbose(field_name):
             return Respondent._meta.get_field(field_name).verbose_name
@@ -623,6 +629,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
         expect_column('phone_number')
         expect_column('kp_status', options=kp_type_labels, multiple=True)
         expect_column('disability_status', options=dis_labels, multiple=True) 
+        expect_column('special_attribute', options=special_attribute_labels, multiple=True)
 
         if not 'Date of Interaction' in headers:
             errors.append('Template is missing Date of Interaction column.')
@@ -938,6 +945,33 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
                 if disability_types:
                     respondent.disability_status.set(disability_types)
+            
+            special_attr_names_raw = get_cell_value(row, 'special_attribute') or ''
+            if special_attr_names_raw:
+                # Clean and split
+                cleaned = special_attr_names_raw.replace(' ', '').lower()
+                input_attr_names = set(re.split(r'[,:;]', cleaned))
+
+                valid_labels = get_options('special_attribute')
+                valid_lookup = {label.replace(' ', '').lower(): label for label in valid_labels}
+
+                matched = [name for name in input_attr_names if name in valid_lookup]
+                invalid_attr = input_attr_names - set(matched)
+
+                if invalid_attr:
+                    row_warnings.append(
+                        f"Invalid respondent attribute at row {i}: {', '.join(invalid_attr)}"
+                    )
+                attr_types = []
+                for cleaned_name in matched:
+                    key = get_choice_key_from_label(RespondentAttributeType.Attributes.choices, cleaned_name)
+                    if not key:
+                        continue
+                    attr, _ = RespondentAttributeType.objects.get_or_create(name=key)
+                    attr_types.append(attr)
+
+                if attr_types:
+                    respondent.special_attribute.set(attr_types)
             
             hs_col = headers['HIV Status']['column']-1 
             hiv_status = row[hs_col] if len(row) > hs_col else None

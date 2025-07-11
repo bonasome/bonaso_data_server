@@ -172,7 +172,7 @@ class UploadViewSetTest(APITestCase):
             "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
             "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
             "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "HIV Status", "Date Positive", "Pregnant",
+            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
             "Date of Interaction", "Interaction Location", "TEST1: Parent Indicator", 
             "TEST2: Child Indicator", "Comments"
         ]
@@ -181,22 +181,22 @@ class UploadViewSetTest(APITestCase):
         row = [
             "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "Yes", date(2023,2,1), "", date(2024, 5, 1), "Mochudi",
-            "Yes", "Yes", ""
+            "Hearing Impaired, Visually Impaired", "Community Health Worker, Community Leader", 
+            "Yes", date(2023,2,1), "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row)
         #this is about as far of deviation as the function can handle, but should still upload
         row2 = [
             "FALSE", "T2", "Test", "Testerson", "", '6/25/2000', "male", "Wardplace", "Testington",
             "Central District", "Motswana", "", "", "transgender, Intersex", 
-            "hearing   Impaired; Visually Impaired", "yes", "45447", "", '45447', "Mochudi", "Yes", "Yes", ""
+            "hearing   Impaired, Visually Impaired", " communityHealthworker,community   leader", "yes", "45447", "", '45447', "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row2)
         #test anon
         row3 = [
             "TRUE", "", "", "", "Under 18", "", "Female", "", "Testington",
             "Central District", "Motswana", "", "", "", 
-            "", "", "", "Yes", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
+            "", "", "", "", "Yes", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row3)
 
@@ -216,6 +216,7 @@ class UploadViewSetTest(APITestCase):
         self.assertEqual(respondent.first_name, 'Test')
         self.assertEqual(respondent.kp_status.count(), 2)
         self.assertEqual(respondent.disability_status.count(), 2)
+        self.assertEqual(respondent.special_attribute.count(), 2)
         hiv = HIVStatus.objects.get(respondent=respondent)
         self.assertEqual(hiv.date_positive, date(2023,2,1))
 
@@ -223,7 +224,7 @@ class UploadViewSetTest(APITestCase):
         respondent = Respondent.objects.get(id_no='T2')
         self.assertEqual(respondent.kp_status.count(), 2)
         self.assertEqual(respondent.disability_status.count(), 2)
-
+        self.assertEqual(respondent.special_attribute.count(), 2)
         respondent = Respondent.objects.get(village='Testington', sex='F')
         preg = Pregnancy.objects.get(respondent=respondent)
         self.assertEqual(preg.term_began, date.today())

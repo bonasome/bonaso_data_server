@@ -209,5 +209,19 @@ class TestIndicatorValidation(APITestCase):
         invalid_payload = {
             'status': 'Planned'
         }
-        response = self.client.patch(f'/api/indicators/{self.prereq_resp.id}', invalid_payload, format='json')
+        response = self.client.patch(f'/api/indicators/{self.prereq_resp.id}/', invalid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        invalid_payload = {
+            'indicator_type': 'Count'
+        }
+        response = self.client.patch(f'/api/indicators/{self.prereq_resp.id}/', invalid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+    
+    def test_self_prereq(self):
+        self.client.force_authenticate(user=self.admin)
+        invalid_payload = {
+            'prerequisite_id': self.indicator.id
+        }
+        response = self.client.patch(f'/api/indicators/{self.indicator.id}/', invalid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

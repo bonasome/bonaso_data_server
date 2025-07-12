@@ -37,13 +37,14 @@ class Indicator(models.Model):
     require_numeric = models.BooleanField(blank=True, null=True, default=False, verbose_name='Indicator requires an accompanying numeric value.')
     subcategories = models.ManyToManyField(IndicatorSubcategory, blank=True)
 
+    '''
     def clean(self):
         if self.prerequisite_id == self.id:
             self.prerequisite = None
-            #raise ValidationError("An indicator cannot be its own prerequisite.")
+            raise ValidationError("An indicator cannot be its own prerequisite.")
         if self.prerequisite and self.prerequisite.indicator_type != self.indicator_type:
             raise ValidationError("Indicator prerequisite must be of the same type.")
-    
+    '''
     def __str__(self):
         return f'{self.code}: {self.name}'
 

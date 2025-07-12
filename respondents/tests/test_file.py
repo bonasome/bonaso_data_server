@@ -160,9 +160,6 @@ class UploadViewSetTest(APITestCase):
         self.assertIn("Template is missing First Name column", str(response.data))
 
 
-
-
-
     def test_upload_respondents(self):
         self.client.force_authenticate(user=self.officer)
         wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
@@ -172,8 +169,8 @@ class UploadViewSetTest(APITestCase):
             "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
             "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
             "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
-            "Date of Interaction", "Interaction Location", "TEST1: Parent Indicator", 
+            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnancy Began (Date)",
+            "Pregnancy Ended (Date)", "Date of Interaction", "Interaction Location", "TEST1: Parent Indicator", 
             "TEST2: Child Indicator", "Comments"
         ]
         ws.append(headers)
@@ -182,21 +179,22 @@ class UploadViewSetTest(APITestCase):
             "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
             "Hearing Impaired, Visually Impaired", "Community Health Worker, Community Leader", 
-            "Yes", date(2023,2,1), "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
+            "Yes", date(2023,2,1), "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row)
         #this is about as far of deviation as the function can handle, but should still upload
         row2 = [
             "FALSE", "T2", "Test", "Testerson", "", '6/25/2000', "male", "Wardplace", "Testington",
             "Central District", "Motswana", "", "", "transgender, Intersex", 
-            "hearing   Impaired, Visually Impaired", " communityHealthworker,community   leader", "yes", "45447", "", '45447', "Mochudi", "Yes", "Yes", ""
+            "hearing   Impaired, Visually Impaired", " communityHealthworker,community   leader", "yes", "45447", "", "", 
+            '45447', "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row2)
         #test anon
         row3 = [
             "TRUE", "", "", "", "Under 18", "", "Female", "", "Testington",
             "Central District", "Motswana", "", "", "", 
-            "", "", "", "", "Yes", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
+            "", "", "", "", date(2023, 1, 1), date(2023, 9, 1), date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row3)
 
@@ -225,9 +223,12 @@ class UploadViewSetTest(APITestCase):
         self.assertEqual(respondent.kp_status.count(), 2)
         self.assertEqual(respondent.disability_status.count(), 2)
         self.assertEqual(respondent.special_attribute.count(), 2)
+
         respondent = Respondent.objects.get(village='Testington', sex='F')
         preg = Pregnancy.objects.get(respondent=respondent)
-        self.assertEqual(preg.term_began, date.today())
+        self.assertEqual(preg.term_began, date(2023, 1, 1))
+        self.assertEqual(preg.term_ended, date(2023, 9, 1))
+        self.assertEqual(preg.is_pregnant, False)
 
         
     def test_upload_respondents_child(self):

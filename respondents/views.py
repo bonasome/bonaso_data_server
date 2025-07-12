@@ -8,7 +8,6 @@ from rest_framework.response import Response
 from users.restrictviewset import RoleRestrictedViewSet
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.permissions import IsAuthenticated
 from dateutil.parser import parse as parse_date
 from datetime import date, timedelta
 from rest_framework.decorators import action
@@ -17,7 +16,6 @@ from rest_framework.filters import OrderingFilter
 from rest_framework import serializers
 from rest_framework.filters import SearchFilter
 from openpyxl.utils.datetime import from_excel
-from django.db.models import Q
 from django.utils.timezone import now
 from openpyxl import Workbook
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -37,9 +35,9 @@ from datetime import datetime, date
 today = date.today().isoformat()
 from projects.models import Task
 from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType, RespondentAttributeType
-from respondents.serializers import RespondentSerializer, RespondentListSerializer, InteractionSerializer, SensitiveInfoSerializer
+from respondents.serializers import RespondentSerializer, RespondentListSerializer, InteractionSerializer
 from indicators.models import IndicatorSubcategory
-
+from respondents.utils import topological_sort
 
 
 class RespondentViewSet(RoleRestrictedViewSet):
@@ -134,22 +132,6 @@ class RespondentViewSet(RoleRestrictedViewSet):
             'special_attributes': special_attributes,
             'special_attribute_labels': special_attribute_labels
         })
-    
-    #we should write some tests for this at some point
-    @action(detail=True, methods=['get', 'post', 'patch'], url_path='sensitive-info')
-    def sensitive_info(self, request, pk=None):
-        respondent = self.get_object()
-        if request.method == 'GET':
-            serializer = SensitiveInfoSerializer(respondent)
-            return Response(serializer.data)
-
-        elif request.method == 'POST' or request.method == 'PATCH':
-            if request.user.role == 'client':
-                raise PermissionDenied('You do not have permission to perform this action.')
-            serializer = SensitiveInfoSerializer(respondent, data=request.data, partial=True)
-            serializer.is_valid(raise_exception=True)
-            serializer.save(updated_by=request.user)
-            return Response(serializer.data, status=status.HTTP_200_OK)
         
     @action(detail=False, methods=['post'], url_path='bulk')
     def bulk_upload(self, request):
@@ -415,9 +397,6 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
 
 
-
-
-
     @staticmethod
     def excel_columns():
         for size in range(1, 3):  # A to ZZ
@@ -485,10 +464,12 @@ class InteractionViewSet(RoleRestrictedViewSet):
         
         headers.append({'header': 'HIV Status', 'options': ['HIV Positive', 'HIV Negative'], 'multiple': False})
         headers.append({'header': 'Date Positive', 'options': [], 'multiple': False})
-        headers.append({'header': 'Pregnant', 'options': ['Yes', 'No'], 'multiple': False})
+        headers.append({'header': 'Pregnancy Began (Date)', 'options': [], 'multiple': False})
+        headers.append({'header': 'Pregnancy Ended (Date)', 'options': [], 'multiple': False})
+
         headers.append({'header': 'Date of Interaction', 'options': [], 'multiple': False})
         headers.append({'header': 'Interaction Location', 'options': [], 'multiple': False})
-        tasks = Task.objects.filter(organization__id=org_id, project__id=project_id).order_by('indicator__code')
+        tasks = Task.objects.filter(organization__id=org_id, project__id=project_id, indicator__indicator_type='Respondent').order_by('indicator__code')
         if not tasks:
             raise serializers.ValidationError('There are no tasks associated with this project for your organization.')
         
@@ -639,8 +620,10 @@ class InteractionViewSet(RoleRestrictedViewSet):
             errors.append('Template is missing HIV Status column.')
         if not 'Date Positive' in headers:
             errors.append('Template is missing Date Positive column.')
-        if not 'Pregnant' in headers:
-            errors.append('Template is missing Pregnant column.')
+        if not 'Pregnancy Began (Date)' in headers:
+            errors.append('Template is missing Pregnant Began column.')
+        if not 'Pregnancy Ended (Date)' in headers:
+            errors.append('Template is missing Pregnant Ended column.')
         
         tasks = Task.objects.filter(organization__id=org_id, project__id=project_id).order_by('indicator__code')
         if not tasks:
@@ -690,15 +673,6 @@ class InteractionViewSet(RoleRestrictedViewSet):
             if header:
                 return header['column']
             return None
-
-        def get_task_options(task):
-            header_name = task.indicator.code + ': ' + task.indicator.name
-            if task.indicator.require_numeric:
-                header_name += ' (Requires a Number)'
-            header = headers.get(header_name)
-            if header:
-                return header['options']
-            return []
 
         def get_options(field_name):
             header = headers.get(get_verbose(field_name))
@@ -771,7 +745,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
             if isinstance(value, str):
                 return value.strip().lower() in ['true', 'yes', '1']
             return False
-
+        
+        created = []
         existing = []
         for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
             respondent = None
@@ -803,8 +778,6 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     dob = parsed
                 else:
                     row_errors.append(f"Date of birth at column: {get_column('dob')}, row: {i} is required for non-anonymous respondents.")
-
-
             
             sex = get_cell_value(row, 'sex')
             if sex:
@@ -850,12 +823,6 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 row_warnings.append(f"Phone Number at column: {get_column('phone_number')}, row: {i} is not a valid choice.")
                 phone_number = None
             comments = get_cell_value(row, 'comments') or None
-            
-            if len(row_errors) > 0:
-                row_errors.append("This respondent and their interactions will not be saved until these errors are fixed")
-                errors.extend(row_errors)
-                warnings.extend(row_warnings)
-                continue
 
             def get_choice_key_from_label(choices, label):
                 for key, value in choices:
@@ -949,34 +916,111 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     attr, _ = RespondentAttributeType.objects.get_or_create(name=key)
                     attr_types.append(attr)
 
-                
-
-            if not respondent:
-                respondent = Respondent.objects.create(
-                    is_anonymous = anon,
-                    id_no = id_no,
-                    first_name = first_name,
-                    last_name = last_name,
-                    ward = ward,
-                    village = village,
-                    district = district,
-                    sex = sex,
-                    dob = dob,
-                    age_range = age_range,
-                    citizenship = citizenship,
-                    email = email,
-                    phone_number = phone_number,
-                    comments = comments,
-                    created_by=user
-                )
-                if kp_types:
-                    respondent.kp_status.set(kp_types)
-                if attr_types:
-                    respondent.special_attribute.set(attr_types)
-                if disability_types:
-                    respondent.disability_status.set(disability_types)
-
+            hs_col = headers['HIV Status']['column']-1 
+            hiv_status = row[hs_col] if len(row) > hs_col else None
+            dp_col = headers['Date Positive']['column']-1 
+            date_positive = row[dp_col] if len(row) > dp_col else None
+            if hiv_status:
+                if hiv_status.lower().replace(' ', '') == 'yes':
+                    hiv_status = True
+                    if not date_positive:
+                        row_warnings.append(f"HIV Status at row {i} does not have a date positive. We will automatically set the date as today. Please double check this entry.")
+                        date_positive = date.today()
+                    parsed = valid_excel_date(date_positive)
+                    if not parsed:
+                        row_errors.append(
+                            f"Date positive '{date_positive}' at column: {dp_col}, row: {i} is invalid."
+                            "Double check the format and make sure that it is not in the future."
+                        )
+                    else:
+                        date_positive = parsed
+                else:
+                    hiv_status=None
+                    date_positive = None
             else:
+                hiv_status = None
+                date_positive = None
+            
+            tb_col = headers['Pregnancy Began (Date)']['column']-1 
+            term_began = row[tb_col] if len(row) > tb_col else None
+            te_col = headers['Pregnancy Ended (Date)']['column']-1 
+            term_ended = row[te_col] if len(row) > te_col else None
+            if not term_ended and not term_began:
+                term_ended = None
+                term_began = None
+            else:
+                if term_ended and not term_began:
+                    row_errors.append(
+                            f"Pregnancy at row {i} requires a start date."
+                        )
+                else:
+                    if term_began:
+                        parsed = valid_excel_date(term_began)
+                        if not parsed:
+                            row_errors.append(
+                                f"Pregnancy Term Began '{term_began}' at column: {tb_col}, row: {i} is invalid."
+                                "Double check the format and make sure that it is not in the future."
+                            )
+                        else:
+                            term_began = parsed
+                        if term_ended:
+                            parsed = valid_excel_date(term_ended)
+                            if not parsed:
+                                row_errors.append(
+                                    f"Pregnancy Term Began '{term_began}' at column: {tb_col}, row: {i} is invalid."
+                                    "Double check the format and make sure that it is not in the future."
+                                )
+                            else:
+                                term_ended = parsed
+                        else:
+                            term_ended = None
+            if len(row_errors) > 0:
+                row_errors.append("This respondent and their interactions will not be saved until these errors are fixed")
+                errors.extend(row_errors)
+                warnings.extend(row_warnings)
+                continue
+            
+            class FakeRequest:
+                def __init__(self, user):
+                    self.user = user
+
+            def process_row(row_data, request_user):
+                serializer = RespondentSerializer(data=row_data, context={"request": FakeRequest(request_user)})
+                if serializer.is_valid():
+                    respondent = serializer.save()
+                    return respondent, None
+                else:
+                    return None, serializer.errors
+                
+            if not respondent:
+                respondent_data = upload = {
+                    'id_no': id_no,
+                    'is_anonymous': anon,
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'ward': ward,
+                    'village': village,
+                    'district': district,
+                    'sex': sex,
+                    'dob': dob,
+                    'age_range' : age_range,
+                    'citizenship': citizenship,
+                    'email': email,
+                    'phone_number': phone_number,
+                    'comments': comments,
+                    'kp_status_names': [kp.name for kp in kp_types],
+                    'disability_status_names': [d.name for d in disability_types],
+                    'special_attribute_names': [attr.name for attr in attr_types],
+                    'hiv_status_data': {'hiv_positive': hiv_status, 'date_positive': date_positive},
+                    'pregnancy_data': [{'term_began': term_began, 'term_ended': term_ended}],
+                }
+                respondent, err = process_row(respondent_data, user)
+                if err:
+                    row_errors.append({"row": i + 1, "errors": err})
+                else:
+                    created.append(respondent)
+            else:
+                ex_stat = HIVStatus.objects.filter(respondent=respondent).first()
                 upload = {
                     'is_anonymous': anon,
                     'first_name': first_name,
@@ -991,9 +1035,11 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     'email': email,
                     'phone_number': phone_number,
                     'comments': comments,
-                    'kp_types': [kp.name for kp in kp_types],
-                    'disability_types': [d.name for d in disability_types],
-                    'attr_types': [attr.name for attr in attr_types],
+                    'kp_status_names': [kp.name for kp in kp_types],
+                    'disability_status_names': [d.name for d in disability_types],
+                    'special_attribute_names': [attr.name for attr in attr_types],
+                    'hiv_status_data': {'hiv_positive': hiv_status, 'date_positive': date_positive},
+                    'pregnancy_data': [{'term_began': term_began, 'term_ended': term_ended}],
                 }
                 in_db = {
                     'is_anonymous': respondent.is_anonymous,
@@ -1009,40 +1055,12 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     'email': respondent.email,
                     'phone_number': respondent.phone_number,
                     'comments': respondent.comments,
-                    'kp_types': [kp.name for kp in respondent.kp_status.all()],
-                    'disability_types': [d.name for d in respondent.disability_status.all()],
-                    'attr_types': [attr.name for attr in respondent.special_attribute.all()],
+                    'kp_status_names': [kp.name for kp in respondent.kp_status.all()],
+                    'disability_status_names': [d.name for d in respondent.disability_status.all()],
+                    'special_attribute_names': [attr.name for attr in respondent.special_attribute.all()],
+                    'hiv_status_data': {'hiv_positive': ex_stat.hiv_positive, 'date_positive': ex_stat.date_positive},
                 }
                 existing.append({'id': respondent.id, 'upload': upload, 'in_database': in_db})
-                
-            
-            
-            hs_col = headers['HIV Status']['column']-1 
-            hiv_status = row[hs_col] if len(row) > hs_col else None
-            if hiv_status:
-                if hiv_status.lower().replace(' ', '') == 'yes':
-                    hiv_status = True
-                    dp_col = headers['Date Positive']['column']-1 
-                    date_positive = row[dp_col] if len(row) > dp_col else None
-                    parsed = valid_excel_date(date_positive)
-                    if not parsed:
-                        row_errors.append(
-                            f"Date positive '{date_positive}' at column: {dp_col}, row: {i} is invalid."
-                            "Double check the format and make sure that it is not in the future."
-                        )
-                    else:
-                        date_positive = parsed
-                    HIVStatus.objects.create(respondent=respondent, hiv_positive=hiv_status, date_positive=date_positive)
-            preg_col = headers['Pregnant']['column']-1 
-            pregnancy = row[preg_col] if len(row) > preg_col else None
-            if pregnancy:
-                if pregnancy.lower().replace(' ', '') == 'yes':
-                    Pregnancy.objects.create(respondent=respondent, is_pregnant=True, term_began=date.today())
-                elif pregnancy.lower().replace(' ', '') == 'no' and Pregnancy.objects.filter(respondent=respondent, is_pregnant=True).exists():
-                    pregnancy = Pregnancy.objects.filter(respondent=respondent, is_pregnant=True).first()
-                    pregnancy.is_pregnant = False
-                    pregnancy.term_ended = date.today()
-                    pregnancy.save()
 
 
             doi_col = headers['Date of Interaction']['column']-1 
@@ -1074,37 +1092,6 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 errors.extend(row_errors)
                 warnings.extend(row_warnings)
                 continue
-
-            def topological_sort(tasks):
-                from collections import defaultdict, deque
-
-                graph = defaultdict(list)
-                in_degree = defaultdict(int)
-
-                for task in tasks:
-                    if task.indicator.prerequisite:
-                        graph[task.indicator.prerequisite.id].append(task.indicator.id)
-                        in_degree[task.indicator.id] += 1
-                    else:
-                        in_degree[task.indicator.id] += 0
-
-                id_map = {task.indicator.id: task for task in tasks}
-
-                queue = deque([id for id in in_degree if in_degree[id] == 0])
-                sorted_ids = []
-
-                while queue:
-                    current = queue.popleft()
-                    sorted_ids.append(current)
-                    for dependent in graph[current]:
-                        in_degree[dependent] -= 1
-                        if in_degree[dependent] == 0:
-                            queue.append(dependent)
-
-                if len(sorted_ids) != len(tasks):
-                    raise Exception("Cycle detected in prerequisites")
-                
-                return [id_map[i] for i in sorted_ids]
 
             for task in topological_sort(tasks):
                 col = get_task_column(task)
@@ -1195,4 +1182,4 @@ class InteractionViewSet(RoleRestrictedViewSet):
             warnings.extend(row_warnings)
         print('warnings', warnings)
         print('errors', errors)
-        return Response({'errors': errors, 'warnings': warnings, 'conflicts': existing }, status=status.HTTP_200_OK)
+        return Response({'errors': errors, 'warnings': warnings, 'created': len(created), 'conflicts': existing }, status=status.HTTP_200_OK)

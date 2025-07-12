@@ -190,7 +190,7 @@ class Pregnancy(models.Model):
     term_ended = models.DateField(null=True, blank=True)
 
 class HIVStatus(models.Model):
-    respondent = models.ForeignKey(Respondent, on_delete=models.CASCADE)
+    respondent = models.OneToOneField(Respondent, on_delete=models.CASCADE)
     hiv_positive = models.BooleanField(null=True, blank=True)
     date_positive = models.DateField(null=True, blank=True)
 

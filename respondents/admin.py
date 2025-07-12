@@ -1,5 +1,5 @@
 from django.contrib import admin
-from respondents.models import Respondent, Interaction, RespondentAttribute, KeyPopulationStatus, DisabilityStatus
+from respondents.models import Respondent, Interaction, RespondentAttribute, KeyPopulationStatus, DisabilityStatus, HIVStatus, Pregnancy
 
 @admin.register(RespondentAttribute)
 class RespondentAttributeAdmin(admin.ModelAdmin):
@@ -16,6 +16,18 @@ class DisabilityStatus(admin.ModelAdmin):
 @admin.register(KeyPopulationStatus)
 class KeyPopulationStatusAdmin(admin.ModelAdmin):
     list_display = ['respondent', 'key_population']
+    list_filter = []
+    search_fields = ['respondent__first_name', 'respondent__last_name']
+
+@admin.register(Pregnancy)
+class Pregnancy(admin.ModelAdmin):
+    list_display = ['respondent', 'term_began', 'term_ended']
+    list_filter = []
+    search_fields = ['respondent__first_name', 'respondent__last_name']
+
+@admin.register(HIVStatus)
+class HIVStatus(admin.ModelAdmin):
+    list_display = ['respondent', 'hiv_positive', 'date_positive']
     list_filter = []
     search_fields = ['respondent__first_name', 'respondent__last_name']
 

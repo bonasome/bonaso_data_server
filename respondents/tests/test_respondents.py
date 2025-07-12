@@ -90,14 +90,23 @@ class RespondentViewSetTest(APITestCase):
             'citizenship': 'Test',
             'sex': Respondent.Sex.FEMALE,
             'district': Respondent.District.CENTRAL,
+            'kp_status_names': ['MSM'],
+            'disability_status_names': ['VI', 'PD', 'SI'],
+            'hiv_status_data': {'hiv_positive': True, 'date_positive': '2024-01-01'},
+            'pregnancy_data': [{'term_began': '2021-01-01', 'term_ended': '2021-09-01'}, {'term_began': '2024-01-01'}]
         }
 
         response = self.client.post('/api/record/respondents/', valid_payload_anon, format='json')
+        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         respondent_anon= Respondent.objects.get(village='Here')
         self.assertEqual(respondent_anon.village,'Here')
         self.assertEqual(respondent_anon.created_by, self.data_collector)
-
+        self.assertEqual(respondent_anon.kp_status.count(), 1)
+        self.assertEqual(respondent_anon.disability_status.count(), 3)
+        self.assertEqual(HIVStatus.objects.filter(respondent=respondent_anon).count(), 1)
+        self.assertEqual(HIVStatus.objects.filter(respondent=respondent_anon).first().date_positive, date(2024,1,1))
+        self.assertEqual(Pregnancy.objects.filter(respondent=respondent_anon).count(), 2)
 
         valid_payload_full = {
             'is_anonymous':False,

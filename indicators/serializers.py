@@ -76,16 +76,22 @@ class IndicatorSerializer(serializers.ModelSerializer):
         ).data
 
         return representation
-    
+    def validate_prerequisite_id(self, value):
+        if value and self.instance and value == self.instance:
+            raise serializers.ValidationError("An indicator cannot be its own prerequisite.")
+        elif value and self.instance and value.indicator_type != self.instance.indicator_type:
+            raise serializers.ValidationError("An must be of the same type as its prerequisite.")
+        return value
+
     def validate(self, attrs):
         code = attrs.get('code', getattr(self.instance, 'code', None))
         name = attrs.get('name', getattr(self.instance, 'name', None))
         status = attrs.get('status', getattr(self.instance, 'status', None))
         indicator_type = attrs.get('indicator_type', getattr(self.instance, 'indicator_type', None))
         prerequisite = attrs.get('prerequisite', getattr(self.instance, 'prerequisite', None))
-        required_attribute = attrs.get('require_attribute_names', getattr(self.instance, 'require_attribute_names', None))
+        required_attribute = attrs.get('required_attribute_names', getattr(self.instance, 'required_attribute_names', None))
         ind_id = self.instance.id if self.instance else None
-        
+        print(prerequisite)
         if not code:
             raise serializers.ValidationError({"code": "Code is required."})
         if not name:

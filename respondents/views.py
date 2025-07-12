@@ -772,6 +772,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 return value.strip().lower() in ['true', 'yes', '1']
             return False
 
+        existing = []
         for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
             respondent = None
             row_errors = []
@@ -867,6 +868,88 @@ class InteractionViewSet(RoleRestrictedViewSet):
             if age_range and not dob:
                 age_range = get_choice_key_from_label(Respondent.AgeRanges.choices, age_range)
             
+            kp_types = []
+            kp_status_names_raw = get_cell_value(row, 'kp_status') or ''
+            if kp_status_names_raw:
+                # Clean and split
+                cleaned = kp_status_names_raw.replace(' ', '').lower()
+                input_kp_names = set(re.split(r'[,:;]', cleaned))
+
+                valid_labels = get_options('kp_status')
+                valid_lookup = {label.replace(' ', '').lower(): label for label in valid_labels}
+
+                matched = [name for name in input_kp_names if name in valid_lookup]
+                invalid_kp = input_kp_names - set(matched)
+
+                if invalid_kp:
+                    row_warnings.append(
+                        f"Invalid key population statuses at row {i}: {', '.join(invalid_kp)}"
+                    )
+
+                
+                for cleaned_name in matched:
+                    key = get_choice_key_from_label(KeyPopulation.KeyPopulations.choices, cleaned_name)
+                    if not key:
+                        continue
+                    kp, _ = KeyPopulation.objects.get_or_create(name=key)
+                    kp_types.append(kp)
+
+                
+            
+            disability_types = []
+            disability_status_names_raw = get_cell_value(row, 'disability_status') or ''
+            if disability_status_names_raw:
+                # Clean and split
+                cleaned = disability_status_names_raw.replace(' ', '').lower()
+                input_disability_names = set(re.split(r'[,:;]', cleaned))
+
+                valid_labels = get_options('disability_status')
+                valid_lookup = {label.replace(' ', '').lower(): label for label in valid_labels}
+
+                matched = [name for name in input_disability_names if name in valid_lookup]
+                invalid_disability = input_disability_names - set(matched)
+
+                if invalid_disability:
+                    row_warnings.append(
+                        f"Invalid disability statuses at row {i}: {', '.join(invalid_disability)}"
+                    )
+                
+                for cleaned_name in matched:
+                    key = get_choice_key_from_label(DisabilityType.DisabilityTypes.choices, cleaned_name)
+                    if not key:
+                        continue
+                    dis, _ = DisabilityType.objects.get_or_create(name=key)
+                    disability_types.append(dis)
+
+                
+            
+            special_attr_names_raw = get_cell_value(row, 'special_attribute') or ''
+            
+            attr_types = []
+            if special_attr_names_raw:
+                # Clean and split
+                cleaned = special_attr_names_raw.replace(' ', '').lower()
+                input_attr_names = set(re.split(r'[,:;]', cleaned))
+
+                valid_labels = get_options('special_attribute')
+                valid_lookup = {label.replace(' ', '').lower(): label for label in valid_labels}
+
+                matched = [name for name in input_attr_names if name in valid_lookup]
+                invalid_attr = input_attr_names - set(matched)
+
+                if invalid_attr:
+                    row_warnings.append(
+                        f"Invalid respondent attribute at row {i}: {', '.join(invalid_attr)}"
+                    )
+                
+                for cleaned_name in matched:
+                    key = get_choice_key_from_label(RespondentAttributeType.Attributes.choices, cleaned_name)
+                    if not key:
+                        continue
+                    attr, _ = RespondentAttributeType.objects.get_or_create(name=key)
+                    attr_types.append(attr)
+
+                
 
             if not respondent:
                 respondent = Respondent.objects.create(
@@ -886,92 +969,53 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     comments = comments,
                     created_by=user
                 )
-
-            print(respondent)
-            
-                
-            kp_status_names_raw = get_cell_value(row, 'kp_status') or ''
-            if kp_status_names_raw:
-                # Clean and split
-                cleaned = kp_status_names_raw.replace(' ', '').lower()
-                input_kp_names = set(re.split(r'[,:;]', cleaned))
-
-                valid_labels = get_options('kp_status')
-                valid_lookup = {label.replace(' ', '').lower(): label for label in valid_labels}
-
-                matched = [name for name in input_kp_names if name in valid_lookup]
-                invalid_kp = input_kp_names - set(matched)
-
-                if invalid_kp:
-                    row_warnings.append(
-                        f"Invalid key population statuses at row {i}: {', '.join(invalid_kp)}"
-                    )
-
-                kp_types = []
-                for cleaned_name in matched:
-                    key = get_choice_key_from_label(KeyPopulation.KeyPopulations.choices, cleaned_name)
-                    if not key:
-                        continue
-                    kp, _ = KeyPopulation.objects.get_or_create(name=key)
-                    kp_types.append(kp)
-
                 if kp_types:
                     respondent.kp_status.set(kp_types)
-            
-
-            disability_status_names_raw = get_cell_value(row, 'disability_status') or ''
-            if disability_status_names_raw:
-                # Clean and split
-                cleaned = disability_status_names_raw.replace(' ', '').lower()
-                input_disability_names = set(re.split(r'[,:;]', cleaned))
-
-                valid_labels = get_options('disability_status')
-                valid_lookup = {label.replace(' ', '').lower(): label for label in valid_labels}
-
-                matched = [name for name in input_disability_names if name in valid_lookup]
-                invalid_disability = input_disability_names - set(matched)
-
-                if invalid_disability:
-                    row_warnings.append(
-                        f"Invalid disability statuses at row {i}: {', '.join(invalid_disability)}"
-                    )
-                disability_types = []
-                for cleaned_name in matched:
-                    key = get_choice_key_from_label(DisabilityType.DisabilityTypes.choices, cleaned_name)
-                    if not key:
-                        continue
-                    dis, _ = DisabilityType.objects.get_or_create(name=key)
-                    disability_types.append(dis)
-
-                if disability_types:
-                    respondent.disability_status.set(disability_types)
-            
-            special_attr_names_raw = get_cell_value(row, 'special_attribute') or ''
-            if special_attr_names_raw:
-                # Clean and split
-                cleaned = special_attr_names_raw.replace(' ', '').lower()
-                input_attr_names = set(re.split(r'[,:;]', cleaned))
-
-                valid_labels = get_options('special_attribute')
-                valid_lookup = {label.replace(' ', '').lower(): label for label in valid_labels}
-
-                matched = [name for name in input_attr_names if name in valid_lookup]
-                invalid_attr = input_attr_names - set(matched)
-
-                if invalid_attr:
-                    row_warnings.append(
-                        f"Invalid respondent attribute at row {i}: {', '.join(invalid_attr)}"
-                    )
-                attr_types = []
-                for cleaned_name in matched:
-                    key = get_choice_key_from_label(RespondentAttributeType.Attributes.choices, cleaned_name)
-                    if not key:
-                        continue
-                    attr, _ = RespondentAttributeType.objects.get_or_create(name=key)
-                    attr_types.append(attr)
-
                 if attr_types:
                     respondent.special_attribute.set(attr_types)
+                if disability_types:
+                    respondent.disability_status.set(disability_types)
+
+            else:
+                upload = {
+                    'is_anonymous': anon,
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'ward': ward,
+                    'village': village,
+                    'district': district,
+                    'sex': sex,
+                    'dob': dob,
+                    'age_range' : age_range,
+                    'citizenship': citizenship,
+                    'email': email,
+                    'phone_number': phone_number,
+                    'comments': comments,
+                    'kp_types': [kp.name for kp in kp_types],
+                    'disability_types': [d.name for d in disability_types],
+                    'attr_types': [attr.name for attr in attr_types],
+                }
+                in_db = {
+                    'is_anonymous': respondent.is_anonymous,
+                    'first_name': respondent.first_name,
+                    'last_name': respondent.last_name,
+                    'ward': respondent.ward,
+                    'village': respondent.village,
+                    'district': respondent.district,
+                    'sex': respondent.sex,
+                    'dob': respondent.dob,
+                    'age_range' : respondent.age_range,
+                    'citizenship': respondent.citizenship,
+                    'email': respondent.email,
+                    'phone_number': respondent.phone_number,
+                    'comments': respondent.comments,
+                    'kp_types': [kp.name for kp in respondent.kp_status.all()],
+                    'disability_types': [d.name for d in respondent.disability_status.all()],
+                    'attr_types': [attr.name for attr in respondent.special_attribute.all()],
+                }
+                existing.append({'id': respondent.id, 'upload': upload, 'in_database': in_db})
+                
+            
             
             hs_col = headers['HIV Status']['column']-1 
             hiv_status = row[hs_col] if len(row) > hs_col else None
@@ -1151,4 +1195,4 @@ class InteractionViewSet(RoleRestrictedViewSet):
             warnings.extend(row_warnings)
         print('warnings', warnings)
         print('errors', errors)
-        return Response({'errors': errors, 'warnings': warnings }, status=status.HTTP_200_OK)
+        return Response({'errors': errors, 'warnings': warnings, 'conflicts': existing }, status=status.HTTP_200_OK)

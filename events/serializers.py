@@ -9,6 +9,8 @@ from organizations.serializers import OrganizationListSerializer, OrganizationSe
 from projects.serializers import TaskSerializer
 from datetime import date
 class DCSerializer(serializers.ModelSerializer):
+    organization=OrganizationListSerializer(read_only=True)
+    task = TaskSerializer(read_only=True)
     class Meta:
         model=DemographicCount
         fields = '__all__'
@@ -53,7 +55,8 @@ class EventSerializer(serializers.ModelSerializer):
                         f"Cannot assign a task that is not associcated with your organization or child organization."
                     )
             org = task.organization
-            if not EventOrganization.objects.filter(organization=org).exists():
+            print(event.host)
+            if not EventOrganization.objects.filter(organization=org).exists() and not event.host==org:
                 raise serializers.ValidationError(
                     f"Task '{task.indicator.name}' is associated with '{task.organization.name}' who is not associated with this event. Please add them first."
                 )

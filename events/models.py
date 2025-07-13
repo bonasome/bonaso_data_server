@@ -107,4 +107,4 @@ class DemographicCount(models.Model):
         ]
     
     def __str__(self):
-        return f"{self.count} @ {self.event.name} ({self.sex}, {self.age_range}, {self.organization})"
+        return f"{self.count} @ {self.event.name} ({self.task.indicator.name}, {self.task.organization.name})"

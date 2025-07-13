@@ -22,7 +22,9 @@ class Indicator(models.Model):
         PLANNED = 'Planned', _('Planned')
     class IndicatorType(models.TextChoices):
         RESPONDENT = 'Respondent', _('Respondent') #this indicator relies on a respondent, and will appear on respondent
-        COUNT = 'Count', _('Count') #this indicator will not appear on respondent pages, but will be available via events
+        EVENT_NO = 'Event_No', _('Number of Events') #by default, when this indicator is added to an event via a task, it will contribute to its count
+        ORG_EVENT_NO = 'Org_Event_No', _('Number of Organizations at Event') #by default, when this indicator is added to an event via a task, it will use the number of organizations added (exlcuding the host) as its count
+        COUNT = 'Count', _('Count') #this is a catch all that is used to gather generic counts with no required linkages
 
     name = models.CharField(max_length=255, verbose_name='Indicator Text')
     description = models.TextField(blank=True, null=True)

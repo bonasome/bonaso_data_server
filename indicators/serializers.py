@@ -1,8 +1,11 @@
 from rest_framework import serializers
+from django.db.models import Q
 from indicators.models import Indicator, IndicatorSubcategory
 from projects.models import Target
 from respondents.models import Interaction, HIVStatus, Pregnancy, InteractionSubcategory
+from events.models import Event, DemographicCount
 from datetime import date
+from collections import defaultdict
 
 class IndicatorSubcategorySerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(required=False)
@@ -191,7 +194,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
                     subcategory = IndicatorSubcategory.objects.filter(id=existing_id).first()
                     if not subcategory:
                         raise serializers.ValidationError(f'Could not find subcategory of id {existing_id}')
-                    to_merge = IndicatorSubcategory.objects.filter(name=name, deprecated=False).first()
+                    to_merge = IndicatorSubcategory.objects.filter(name=name, deprecated=deprecated).exclude(id=existing_id).first()
                     if to_merge:
                         subcategory = to_merge
                     else:
@@ -207,7 +210,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
 
         if required_attribute_names is not None:
             attrs = [
-                RespondentAttributeType.objects.get_or_create(name=name, deprecated=False)[0]
+                RespondentAttributeType.objects.get_or_create(name=name)[0]
                 for name in required_attribute_names
             ]
             instance.required_attribute.set(attrs)
@@ -215,6 +218,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
 
 class ChartSerializer(serializers.ModelSerializer):
     interactions = serializers.SerializerMethodField()
+    events = serializers.SerializerMethodField()
     targets = serializers.SerializerMethodField()
     subcategories = IndicatorSubcategorySerializer(many=True, read_only=True)
     legend = serializers.SerializerMethodField()
@@ -235,6 +239,42 @@ class ChartSerializer(serializers.ModelSerializer):
             legend.append('vs. Targets')
         return legend
     
+    def get_events(self, obj):
+        from events.serializers import EventSerializer, DCSerializer
+        organization_id = self.context.get('organization_id')
+        project_id = self.context.get('project_id')
+
+        events = Event.objects.filter(tasks__indicator=obj).distinct()
+        if organization_id:
+            events = events.filter(Q(organizations__id=organization_id) | Q(host_id=organization_id))
+        if project_id:
+            events = events.filter(tasks__project__id=project_id)
+
+        event_ids = {e.id for e in events}
+        counts = DemographicCount.objects.filter(event_id__in=event_ids, task__indicator=obj)
+        
+        # Group counts by event_id
+        counts_by_event = defaultdict(list)
+        for count in counts:
+            counts_by_event[count.event_id].append(count)
+
+        result = []
+        for event in events:
+            serialized_event = EventSerializer(event, context=self.context).data
+            serialized_counts = DCSerializer(counts_by_event.get(event.id, []), many=True, context=self.context).data
+            for count_dict in serialized_counts:
+                subcat_id = count_dict.pop('subcategory')
+                if subcat_id:
+                    instance = IndicatorSubcategory.objects.get(id=subcat_id)
+                    count_dict['subcategory'] = IndicatorSubcategorySerializer(instance, context=self.context).data
+            result.append({
+                'event': serialized_event,
+                'counts': serialized_counts
+            })
+
+        return result
+
+
     def get_interactions(self, obj):
         organization_id = self.context.get('organization_id')
         project_id = self.context.get('project_id')
@@ -289,7 +329,7 @@ class ChartSerializer(serializers.ModelSerializer):
                     'hiv_status': hiv_status,
                     'pregnant': pregnancy,
                 },
-                'subcategories': [{'name': c.subcategory.name, 'numeric_component': c.numeric_component} for c in subcats],
+                'subcategories': [{'name': c.subcategory.name, 'numeric_component': c.numeric_component, 'deprecated': c.subcategory.deprecated} for c in subcats],
                 'interaction_date': interaction.interaction_date,
                 'numeric_component': interaction.numeric_component,
                 'organization': {
@@ -325,5 +365,6 @@ class ChartSerializer(serializers.ModelSerializer):
     class Meta:
         model=Indicator
         fields = [
-            'id', 'interactions', 'targets', 'name', 'subcategories', 'require_numeric', 'legend', 'legend_labels'
+            'id', 'interactions', 'targets', 'name', 'subcategories', 'require_numeric', 'legend', 
+            'legend_labels', 'events', 'indicator_type',
         ]

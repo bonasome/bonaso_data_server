@@ -64,7 +64,7 @@ class TaskViewSet(RoleRestrictedViewSet):
                 return queryset.none()
 
             queryset = queryset.exclude(eventtask__event__id=event_param)
-            queryset = queryset.filter(organization__in=event.organizations.all())
+            queryset = queryset.filter(Q(organization__in=event.organizations.all()) | Q(organization=event.host))
 
         if role == 'admin':
             return queryset

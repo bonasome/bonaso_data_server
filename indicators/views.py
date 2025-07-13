@@ -152,11 +152,14 @@ class IndicatorViewSet(RoleRestrictedViewSet):
         from respondents.models import RespondentAttributeType
         statuses = [status for status, _ in Indicator.Status.choices]
         indicator_types = [t for t, _ in Indicator.IndicatorType.choices]
+        indicator_type_labels = [t.label for t in Indicator.IndicatorType]
         required_attribute = [t for t, _ in RespondentAttributeType.Attributes.choices]
         required_attribute_labels = [t.label for t in RespondentAttributeType.Attributes]
+
         return Response({
             'statuses': statuses,
             'indicator_types': indicator_types,
+            'indicator_type_labels': indicator_type_labels,
             'required_attributes': required_attribute,
             'required_attribute_labels': required_attribute_labels,
         })

@@ -37,6 +37,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
         required=False, 
         allow_null=True,
     )
+    allow_repeat = serializers.BooleanField()
     created_by = serializers.SerializerMethodField()
     updated_by = serializers.SerializerMethodField()
 

@@ -101,13 +101,15 @@ class IndicatorSerializer(serializers.ModelSerializer):
         if self.instance:
             qs = qs.exclude(pk=self.instance.pk)
         if qs.exists():
-            raise serializers.ValidationError({"code": "Code must be unique."})
+            existing = qs.first()
+            raise serializers.ValidationError({"code": f"Code already used by indicator {existing.code}: {existing.name}."})
         # Uniqueness check for 'name'
         qs = Indicator.objects.filter(name=name)
         if self.instance:
             qs = qs.exclude(pk=self.instance.pk)
         if qs.exists():
-            raise serializers.ValidationError({"name": "Name must be unique."})
+            existing = qs.first()
+            raise serializers.ValidationError({"name": f"Name already used by indicator {existing.code}: {existing.name}."})
         if prerequisite:
             if prerequisite == self.instance:
                 raise serializers.ValidationError({"prerequisite": "An indicator cannot be its own prerequisite."})

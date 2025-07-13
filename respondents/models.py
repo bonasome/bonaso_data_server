@@ -40,6 +40,7 @@ class RespondentAttributeType(models.Model):
         KP = 'KP', _('Key Population')
         COMMUNITY_LEADER = 'Community_Leader', _('Community Leader')
         CHW = 'CHW', _('Community Health Worker')
+        STAFF = 'Staff', _('Organization Staff')
 
     name = models.CharField(max_length=25, choices=Attributes.choices, unique=True)
     def __str__(self):

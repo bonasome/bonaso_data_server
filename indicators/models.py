@@ -6,7 +6,8 @@ from users.models import User
 class IndicatorSubcategory(models.Model):
     name = models.CharField(max_length=255, verbose_name='Category Name')
     slug = models.CharField(max_length=255, blank=True)
-
+    deprecated = models.BooleanField(null=True, default=False, blank=True)
+    
     def save(self, *args, **kwargs):
         self.slug = ''.join(self.name.lower().split())  # lowercase + no spaces
         super().save(*args, **kwargs)

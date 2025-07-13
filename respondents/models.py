@@ -233,7 +233,7 @@ class Interaction(models.Model):
                 interaction_date__lt=thirty_days_ahead
             ).exclude(pk=self.pk).exists()
 
-            if recent_exists:
+            if recent_exists and not self.task.indicator.allow_repeat:
                 self.flagged = True
 
             # Check prerequisite interaction

@@ -62,7 +62,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
     class Meta:
         model = Indicator
         fields = ['id', 'name', 'code', 'prerequisite', 'prerequisite_id', 'description', 'subcategories', 
-                  'subcategory_names', 'require_numeric', 'status', 'created_by', 'created_at', 
+                  'subcategory_names', 'require_numeric', 'status', 'created_by', 'created_at', 'allow_repeat',
                   'updated_by', 'updated_at', 'required_attribute', 'required_attribute_names', 'indicator_type']
         
     def to_representation(self, instance):

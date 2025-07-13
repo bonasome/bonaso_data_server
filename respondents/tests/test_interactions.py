@@ -515,7 +515,30 @@ class InteractionViewSetTest(APITestCase):
         interaction = Interaction.objects.get(interaction_date=date(2025, 6, 7), task=self.task, respondent=self.respondent3)
         self.assertTrue(interaction.flagged)
     #test bulk create
+    def test_flag_exc(self):
+        #interactions 30 days away or greater should not be flagged
+        self.client.force_authenticate(user=self.admin)
+        ar_ind =Indicator.objects.create(code='ar', name='Allow Repeat', allow_repeat=True)
+        self.project.indicators.set([ar_ind])
+        ar_task = Task.objects.create(indicator=ar_ind, project=self.project, organization=self.parent_org)
+        response = self.client.post('/api/record/interactions/', {
+            'interaction_date': date(2025, 5, 5),
+            'respondent': self.respondent3.id,
+            'task': ar_task.id
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+        response = self.client.post('/api/record/interactions/', {
+            'interaction_date': date(2025, 5, 7),
+            'respondent': self.respondent3.id,
+            'task': ar_task.id
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        interaction = Interaction.objects.get(interaction_date=date(2025, 5, 7), task=ar_task, respondent=self.respondent3)
+        print(interaction.flagged)
+        self.assertFalse(interaction.flagged)
+        
     def test_bulk_create(self):
         self.client.force_authenticate(user=self.data_collector)
         

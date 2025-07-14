@@ -169,7 +169,7 @@ class TargetForTaskSerializer(serializers.ModelSerializer):
     related_to = serializers.SerializerMethodField()
     class Meta:
         model = Target
-        fields = ['id', 'start', 'end', 'amount','related_to','percentage_of_related',  ]
+        fields = ['id', 'start', 'end', 'amount','related_to','percentage_of_related']
     def get_related_to(self, obj):
         if obj.related_to:
             return {
@@ -178,14 +178,66 @@ class TargetForTaskSerializer(serializers.ModelSerializer):
                 'name': obj.related_to.indicator.name,
             }
         return None
+    
 class TargetSerializer(serializers.ModelSerializer):
     task = TaskSerializer(read_only=True)
     task_id = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True, source='task')
     related_to = TaskSerializer(read_only=True)
     related_to_id = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True, required=False, allow_null=True, source='related_to')
+    related_as_number = serializers.SerializerMethodField()
+    achievement = serializers.SerializerMethodField()
+    
+    def get_related_as_number(self, obj):
+        from respondents.models import Interaction
+        from events.models import Event, DemographicCount
+        if not obj.related_to:
+            return None
+        amount = 0
+        if obj.related_to.indicator.indicator_type == 'Respondent':
+            amount += Interaction.objects.filter(task=obj.related_to, interaction_date__gte=obj.start, interaction_date__lte=obj.end, flagged=False).count()
+            counts = DemographicCount.objects.filter(task=obj.related_to, event__event_date__gte=obj.start, event__event_date__lte=obj.end, flagged=False)
+            for dc in counts:
+                amount += dc.count
+        elif obj.task.indicator.indicator_type == 'Count':
+            counts = DemographicCount.objects.filter(task=obj.related_to, event__event_date__gte=obj.start, event__event_date__lte=obj.end, flagged=False)
+            for dc in counts:
+                amount += dc.count
+        return amount
+
+    def get_achievement(self, obj):
+        from respondents.models import Interaction, InteractionSubcategory
+        from events.models import Event, DemographicCount
+        amount = 0
+        if obj.task.indicator.indicator_type == 'Respondent':
+            interactions = Interaction.objects.filter(task=obj.task, interaction_date__gte=obj.start, interaction_date__lte=obj.end, flagged=False)
+            print(interactions)
+            for ir in interactions:
+                if ir.subcategories.exists() and ir.task.indicator.require_numeric:
+                    for cat in InteractionSubcategory.objects.filter(interaction=ir):
+                        amount += cat.numeric_component
+                elif ir.task.indicator.require_numeric:
+                    amount += ir.numeric_component
+                else:
+                    amount += 1
+            counts = DemographicCount.objects.filter(task=obj.task, event__event_date__gte=obj.start, event__event_date__lte=obj.end, flagged=False)
+            for dc in counts:
+                amount += dc.count
+        elif obj.task.indicator.indicator_type == 'Count':
+            counts = DemographicCount.objects.filter(task=obj.task, event__event_date__gte=obj.start, event__event_date__lte=obj.end, flagged=False)
+            for dc in counts:
+                amount += dc.count
+        elif obj.task.indicator.indicator_type == 'Event_No':
+            amount += Event.objects.filter(tasks=obj.task, event_date__gte=obj.start, event_date__lte=obj.end).count()
+        elif obj.task.indicator.indicator_type == 'Org_Event_No':
+            events = Event.objects.filter(tasks=obj.task, event_date__gte=obj.start, event_date__lte=obj.end)
+            for event in events:
+                amount += event.organizations.count()
+        return amount
+
     class Meta:
         model = Target
-        fields = ['id', 'task', 'task_id', 'start', 'end', 'amount','related_to', 'related_to_id', 'percentage_of_related',  ]
+        fields = ['id', 'task', 'task_id', 'start', 'end', 'amount','related_to', 'related_to_id', 
+                'related_as_number', 'percentage_of_related', 'achievement']
 
     
     def validate(self, attrs):

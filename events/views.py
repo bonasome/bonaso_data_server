@@ -425,6 +425,36 @@ class EventViewSet(RoleRestrictedViewSet):
             'created': DCSerializer(to_create, many=True).data,
         }, status=200)
     
+    @action(detail=True, methods=['patch'], url_path='flag-counts/(?P<task_id>[^/.]+)')
+    def flag_count(self, request, pk=None, task_id=None):
+        event=self.get_object()
+        user=request.user
+        set_flag = request.data.get('set_flag', None)
+        if user.role not in ['meofficer', 'admin', 'manager']:
+            return Response(
+                {'detail': 'You do not have permission to flag event counts.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        if user.role != 'admin':
+            if not event.host or event.host != user.organization or event.host.parent_organization != user.organization:
+                return Response(
+                    {'detail': 'You do not have permission to flag counts for this event.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        if set_flag is None:
+            return Response(
+                {'detail': 'Missing flag status.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        set_flag = str(set_flag).lower() in ['true', '1']
+
+        counts = DemographicCount.objects.filter(event=event, task__id=task_id)
+        for count in counts: 
+            print(set_flag)
+            count.flagged = set_flag 
+            count.save()
+        return Response({"detail": f"Count flagged."}, status=status.HTTP_200_OK)
+
     @action(detail=True, methods=['delete'], url_path='delete-count/(?P<task_id>[^/.]+)')
     def delete_count(self, request, pk=None, task_id=None):
         event=self.get_object()

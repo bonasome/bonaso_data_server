@@ -198,7 +198,6 @@ class ProjectViewSet(RoleRestrictedViewSet):
         role = getattr(user, 'role', None)
         org = getattr(user, 'organization', None)
         client_org = getattr(user, 'client_organization', None)
-        print('client', client_org, role)
         if role == 'admin':
             queryset = Project.objects.all()
             status = self.request.query_params.get('status')
@@ -384,8 +383,8 @@ class ProjectViewSet(RoleRestrictedViewSet):
 
 class TargetViewSet(RoleRestrictedViewSet):
     queryset = Target.objects.none()
-    filter_backends = [filters.SearchFilter, OrderingFilter]
-    filterset_fields = ['task', 'organization', 'indicator']
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
+    filterset_fields = ['task', 'task__organization', 'task__indicator', 'task__project']
     permission_classes = [IsAuthenticated]
     serializer_class = TargetSerializer
     def get_queryset(self):

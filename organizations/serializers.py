@@ -31,7 +31,6 @@ class OrganizationSerializer(serializers.ModelSerializer):
     updated_by = serializers.SerializerMethodField()
 
     def get_created_by(self, obj):
-        print(obj.created_by)
         if obj.created_by:
             return {
                 "id": obj.created_by.id,

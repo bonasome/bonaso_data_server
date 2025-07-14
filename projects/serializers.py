@@ -181,19 +181,12 @@ class TargetForTaskSerializer(serializers.ModelSerializer):
 class TargetSerializer(serializers.ModelSerializer):
     task = TaskSerializer(read_only=True)
     task_id = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True, source='task')
-    related_to = serializers.SerializerMethodField()
+    related_to = TaskSerializer(read_only=True)
     related_to_id = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True, required=False, allow_null=True, source='related_to')
     class Meta:
         model = Target
         fields = ['id', 'task', 'task_id', 'start', 'end', 'amount','related_to', 'related_to_id', 'percentage_of_related',  ]
-    def get_related_to(self, obj):
-        if obj.related_to:
-            return {
-                'id': obj.related_to.id,
-                'code': obj.related_to.indicator.code,
-                'name': obj.related_to.indicator.name,
-            }
-        return None
+
     
     def validate(self, attrs):
         task = attrs.get('task', getattr(self.instance, 'task', None))
@@ -211,7 +204,7 @@ class TargetSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'task_id': 'Task not found.'})
         
         if related and related == task:
-            raise serializers.ValidationError({'related_to_id': 'A task cannot reference itself.'})
+            raise serializers.ValidationError({'related_to_id': 'A target cannot use its own assigned task as a reference.'})
         if related and related.project != task.project:
             raise serializers.ValidationError({'related_to_id': 'Related target must belong to the same project.'})
 
@@ -228,7 +221,16 @@ class TargetSerializer(serializers.ModelSerializer):
         end = attrs.get('end', getattr(self.instance, 'end', None))
         if start and end and end < start:
             raise serializers.ValidationError("Start date must be before end date")
+        
+        proj_start = task.project.start
+        proj_end = task.project.end
 
+        if start < proj_start:
+            raise serializers.ValidationError(f"Target start is outside the range of the project {proj_start}")
+        
+        if end > proj_end:
+            raise serializers.ValidationError(f"Target end is outside the range of the project {proj_end}")
+        
         if task and start and end:
             overlaps = Target.objects.filter(
                 task=task,

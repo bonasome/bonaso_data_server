@@ -55,7 +55,6 @@ class EventSerializer(serializers.ModelSerializer):
                         f"Cannot assign a task that is not associcated with your organization or child organization."
                     )
             org = task.organization
-            print(event.host)
             if not EventOrganization.objects.filter(organization=org).exists() and not event.host==org:
                 raise serializers.ValidationError(
                     f"Task '{task.indicator.name}' is associated with '{task.organization.name}' who is not associated with this event. Please add them first."
@@ -71,7 +70,6 @@ class EventSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     f"Task '{task.indicator.name}' has a prerequisite that must be added first."
                 )
-            print(task.id, existing_task_ids)
             if task.id not in existing_task_ids:
                 new_links.append(EventTask(event=event, task=task, added_by=user))
             else:

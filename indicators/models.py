@@ -39,6 +39,7 @@ class Indicator(models.Model):
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='indicator_updated_by')
     require_numeric = models.BooleanField(blank=True, null=True, default=False, verbose_name='Indicator requires an accompanying numeric value.')
     subcategories = models.ManyToManyField(IndicatorSubcategory, blank=True)
+    match_subcategories = models.BooleanField(default=False, blank=True, null=True)
     allow_repeat = models.BooleanField(default=False, blank=True, null=True)
     '''
     def clean(self):

@@ -27,7 +27,6 @@ def update_attribute(respondent, attribute_enum, should_add):
 @receiver(post_save, sender=KeyPopulationStatus)
 @receiver(post_delete, sender=KeyPopulationStatus)
 def sync_kp_attribute(sender, instance, **kwargs):
-    print('running')
     respondent = instance.respondent
     def after_commit():
         should_add = KeyPopulationStatus.objects.filter(respondent=respondent).exists()

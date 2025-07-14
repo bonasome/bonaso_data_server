@@ -122,9 +122,7 @@ class RespondentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Date of Birth may not be in the future.')
         pregnancies = attrs.get('pregnancy_data')
         if pregnancies:
-            print(pregnancies)
             for pregnancy in pregnancies:
-                print(pregnancy)
                 term_began = pregnancy.get('term_began', None)
                 term_ended = pregnancy.get('term_ended', None)
                 if not term_began and not term_ended:
@@ -139,7 +137,6 @@ class RespondentSerializer(serializers.ModelSerializer):
 
                 # On update, exclude the existing pregnancy if we're updating it
                 pid = pregnancy.get('id')
-                print(pid)
                 if pid:
                     base_qs = base_qs.exclude(id=pid)
                 if term_ended:
@@ -318,7 +315,6 @@ class RespondentSerializer(serializers.ModelSerializer):
             if pid:
                 try:
                     pregnancy = Pregnancy.objects.get(id=pid, respondent=instance)
-                    print(pregnancy)
                     if not term_began:
                         pregnancy.delete()
                         continue
@@ -377,7 +373,6 @@ class InteractionSerializer(serializers.ModelSerializer):
         return InteractionSubcategoryOutputSerializer(interaction_subcats, many=True).data
     
     def get_created_by(self, obj):
-        print(obj.created_by)
         if obj.created_by:
             return {
                 "id": obj.created_by.id,
@@ -575,7 +570,6 @@ class InteractionSerializer(serializers.ModelSerializer):
         if user.role not in ['meofficer', 'manager', 'admin']:
             if instance.created_by != user:
                 raise PermissionDenied("You may only edit your interactions.")
-        print(validated_data)
         subcategories = validated_data.pop('subcategories_data', [])
         if instance.task.indicator.subcategories.exists():
             if subcategories not in ['', [], None]:
@@ -603,187 +597,3 @@ class InteractionSerializer(serializers.ModelSerializer):
         instance.updated_by = user
         instance.save()
         return instance
-
-
-
-'''
-class SensitiveInfoSerializer(serializers.ModelSerializer):
-    is_pregnant = serializers.BooleanField(write_only=True, required=False, default=False)
-    hiv_positive = serializers.BooleanField(write_only=True, required=False, default=False)
-    term_began = serializers.DateField(write_only=True, required=False, allow_null=True)
-    term_ended = serializers.DateField(write_only=True, required=False, allow_null=True)
-    date_positive = serializers.DateField(write_only=True, required=False, allow_null=True)
-
-    pregnancy_info = serializers.SerializerMethodField(read_only=True)
-    hiv_status_info = serializers.SerializerMethodField(read_only=True)
-
-    
-    
-    def get_pregnancy_info(self, obj):
-        pregnancy = obj.pregnancy_set.order_by('-term_began').first()
-        if pregnancy and not pregnancy.term_ended:
-            return {
-                "is_pregnant": pregnancy.is_pregnant,
-                "term_began": pregnancy.term_began,
-                "term_ended": pregnancy.term_ended,
-            }
-        return None
-
-    def get_hiv_status_info(self, obj):
-        hiv_status = obj.hivstatus_set.order_by('-date_positive').first()
-        if hiv_status:
-            return {
-                "hiv_positive": hiv_status.hiv_positive,
-                "date_positive": hiv_status.date_positive,
-            }
-        return None
-    
-    class Meta:
-        model = Respondent
-        fields = ['id', 'is_pregnant', 'term_began', 'term_ended', 'hiv_positive', 'date_positive',
-                  'kp_status', 'kp_status_names', 'pregnancy_info', 'hiv_status_info', 'disability_status', 
-                  'disability_status_names', 'created_by', 'updated_by']
-        
-    def create(self, validated_data):
-        today = date.today()
-        term_began = validated_data.pop('term_began', None)
-        term_ended = validated_data.pop('term_ended', None)
-        is_pregnant = validated_data.pop('is_pregnant', False)
-        kp_status_names = validated_data.pop('kp_status_names', [])
-        disability_status_names = validated_data.pop('disability_status_names', [])
-        hiv_positive = validated_data.pop('hiv_positive', False)
-        date_positive = validated_data.pop('date_positive', None)
-
-        respondent = Respondent.objects.create(**validated_data)
-
-        if is_pregnant in ['true', 'True', True, '1']:
-            is_pregnant = True
-        else:
-            is_pregnant = False
-
-        existing_pregnancy = Pregnancy.objects.filter(respondent=respondent, term_ended__isnull=True).order_by('-term_began').first()
-
-        if is_pregnant:
-            if not term_began:
-                term_began = today
-            if existing_pregnancy:
-                existing_pregnancy.is_pregnant = True
-                existing_pregnancy.term_began = term_began
-                existing_pregnancy.term_ended = None
-                existing_pregnancy.save()
-            else:
-                Pregnancy.objects.create(respondent=respondent, is_pregnant=True, term_began=term_began)
-        else:
-            if existing_pregnancy and not term_ended:
-                term_ended = term_ended or today
-            if existing_pregnancy:
-                existing_pregnancy.is_pregnant = False
-                existing_pregnancy.term_ended = term_ended
-                existing_pregnancy.save()
-        
-        if hiv_positive in ['true', 'True', True, '1']:
-            hiv_positive = True
-        else:
-            hiv_positive = False
-        existing_status = HIVStatus.objects.filter(respondent=respondent).first()
-        if existing_status:
-            existing_status.hiv_positive = hiv_positive
-            existing_status.date_positive = date_positive if hiv_positive else None
-            existing_status.save()
-        else:
-            if not date_positive:
-                date_positive = date.today()
-            HIVStatus.objects.create(
-                respondent=respondent,
-                hiv_positive=hiv_positive,
-                date_positive=date_positive if hiv_positive else None
-            )
-
-        kp_types = []
-        valid_names = [name for name, _ in KeyPopulation.KeyPopulations.choices]
-        for name in kp_status_names:
-            if name in valid_names:
-                kp, _ = KeyPopulation.objects.get_or_create(name=name)
-                kp_types.append(kp)
-        respondent.kp_status.set(kp_types)
-
-        disability_types = []
-        valid_names = [name for name, _ in DisabilityType.DisabilityTypes.choices]
-        for name in disability_status_names:
-            if name in valid_names:
-                dis, _ = DisabilityType.objects.get_or_create(name=name)
-                disability_types.append(dis)
-        respondent.disability_status.set(disability_types)
-        return respondent
-
-    def update(self, instance, validated_data):
-        today = date.today()
-        term_began = validated_data.pop('term_began', None)
-        term_ended = validated_data.pop('term_ended', None)
-        is_pregnant = validated_data.pop('is_pregnant', False)
-        hiv_positive = validated_data.pop('hiv_positive', False)
-        date_positive = validated_data.pop('date_positive', None)
-        kp_status_names = validated_data.pop('kp_status_names', [])
-        disability_status_names = validated_data.pop('disability_status_names', [])
-        respondent = instance
-        if is_pregnant in ['true', 'True', True, '1']:
-            is_pregnant = True
-        else:
-            is_pregnant = False
-
-        existing_pregnancy = Pregnancy.objects.filter(respondent=instance, term_ended__isnull=True).order_by('-term_began').first()
-
-        if is_pregnant:
-            if not term_began:
-                term_began = today
-            if existing_pregnancy:
-                existing_pregnancy.is_pregnant = True
-                existing_pregnancy.term_began = term_began
-                existing_pregnancy.term_ended = None
-                existing_pregnancy.save()
-            else:
-                Pregnancy.objects.create(respondent=instance, is_pregnant=True, term_began=term_began)
-        else:
-            if existing_pregnancy and not term_ended:
-                term_ended = term_ended or today
-            if existing_pregnancy:
-                existing_pregnancy.is_pregnant = False
-                existing_pregnancy.term_ended = term_ended
-                existing_pregnancy.save()
-        
-        
-        if hiv_positive in ['true', 'True', True, '1']:
-            hiv_positive = True
-        else:
-            hiv_positive = False
-        existing_status = HIVStatus.objects.filter(respondent=respondent).first()
-        if existing_status:
-            existing_status.hiv_positive = hiv_positive
-            existing_status.date_positive = date_positive if hiv_positive else None
-            existing_status.save()
-        else:
-            if not date_positive:
-                date_positive = date.today()
-            HIVStatus.objects.create(
-                respondent=respondent,
-                hiv_positive=hiv_positive,
-                date_positive=date_positive if hiv_positive else None
-            )
-
-        kp_types = []
-        valid_names = [name for name, _ in KeyPopulation.KeyPopulations.choices]
-        for name in kp_status_names:
-            if name in valid_names:
-                kp, _ = KeyPopulation.objects.get_or_create(name=name)
-                kp_types.append(kp)
-        instance.kp_status.set(kp_types)
-
-        disability_types = []
-        valid_names = [name for name, _ in DisabilityType.DisabilityTypes.choices]
-        for name in disability_status_names:
-            if name in valid_names:
-                dis, _ = DisabilityType.objects.get_or_create(name=name)
-                disability_types.append(dis)
-        respondent.disability_status.set(disability_types)
-        return instance
-'''

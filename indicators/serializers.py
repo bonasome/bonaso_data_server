@@ -8,25 +8,31 @@ from datetime import date
 from collections import defaultdict
 
 class IndicatorSubcategorySerializer(serializers.ModelSerializer):
-    id = serializers.IntegerField(required=False)
+    id = serializers.IntegerField(required=False, allow_null=True)
     class Meta:
         model = IndicatorSubcategory
         fields = ['id', 'name', 'deprecated']
 
 class IndicatorListSerializer(serializers.ModelSerializer):
+    subcategories = serializers.SerializerMethodField()
+    def get_subcategories(self, obj):
+        return obj.subcategories.filter(deprecated=False).count()
+
     class Meta:
         model=Indicator
-        fields = ['id', 'code', 'name']
+        fields = ['id', 'code', 'name', 'subcategories']
 
 class PrerequisiteSerializer(serializers.ModelSerializer):
+    subcategories = serializers.SerializerMethodField()
+    def get_subcategories(self, obj):
+        return obj.subcategories.filter(deprecated=False).count()
     class Meta:
         model = Indicator
-        fields = ['id', 'code', 'name']
+        fields = ['id', 'code', 'name', 'subcategories']
 
 class IndicatorSerializer(serializers.ModelSerializer):
     subcategories = serializers.SerializerMethodField()
     subcategory_names = IndicatorSubcategorySerializer(many=True, write_only=True, required=False)
-
     required_attribute_names = serializers.ListField(
         child=serializers.CharField(), write_only=True, required=False
     )
@@ -45,9 +51,9 @@ class IndicatorSerializer(serializers.ModelSerializer):
     def get_subcategories(self, obj):
         active_subcats = obj.subcategories.filter(deprecated=False)
         return IndicatorSubcategorySerializer(active_subcats, many=True).data
+
     
     def get_created_by(self, obj):
-        print(obj.created_by)
         if obj.created_by:
             return {
                 "id": obj.created_by.id,
@@ -67,7 +73,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
         
     class Meta:
         model = Indicator
-        fields = ['id', 'name', 'code', 'prerequisite', 'prerequisite_id', 'description', 'subcategories', 
+        fields = ['id', 'name', 'code', 'prerequisite', 'prerequisite_id', 'description', 'subcategories', 'match_subcategories',
                   'subcategory_names', 'require_numeric', 'status', 'created_by', 'created_at', 'allow_repeat',
                   'updated_by', 'updated_at', 'required_attribute', 'required_attribute_names', 'indicator_type']
         
@@ -97,7 +103,8 @@ class IndicatorSerializer(serializers.ModelSerializer):
         prerequisite = attrs.get('prerequisite', getattr(self.instance, 'prerequisite', None))
         required_attribute = attrs.get('required_attribute_names', getattr(self.instance, 'required_attribute_names', None))
         ind_id = self.instance.id if self.instance else None
-        print(prerequisite)
+        match_subcategories = attrs.get('match_subcategories', False)
+        subcategory_names = attrs.get('subcategory_names', [])
         if not code:
             raise serializers.ValidationError({"code": "Code is required."})
         if not name:
@@ -137,6 +144,16 @@ class IndicatorSerializer(serializers.ModelSerializer):
                         raise serializers.ValidationError({"status": f"Indicator {dep.name} is active and uses this indicator as a prerequisite. You must mark that indicator as planned first."})
         if required_attribute and indicator_type != 'Respondent':
             raise serializers.ValidationError({"required attribute": "For this indicator to have required attributes, its type must be set to 'Respondent."})
+
+        if match_subcategories and not prerequisite:
+            raise serializers.ValidationError({"match_subcategories": "Matching subcategories is only allowed for indicators with a prerequisite."})
+        if match_subcategories and not prerequisite.subcategories.exists():
+            raise serializers.ValidationError({"match_subcategories": "Cannot match subcategories with an indicator that has no subcategories."})
+        if len(subcategory_names) > 0 and match_subcategories:
+            prereq_ids = [c.id for c in prerequisite.subcategories.all()]
+            child_ids = [c.get('id') for c in subcategory_names]
+            if not prereq_ids == child_ids:
+                raise serializers.ValidationError({"match_subcategories": "Found conflicting requests to match subcategories and provide unique subcategory values."})
         return attrs
     
     def validate_required_attribute_names(self, value):
@@ -151,19 +168,23 @@ class IndicatorSerializer(serializers.ModelSerializer):
         from respondents.models import RespondentAttributeType
         subcategory_names = validated_data.pop('subcategory_names', [])
         required_attribute_names = validated_data.pop('required_attribute_names', [])
-
-        cleaned_names = [
-            name.get('name').replace(',', '').replace(':', '') for name in subcategory_names if name.get('value')
-        ]
         indicator = Indicator.objects.create(**validated_data)
-        subcategories = [
-            IndicatorSubcategory.objects.get_or_create(name=name, deprecated=False)[0]
-            for name in cleaned_names
-        ]
-        indicator.subcategories.set(subcategories)
+
+        if indicator.match_subcategories:
+            prereq_subcats = IndicatorSubcategory.objects.filter(indicator=indicator.prerequisite)
+            indicator.subcategories.set(prereq_subcats)
+        else:
+            cleaned_names = [
+                name.get('name').replace(',', '').replace(':', '') for name in subcategory_names if name.get('name')
+            ]
+            subcategories = [
+                IndicatorSubcategory.objects.create(name=name, deprecated=False)[0]
+                for name in cleaned_names
+            ]
+            indicator.subcategories.set(subcategories)
 
         attrs = [
-            RespondentAttributeType.objects.get_or_create(name=name)[0]
+            RespondentAttributeType.objects.get_or_create(name=name)
             for name in required_attribute_names
         ]
         indicator.required_attribute.set(attrs)
@@ -177,36 +198,40 @@ class IndicatorSerializer(serializers.ModelSerializer):
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
-
-        subcategories = []
-        if subcategory_names is not None:
-            for cat in subcategory_names:
-                print(cat)
-                deprecated = str(cat.get('deprecated')).strip().lower() in ['true', '1']
-                name = cat.get('name')
-                if not name:
-                    raise serializers.ValidationError(f'Subcategory name may not be blank.')
-                name = name.replace(',', '').replace(':', '')
-                existing_id = cat.get('id')
-                #rogue ids should not be happening, and might be a sign of an issue on the front end
-                subcategory = None
-                if existing_id:
-                    subcategory = IndicatorSubcategory.objects.filter(id=existing_id).first()
-                    if not subcategory:
-                        raise serializers.ValidationError(f'Could not find subcategory of id {existing_id}')
-                    to_merge = IndicatorSubcategory.objects.filter(name=name, deprecated=deprecated).exclude(id=existing_id).first()
-                    if to_merge:
-                        subcategory = to_merge
-                    else:
+        if instance.match_subcategories is True:
+            prereq_subcats = IndicatorSubcategory.objects.filter(indicator=instance.prerequisite)
+            instance.subcategories.set(prereq_subcats)
+        elif instance.match_subcategories is False and subcategory_names is None:
+            instance.subcategories.set([])
+        else:
+            subcategories = []
+            if subcategory_names is not None:
+                for cat in subcategory_names:
+                    print(cat)
+                    deprecated = str(cat.get('deprecated')).strip().lower() in ['true', '1']
+                    name = cat.get('name')
+                    if not name:
+                        raise serializers.ValidationError(f'Subcategory name may not be blank.')
+                    name = name.replace(',', '').replace(':', '')
+                    existing_id = cat.get('id')
+                    #rogue ids should not be happening, and might be a sign of an issue on the front end
+                    subcategory = None
+                    if existing_id:
+                        subcategory = IndicatorSubcategory.objects.filter(id=existing_id).first()
+                        if not subcategory:
+                            raise serializers.ValidationError(f'Could not find subcategory of id {existing_id}')
                         subcategory.name = name
                         subcategory.deprecated = deprecated
                         subcategory.save()
-                else:
-                    if deprecated:
-                        raise serializers.ValidationError(f'You are creating and immeidately deprecating subcategory {name}. Please verify this result')
-                    subcategory, _ = IndicatorSubcategory.objects.get_or_create(name=name, deprecated=deprecated)
-                subcategories.append(subcategory)
-            instance.subcategories.set(subcategories)
+                    else:
+                        if deprecated:
+                            raise serializers.ValidationError(f'You are creating and immediately deprecating subcategory "{name}". Please verify this result')
+                        subcategory = IndicatorSubcategory.objects.create(name=name, deprecated=deprecated)
+                    subcategories.append(subcategory)
+                instance.subcategories.set(subcategories)
+                children = Indicator.objects.filter(prerequisite=instance, match_subcategories=True)
+                for child in children:
+                    child.subcategories.set(subcategories)
 
         if required_attribute_names is not None:
             attrs = [
@@ -251,7 +276,7 @@ class ChartSerializer(serializers.ModelSerializer):
             events = events.filter(tasks__project__id=project_id)
 
         event_ids = {e.id for e in events}
-        counts = DemographicCount.objects.filter(event_id__in=event_ids, task__indicator=obj)
+        counts = DemographicCount.objects.filter(event_id__in=event_ids, task__indicator=obj, flagged=False)
         
         # Group counts by event_id
         counts_by_event = defaultdict(list)
@@ -350,7 +375,6 @@ class ChartSerializer(serializers.ModelSerializer):
         targets = []
         for t in target_qs:
             percentage = None
-            print(t)
             if not t.amount and t.related_to and t.percentage_of_related:
                 percentage = Interaction.objects.filter(task = t.related_to, interaction_date__gte = t.start, interaction_date__lte=t.end, flagged=False).count() * (t.percentage_of_related/100)
             targets.append({

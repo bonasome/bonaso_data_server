@@ -230,6 +230,15 @@ class EventViewSetTest(APITestCase):
         }
         response = self.client.patch(f'/api/activities/events/{self.other_event.id}/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_add_wrong_task(self):
+        #should also fail, since task is not associated with an org in the event
+        self.client.force_authenticate(user=self.admin)
+        invalid_payload = {
+            'task_id': [self.other_task.id],
+        }
+        response = self.client.patch(f'/api/activities/events/{self.other_event.id}/', invalid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
     
     def test_delete_event(self):
         #admins are allowed to delete projects

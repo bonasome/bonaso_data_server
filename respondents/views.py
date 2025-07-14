@@ -238,7 +238,6 @@ class RespondentViewSet(RoleRestrictedViewSet):
                     'error': str(e),
                     'data': item
                 })
-        print(errors)
         return Response({
             "created_ids": created_ids,
             "local_ids": local_ids,
@@ -370,7 +369,6 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
         created = []
         for i, task in enumerate(tasks):
-            print(task)
             task_date = task.get('interaction_date') or top_level_date
             task_location = task.get('interaction_location') or top_level_location
             if not task_date:

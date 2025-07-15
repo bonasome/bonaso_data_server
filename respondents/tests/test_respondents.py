@@ -187,7 +187,57 @@ class RespondentViewSetTest(APITestCase):
         self.respondent_full.refresh_from_db()
         self.assertEqual(self.respondent_full.id_no, None)
 
+    def test_manage_preg(self):
+        #test basic patch operation
+        valid_patch = {
+            'pregnancy_data': [
+                {'id': None, 'term_began': '2024-01-01', 'term_ended': None},
+                {'id': None, 'term_began': '2022-01-01', 'term_ended': '2022-09-01'}
+            ]
+        }
+        self.client.force_authenticate(user=self.data_collector)
+        response = self.client.patch(f'/api/record/respondents/{self.respondent_full.id}/', valid_patch, format='json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.respondent_full.refresh_from_db()
+        pregnancies = Pregnancy.objects.filter(respondent=self.respondent_full).count()
+        self.assertEqual(pregnancies, 2)
+        target_p = Pregnancy.objects.filter(respondent=self.respondent_full, term_began=date(2024, 1, 1)).first()
+
+        valid_patch2 = {
+            'pregnancy_data': [
+                {'id': target_p.id, 'term_began': None, 'term_ended': None},
+            ]
+        }
+        response = self.client.patch(f'/api/record/respondents/{self.respondent_full.id}/', valid_patch2, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.respondent_full.refresh_from_db()
+        pregnancies = Pregnancy.objects.filter(respondent=self.respondent_full).count()
+        self.assertEqual(pregnancies, 1)
     
+    def test_manage_hiv(self):
+        #test basic patch operation
+        valid_patch = {
+            'hiv_status_data': {'hiv_positive': True, 'date_positive': '2024-04-01'}
+        }
+        self.client.force_authenticate(user=self.data_collector)
+        response = self.client.patch(f'/api/record/respondents/{self.respondent_full.id}/', valid_patch, format='json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.respondent_full.refresh_from_db()
+        hiv = HIVStatus.objects.filter(respondent=self.respondent_full, hiv_positive=True).count()
+        self.assertEqual(hiv, 1)
+
+        valid_patch2 = {
+            'hiv_status_data': {'hiv_positive': False}
+        }
+        response = self.client.patch(f'/api/record/respondents/{self.respondent_full.id}/', valid_patch2, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.respondent_full.refresh_from_db()
+        hiv = HIVStatus.objects.filter(respondent=self.respondent_full, hiv_positive=True).count()
+        self.assertEqual(hiv, 0)
+
+
     
     def test_delete_respondent(self):
         #only admins can delete

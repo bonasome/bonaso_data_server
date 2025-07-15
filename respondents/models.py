@@ -7,6 +7,7 @@ from indicators.models import Indicator, IndicatorSubcategory
 from projects.models import Project, Task
 from datetime import datetime, date
 import uuid
+from django.utils.timezone import now
 from datetime import timedelta
 
 class DisabilityType(models.Model):
@@ -195,6 +196,21 @@ class HIVStatus(models.Model):
     hiv_positive = models.BooleanField(null=True, blank=True)
     date_positive = models.DateField(null=True, blank=True)
 
+class InteractionFlag(models.Model):
+    interaction = models.ForeignKey("Interaction", on_delete=models.CASCADE, related_name="flags")
+    reason = models.TextField()
+    auto_flagged = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='flag_created_by')
+    resolved = models.BooleanField(default=False)
+    auto_resolved = models.BooleanField(default=False)
+    resolved_reason = models.TextField(null=True, blank=True)
+    resolved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='flag_resolved_by')
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f'Flag  for interaction {self.interaction.task.indicator.name} for respondent {self.interaction.respondent} for reason {self.reason}.'
+
 class Interaction(models.Model):
     respondent = models.ForeignKey(Respondent, on_delete=models.PROTECT)
     task = models.ForeignKey(Task, on_delete=models.PROTECT)
@@ -205,52 +221,13 @@ class Interaction(models.Model):
     numeric_component = models.IntegerField(null=True, blank=True, default=None)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    flagged = models.BooleanField(default=False)
+
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='interaction_created_by')
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='interaction_updated_by')
     
     def __str__(self):
         return f'Interaction with {self.respondent} on {self.interaction_date} for {self.task.indicator.code}'
 
-    def save(self, *args, **kwargs):
-        if self.interaction_date:
-            if isinstance(self.interaction_date, str):
-                date_value = datetime.strptime(self.interaction_date, "%Y-%m-%d").date()
-            elif isinstance(self.interaction_date, datetime):
-                date_value = self.interaction_date.date()
-            elif isinstance(self.interaction_date, date):
-                date_value = self.interaction_date
-            else:
-                raise ValueError("Invalid type for interaction_date")
-            thirty_days_ago = date_value - timedelta(days=30)
-            thirty_days_ahead = date_value  + timedelta(days=30)
-            last_year = date_value - timedelta(days=365)
-            
-            # Check for recent similar interactions
-            recent_exists = Interaction.objects.filter(
-                respondent=self.respondent,
-                task=self.task,
-                interaction_date__gte=thirty_days_ago,
-                interaction_date__lt=thirty_days_ahead
-            ).exclude(pk=self.pk).exists()
-
-            if recent_exists and not self.task.indicator.allow_repeat:
-                self.flagged = True
-
-            # Check prerequisite interaction
-            prerequisite = self.task.indicator.prerequisite
-            if prerequisite:
-                prereq_exists = Interaction.objects.filter(
-                    respondent=self.respondent,
-                    task__indicator=prerequisite,
-                    interaction_date__gte=last_year,
-                    interaction_date__lte=self.interaction_date
-                ).exists()
-
-                if not prereq_exists:
-                    self.flagged = True
-
-        super().save(*args, **kwargs)
 
 
 class InteractionSubcategory(models.Model):

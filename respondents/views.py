@@ -34,7 +34,7 @@ import traceback
 from datetime import datetime, date
 today = date.today().isoformat()
 from projects.models import Task
-from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType, RespondentAttributeType
+from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType, RespondentAttributeType, InteractionFlag
 from respondents.serializers import RespondentSerializer, RespondentListSerializer, InteractionSerializer
 from indicators.models import IndicatorSubcategory
 from respondents.utils import topological_sort
@@ -243,7 +243,7 @@ class RespondentViewSet(RoleRestrictedViewSet):
             "local_ids": local_ids,
             "errors": errors
         }, status=status.HTTP_207_MULTI_STATUS if errors else status.HTTP_201_CREATED)
-    
+  
 class InteractionViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
     queryset = Interaction.objects.all()
@@ -294,6 +294,55 @@ class InteractionViewSet(RoleRestrictedViewSet):
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)
     
+    @action(detail=True, methods=['patch'], url_path='raise-flag')
+    def raise_flag(self, request, pk=None):
+        user = request.user
+        interaction = self.get_object()
+        if user.role not in ['admin', 'meofficer', 'manager']:
+            raise PermissionDenied('You do not have permission to raise a flag.')
+        if user.role in ['meoficer', 'manager'] and not (
+        interaction.task.organization == user.organization or 
+        interaction.task.organization.parent_organization == user.organization):
+            raise PermissionDenied('You do not have permission to raise a flag for this interaction.')
+        reason = request.data.get('reason', None)
+        if not reason:
+            return Response({"detail": f"You must provide a reason for creating a flag."}, status=status.HTTP_400_BAD_REQUEST)
+        InteractionFlag.objects.create(
+            interaction=interaction,
+            created_by = user,
+            reason=reason,
+        )
+        return Response({"detail": f"Interaction flagged."}, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['patch'], url_path='resolve-flag/(?P<interactionflag_id>[^/.]+)')
+    def resolve_flag(self, request, pk=None, interactionflag_id=None):
+        user = request.user
+        interaction = self.get_object()
+        interaction_flag = InteractionFlag.objects.filter(id=interactionflag_id).first()
+
+        if user.role not in ['admin', 'meofficer', 'manager']:
+            return Response({"detail": f"You do not have permissiont to resolve a flag for this interaction."}, status=status.HTTP_403_FORBIDDEN)
+        if user.role in ['meoficer', 'manager'] and not (
+        interaction.task.organization == user.organization or 
+        interaction.task.organization.parent_organization == user.organization):
+            return Response({"detail": f"You do not have permissiont to resolve a flag for this interaction."}, status=status.HTTP_403_FORBIDDEN)
+
+        if not interaction_flag:
+            return Response({"detail": f"Flag not found."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        resolved_reason = request.data.get('resolved_reason', None)
+        if not resolved_reason:
+            return Response({"detail": f"You must provide a reason for resolving a flag."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        interaction_flag.resolved = True
+        interaction_flag.resolved_by = user
+        interaction_flag.resolved_reason=resolved_reason
+        interaction_flag.resolved_at=now()
+        interaction_flag.save()
+        print(interaction_flag.resolved)
+        return Response({"detail": f"Flag resolved."}, status=status.HTTP_200_OK)
+
+
     @action(detail=False, methods=['get'], url_path='flagged')
     def get_flagged(self, request):
         user = request.user

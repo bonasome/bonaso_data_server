@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType, InteractionSubcategory, RespondentAttribute, RespondentAttributeType, KeyPopulationStatus, DisabilityStatus
+from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType, InteractionSubcategory, RespondentAttribute, RespondentAttributeType, KeyPopulationStatus, DisabilityStatus, InteractionFlag
 from respondents.exceptions import DuplicateExists
 from projects.models import Task, Target
 from projects.serializers import TaskSerializer
@@ -10,7 +10,7 @@ from django.db.models.functions import Abs
 from django.db.models import Q, F, ExpressionWrapper, IntegerField
 from rest_framework.exceptions import PermissionDenied
 from django.contrib.auth import get_user_model
-from respondents.utils import update_m2m_status
+from respondents.utils import update_m2m_status, auto_flag_logic
 
 
 User = get_user_model()
@@ -290,9 +290,10 @@ class RespondentSerializer(serializers.ModelSerializer):
         instance.disability_status.set(disability_instances)
 
         if hiv_status_data:
+            print(hiv_status_data)
             hiv_positive = hiv_status_data.get('hiv_positive', None)
-            if hiv_positive:
-                hiv_positive = True if hiv_positive in ['true', 'True', True, '1'] else None
+            if hiv_positive is not None:
+                hiv_positive = True if hiv_positive in ['true', 'True', True, '1'] else False
                 if hiv_positive:
                     date_positive = hiv_status_data.get('date_positive')
                     if not date_positive:
@@ -343,7 +344,7 @@ class SimpleInteractionSerializer(serializers.ModelSerializer):
     class Meta:
         model=Interaction
         fields = [
-            'id', 'interaction_date', 'flagged'
+            'id', 'interaction_date'
         ]
 
 class InteractionSubcategoryInputSerializer(serializers.Serializer):
@@ -359,12 +360,41 @@ class InteractionSubcategoryOutputSerializer(serializers.ModelSerializer):
         model = InteractionSubcategory
         fields = ['id', 'name', 'numeric_component']
 
+class InteractionFlagSerializer(serializers.ModelSerializer):
+    created_by = serializers.SerializerMethodField()
+    resolved_by = serializers.SerializerMethodField()
+    def get_created_by(self, obj):
+        if obj.created_by:
+            return {
+                "id": obj.created_by.id,
+                "username": obj.created_by.username,
+                "first_name": obj.created_by.first_name,
+                "last_name": obj.created_by.last_name,
+            }
+        return None
+    def get_resolved_by(self, obj):
+        if obj.resolved_by:
+            return {
+                "id": obj.resolved_by.id,
+                "username": obj.resolved_by.username,
+                "first_name": obj.resolved_by.first_name,
+                "last_name": obj.resolved_by.last_name,
+            }
+        return None
+    
+    class Meta:
+        model=InteractionFlag
+        fields = [
+            'id', 'reason', 'auto_flagged', 'created_by', 'created_at', 'resolved', 'auto_resolved',
+            'resolved_reason', 'resolved_by', 'resolved_at'
+        ]
 class InteractionSerializer(serializers.ModelSerializer):
     respondent = serializers.PrimaryKeyRelatedField(queryset=Respondent.objects.all())
     task = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True)
     task_detail = TaskSerializer(source='task', read_only=True)
     subcategories = serializers.SerializerMethodField()
     subcategories_data = InteractionSubcategoryInputSerializer(many=True, write_only=True, required=False)
+    flags = InteractionFlagSerializer(read_only=True, many=True)
     created_by = serializers.SerializerMethodField()
     updated_by = serializers.SerializerMethodField()
 
@@ -394,7 +424,7 @@ class InteractionSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'respondent', 'subcategories', 'subcategories_data', 'task', 'task_detail',
             'interaction_date', 'numeric_component', 'created_by', 'updated_by', 'created_at', 'updated_at',
-            'comments', 'flagged', 'interaction_location'
+            'comments', 'interaction_location', 'flags'
         ]
     
     def to_internal_value(self, data):
@@ -411,7 +441,7 @@ class InteractionSerializer(serializers.ModelSerializer):
         task = data.get('task') or getattr(self.instance, 'task', None)
         respondent = data.get('respondent') or getattr(self.instance, 'respondent', None)
         subcategories = data.get('subcategories_data', [])
-        interaction_date = data.get('interaction_date')
+        interaction_date = data.get('interaction_date') or getattr(self.instance, 'interaction_date', None)
         number = data.get('numeric_component')
         role = getattr(user, 'role', None)
         org = getattr(user, 'organization', None)
@@ -491,43 +521,6 @@ class InteractionSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError(
                         f"This task requires that the respondent be a {attribute.name}."
                     )
-                
-        prereq = task.indicator.prerequisite
-        if prereq:
-            parent_qs = Interaction.objects.filter(
-                task__indicator=prereq,
-                interaction_date__lte=interaction_date,
-                respondent=respondent,
-            )
-            if not parent_qs.exists():
-                raise serializers.ValidationError(f"Task '{task.indicator.name}' requires that a prerequisite interaction {task.indicator.prerequisite.name} occured prior to or on the date of this interaction. If you are editing dates, please make sure you are not placing this interaciton prior to the prerequisite one.")
-            most_recent = parent_qs.order_by('-interaction_date').first()
-            if most_recent.subcategories.exists():
-                parent_ids = set(most_recent.task.indicator.subcategories.values_list('id', flat=True))
-                child_ids = set(task.indicator.subcategories.values_list('id', flat=True))
-                if child_ids.issubset(parent_ids):
-                    current_ids = set([c.get('id') for c in subcategories])
-                    previous_ids = set(most_recent.subcategories.values_list('id', flat=True))
-                    if not current_ids.issubset(previous_ids):
-                        raise serializers.ValidationError(
-                            "Subcategories must be consistent with the prerequisite interaction."
-                        )
-        if task.indicator.subcategories:
-            children = Interaction.objects.filter(task__indicator__prerequisite=task.indicator, respondent=respondent, interaction_date__gte=interaction_date)
-            if children:
-                child = closest = min(
-                    Interaction.objects.all(),
-                    key=lambda x: abs((x.interaction_date - interaction_date).days)
-                )
-                parent_ids = set(task.indicator.subcategories.values_list('id', flat=True))
-                child_ids = set(child.task.indicator.subcategories.values_list('id', flat=True))
-                if child_ids.issubset(parent_ids):
-                    parent_subcats = set([c.get('id') for c in subcategories])
-                    child_subcats = set(child.subcategories.values_list('id', flat=True))
-                    if not child_subcats.issubset(parent_subcats):
-                        raise serializers.ValidationError(
-                            "Making these subcategory edits will invalidate a child interaction. Please edit that interaction first."
-                        )
         return data
     
     def validate_interaction_date(self, value):
@@ -561,7 +554,19 @@ class InteractionSerializer(serializers.ModelSerializer):
                 subcategory=subcategory,
                 numeric_component=numeric_value
             )
-
+        #auto flag does not need to run if the interaction has been manually marked OK or manually flagged for another reason
+        auto_flag_logic(interaction, downstream=False)
+        dependent_tasks = Task.objects.filter(indicator__prerequisite=interaction.task.indicator)
+        #possible that edits to a parent may cause a child to flag or unflag, so verify them as well
+        #but only check if no one manually flagged it or manually marked it as ok
+        downstream = Interaction.objects.filter(
+            respondent=interaction.respondent,
+            task__in=dependent_tasks,
+        )
+        for ir in downstream:
+            print('running downstream for ', ir.task.indicator.name )
+            auto_flag_logic(ir, downstream=True)
+            ir.save()
         return interaction
     
     def update(self, instance, validated_data):
@@ -596,4 +601,18 @@ class InteractionSerializer(serializers.ModelSerializer):
                 setattr(instance, attr, value)
         instance.updated_by = user
         instance.save()
+
+        auto_flag_logic(instance, downstream=False)
+        dependent_tasks = Task.objects.filter(indicator__prerequisite=instance.task.indicator)
+        #possible that edits to a parent may cause a child to flag or unflag, so verify them as well
+        #but only check if no one manually flagged it or manually marked it as ok
+        downstream = Interaction.objects.filter(
+            respondent=instance.respondent,
+            task__in=dependent_tasks,
+        )
+        for ir in downstream:
+            print('running downstream for ', ir.task.indicator.name )
+            auto_flag_logic(ir, downstream=True)
+            ir.save()
+
         return instance

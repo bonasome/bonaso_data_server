@@ -3,6 +3,10 @@ from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ValidationError
 from users.models import User
 
+def get_attribute_choices():
+    from respondents.models import RespondentAttributeType
+    return RespondentAttributeType.Attributes.choices
+
 class IndicatorSubcategory(models.Model):
     name = models.CharField(max_length=255, verbose_name='Category Name')
     slug = models.CharField(max_length=255, blank=True)
@@ -33,6 +37,7 @@ class Indicator(models.Model):
     code = models.CharField(max_length=10, verbose_name='Indicator Code')
     prerequisites = models.ManyToManyField('self', blank=True, symmetrical=False, related_name='dependent_indicators', verbose_name='Prerequisite Indicators')
     required_attribute = models.ManyToManyField('respondents.RespondentAttributeType', blank=True)
+    governs_attribute = models.CharField(choices=get_attribute_choices, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='indicator_created_by')

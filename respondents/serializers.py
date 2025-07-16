@@ -290,7 +290,6 @@ class RespondentSerializer(serializers.ModelSerializer):
         instance.disability_status.set(disability_instances)
 
         if hiv_status_data:
-            print(hiv_status_data)
             hiv_positive = hiv_status_data.get('hiv_positive', None)
             if hiv_positive is not None:
                 hiv_positive = True if hiv_positive in ['true', 'True', True, '1'] else False

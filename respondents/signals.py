@@ -54,7 +54,7 @@ def sync_hiv_attribute(sender, instance, **kwargs):
     transaction.on_commit(after_commit)
 
 @receiver(post_save, sender=Interaction)
-def handle_hiv_positive_interaction(sender, instance, created, **kwargs):
+def handle_govern_interaction(sender, instance, created, **kwargs):
     if not created:
         return  # Only run on creation
 
@@ -64,30 +64,37 @@ def handle_hiv_positive_interaction(sender, instance, created, **kwargs):
     if not task or not respondent:
         return
 
-    if task.indicator.name == 'Tested Positive for HIV':
-        hiv_status = HIVStatus.objects.filter(respondent=respondent).first()
-
-        if hiv_status:
-            if hiv_status.hiv_positive and instance.interaction_date != hiv_status.date_positive:
-                if not InteractionFlag.objects.filter(
-                    interaction=instance,
-                    reason__icontains="marked as positive for HIV on a separate date"
-                ).exists():
-                    InteractionFlag.objects.create(
+    attr = task.indicator.governs_attribute
+    if attr:
+        if attr in ['PWD', 'KP']:
+            #these fields are tied to their own automatic model and are not currently supported
+            return
+        elif attr in ['PLWHIV']:
+            hiv_status = HIVStatus.objects.filter(respondent=respondent).first()
+            if hiv_status:
+                if hiv_status.hiv_positive and instance.interaction_date != hiv_status.date_positive:
+                    if not InteractionFlag.objects.filter(
                         interaction=instance,
-                        auto_flagged=True,
-                        reason=(
-                            "Respondent was marked as testing positive for HIV, but was "
-                            "already marked as positive for HIV on a separate date."
+                        reason__icontains="Marked as positive for HIV on a separate date"
+                    ).exists():
+                        InteractionFlag.objects.create(
+                            interaction=instance,
+                            auto_flagged=True,
+                            reason=(
+                                "Respondent was marked as testing positive for HIV, but was "
+                                "already marked as positive for HIV on a separate date."
+                            )
                         )
-                    )
+                else:
+                    hiv_status.hiv_positive = True
+                    hiv_status.date_positive = instance.interaction_date
+                    hiv_status.save()
             else:
-                hiv_status.hiv_positive = True
-                hiv_status.date_positive = instance.interaction_date
-                hiv_status.save()
+                HIVStatus.objects.create(
+                    respondent=respondent,
+                    hiv_positive=True,
+                    date_positive=instance.interaction_date
+                )
+            #let the above signal handle the creation of the attribute type
         else:
-            HIVStatus.objects.create(
-                respondent=respondent,
-                hiv_positive=True,
-                date_positive=instance.interaction_date
-            )
+            RespondentAttribute.objects.get_or_create(respondent=respondent, attribute=attr)

@@ -80,7 +80,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
     class Meta:
         model = Indicator
         fields = ['id', 'name', 'code', 'prerequisites', 'prerequisite_id', 'description', 'subcategories', 'match_subcategories_to',
-                  'subcategory_data', 'require_numeric', 'status', 'created_by', 'created_at', 'allow_repeat',
+                  'subcategory_data', 'require_numeric', 'status', 'created_by', 'created_at', 'allow_repeat', 'governs_attribute',
                   'updated_by', 'updated_at', 'required_attribute', 'required_attribute_names', 'indicator_type']
         
     def to_representation(self, instance):
@@ -111,6 +111,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
         indicator_type = attrs.get('indicator_type', getattr(self.instance, 'indicator_type', None))
         prerequisites = attrs.get('prerequisites', getattr(self.instance, 'prerequisites', None))
         required_attribute = attrs.get('required_attribute_names', getattr(self.instance, 'required_attribute_names', None))
+        governs_attribute = attrs.get('governs_attribute', getattr(self.instance, 'governs_attribute'))
         ind_id = self.instance.id if self.instance else None
         match_subcategories_to = attrs.get('match_subcategories_to', None)
         subcategory_data = attrs.get('subcategory_data', [])
@@ -153,8 +154,9 @@ class IndicatorSerializer(serializers.ModelSerializer):
                     elif dep.status == 'Active' and status == 'Planned':
                         raise serializers.ValidationError({"status": f"Indicator {dep.name} is active and uses this indicator as a prerequisite. You must mark that indicator as planned first."})
         if required_attribute and indicator_type != 'Respondent':
-            raise serializers.ValidationError({"required attribute": "For this indicator to have required attributes, its type must be set to 'Respondent."})
-
+            raise serializers.ValidationError({"required_attribute": "For this indicator to have required attributes, its type must be set to 'Respondent'."})
+        if governs_attribute and indicator_type != 'Respondent':
+            raise serializers.ValidationError({"governs_attribute": "For this indicator to be able to govern attributes, its type must be set to 'Respondent'."})
         if match_subcategories_to and not prerequisites:
             raise serializers.ValidationError({"match_subcategories_to": "Matching subcategories is only allowed for indicators with a prerequisite."})
         if match_subcategories_to and not match_subcategories_to in prerequisites:
@@ -166,6 +168,13 @@ class IndicatorSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"match_subcategories_to": "Found conflicting requests to match subcategories and provide unique subcategory values."})
         return attrs
     
+    def validate_governs_attribute(self, value):
+        from respondents.models import RespondentAttributeType
+        valid_choices = set(choice[0] for choice in RespondentAttributeType.Attributes.choices)
+        if value not in valid_choices:
+            raise serializers.ValidationError(f"{value} is not a valid attribute.")
+        return value
+
     def validate_required_attribute_names(self, value):
         from respondents.models import RespondentAttributeType
         valid_choices = set(choice[0] for choice in RespondentAttributeType.Attributes.choices)
@@ -263,6 +272,7 @@ class ChartSerializer(serializers.ModelSerializer):
     subcategories = IndicatorSubcategorySerializer(many=True, read_only=True)
     legend = serializers.SerializerMethodField()
     legend_labels = serializers.SerializerMethodField()
+
     def get_legend(self, obj):
         legend = ['age_range', 'sex', 'kp_status', 'disability_status', 'citizenship', 'district', 'organization', 'hiv_status', 'pregnant']
         if IndicatorSubcategory.objects.filter(indicator=obj).exists():
@@ -280,6 +290,7 @@ class ChartSerializer(serializers.ModelSerializer):
         return legend
     
     def get_events(self, obj):
+        from events.models import CountFlag
         from events.serializers import EventSerializer, DCSerializer
         organization_id = self.context.get('organization_id')
         project_id = self.context.get('project_id')
@@ -291,8 +302,11 @@ class ChartSerializer(serializers.ModelSerializer):
             events = events.filter(tasks__project__id=project_id)
 
         event_ids = {e.id for e in events}
-        counts = DemographicCount.objects.filter(event_id__in=event_ids, task__indicator=obj, flagged=False)
+        counts = DemographicCount.objects.filter(event_id__in=event_ids, task__indicator=obj)
         
+        flags = CountFlag.objects.filter(count__in=counts, resolved=False)
+        flagged_ids = flags.values_list('count_id', flat=True)
+
         # Group counts by event_id
         counts_by_event = defaultdict(list)
         for count in counts:
@@ -303,6 +317,8 @@ class ChartSerializer(serializers.ModelSerializer):
             serialized_event = EventSerializer(event, context=self.context).data
             serialized_counts = DCSerializer(counts_by_event.get(event.id, []), many=True, context=self.context).data
             for count_dict in serialized_counts:
+                if count_dict.get('id') in flagged_ids:
+                    continue
                 subcat_id = count_dict.pop('subcategory')
                 if subcat_id:
                     instance = IndicatorSubcategory.objects.get(id=subcat_id)
@@ -316,18 +332,20 @@ class ChartSerializer(serializers.ModelSerializer):
 
 
     def get_interactions(self, obj):
+        from respondents.models import InteractionFlag
         organization_id = self.context.get('organization_id')
         project_id = self.context.get('project_id')
         interactions = Interaction.objects.filter(task__indicator=obj).select_related(
             'respondent', 'task__organization'
         )
+        
         if organization_id:
             interactions = interactions.filter(task__organization__id=organization_id)
         if project_id:
             interactions = interactions.filter(task__project__id=project_id)
-        interactions.prefetch_related(
-            'respondent__kp_status', 'respondent__disability_status'
-        )
+
+        flags = InteractionFlag.objects.filter(interaction__in=interactions, resolved=False)
+        flagged_ids = flags.values_list('interaction_id', flat=True)
 
         respondent_ids = {i.respondent_id for i in interactions}
     
@@ -346,6 +364,8 @@ class ChartSerializer(serializers.ModelSerializer):
                 pregnancies_by_respondent.setdefault(p.respondent_id, []).append(p)
         result = []
         for interaction in interactions:
+            if interaction.id in flagged_ids:
+                continue
             respondent = interaction.respondent
             hiv_status = any(
                 hs. date_positive <= interaction.interaction_date

@@ -57,39 +57,40 @@ def auto_flag_logic(interaction, downstream=False):
             resolve_flag(outstanding_flags, reason)
                 
 
-    prerequisite = interaction.task.indicator.prerequisite
-    if prerequisite:
-        prereqs = Interaction.objects.filter(
-            respondent=interaction.respondent,
-            task__indicator=prerequisite,
-            interaction_date__gte=last_year,
-            interaction_date__lte=interaction.interaction_date,
-        )
-        reason = (
-                f'Indicator requires task "{prerequisite.name}" to have a valid interaction '
-                f'with this respondent within the past year. Make sure the prerequisite interaction is not in the future.'
+    prerequisites = interaction.task.indicator.prerequisites
+    for prerequisite in prerequisites.all():
+        if prerequisite:
+            prereqs = Interaction.objects.filter(
+                respondent=interaction.respondent,
+                task__indicator=prerequisite,
+                interaction_date__gte=last_year,
+                interaction_date__lte=interaction.interaction_date,
             )
-        if not prereqs.exists():
-            if not outstanding_flags.filter(reason=reason).exists():
-                create_flag(interaction, reason)
-        else:
-            resolve_flag(outstanding_flags, reason)
-            if interaction.task.indicator.match_subcategories:
-                most_recent = prereqs.order_by('-interaction_date').first()
-                reason = (f'The selected subcategories for task "{interaction.task.indicator.name}" do'
-                    f'not match with the parent interaction associated with task "{most_recent.task.indicator.name}".' 
-                    'This interaction will be flagged until the subcategories match.')
-                current_ids = set(
-                    InteractionSubcategory.objects.filter(interaction=interaction)
-                    .values_list("subcategory_id", flat=True)
+            reason = (
+                    f'Indicator requires task "{prerequisite.name}" to have a valid interaction '
+                    f'with this respondent within the past year. Make sure the prerequisite interaction is not in the future.'
                 )
-                previous_ids = set(most_recent.subcategories.values_list('id', flat=True))
-                print('c', current_ids, 'p', previous_ids)
-                if not current_ids.issubset(previous_ids):
-                    if not outstanding_flags.filter(reason=reason).exists():
-                        create_flag(interaction, reason)
-                else:
-                    resolve_flag(outstanding_flags, reason)
+            if not prereqs.exists():
+                if not outstanding_flags.filter(reason=reason).exists():
+                    create_flag(interaction, reason)
+            else:
+                resolve_flag(outstanding_flags, reason)
+                if interaction.task.indicator.match_subcategories_to == prerequisite:
+                    most_recent = prereqs.order_by('-interaction_date').first()
+                    reason = (f'The selected subcategories for task "{interaction.task.indicator.name}" do'
+                        f'not match with the parent interaction associated with task "{most_recent.task.indicator.name}".' 
+                        'This interaction will be flagged until the subcategories match.')
+                    current_ids = set(
+                        InteractionSubcategory.objects.filter(interaction=interaction)
+                        .values_list("subcategory_id", flat=True)
+                    )
+                    previous_ids = set(most_recent.subcategories.values_list('id', flat=True))
+                    print('c', current_ids, 'p', previous_ids)
+                    if not current_ids.issubset(previous_ids):
+                        if not outstanding_flags.filter(reason=reason).exists():
+                            create_flag(interaction, reason)
+                    else:
+                        resolve_flag(outstanding_flags, reason)
 
 
 

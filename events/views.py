@@ -216,12 +216,6 @@ class EventViewSet(RoleRestrictedViewSet):
 
         try:
             task_link = EventTask.objects.get(event=event, task__id=task_id)
-            existing_task_prereq = [t.task.indicator.prerequisite.id for t in EventTask.objects.filter(event=event) if t.task.indicator.prerequisite]
-            if task_link.task.indicator.id in existing_task_prereq:
-                return Response(
-                        {"detail": "You cannot remove a task from an event when it is a prerequisite for another task in this event."},
-                        status=status.HTTP_409_CONFLICT
-                    )
             if DemographicCount.objects.filter(event=event, task=task_link.task).exists():
                  return Response(
                         {"detail": "You cannot remove a task from an event when it is associated with an existing count."},
@@ -443,55 +437,55 @@ class EventViewSet(RoleRestrictedViewSet):
         
             for instance in group:
                 task = instance.task
-                if task.indicator.prerequisite:
-                    prereq = task.indicator.prerequisite
-                    prerequisite_count = DemographicCount.objects.filter(
-                        event=instance.event,
-                        task__indicator=prereq,
-                        sex=instance.sex,
-                        age_range=instance.age_range,
-                        citizenship=instance.citizenship,
-                        hiv_status=instance.hiv_status,
-                        pregnancy=instance.pregnancy,
-                        disability_type=instance.disability_type,
-                        kp_type=instance.kp_type,
-                        subcategory=instance.subcategory,
-                        organization=instance.organization,
-                        status=instance.status
-                    ).first()
+                if task.indicator.prerequisites:
+                    for prereq in task.indicator.prerequisites.all():
+                        prerequisite_count = DemographicCount.objects.filter(
+                            event=instance.event,
+                            task__indicator=prereq,
+                            sex=instance.sex,
+                            age_range=instance.age_range,
+                            citizenship=instance.citizenship,
+                            hiv_status=instance.hiv_status,
+                            pregnancy=instance.pregnancy,
+                            disability_type=instance.disability_type,
+                            kp_type=instance.kp_type,
+                            subcategory=instance.subcategory,
+                            organization=instance.organization,
+                            status=instance.status
+                        ).first()
 
-                    reason = f'Task "{task.indicator.name}" has a prerequisite "{prereq.name}" that does not have an associated count.'
-                    if not prerequisite_count:
-                        already_flagged = existing_flags.filter(count=instance, reason=reason).exists()
-                        if not already_flagged:
+                        reason = f'Task "{task.indicator.name}" has a prerequisite "{prereq.name}" that does not have an associated count.'
+                        if not prerequisite_count:
+                            already_flagged = existing_flags.filter(count=instance, reason=reason).exists()
+                            if not already_flagged:
+                                to_flag.append(CountFlag(
+                                    count=instance,
+                                    reason=reason,
+                                    auto_flagged=True
+                                ))
+                        else:
+                            outstanding_flag = existing_flags.filter(count=instance, reason=reason, resolved=False).first()
+                            if outstanding_flag:
+
+                                outstanding_flag.resolved=True
+                                outstanding_flag.auto_resolved=True
+                                outstanding_flag.resolved_at=now()
+                                to_resolve.append(outstanding_flag)
+
+                        reason=f'The amount of this count is greater than its corresponding prerequisite "{prereq.name}" amount.'
+                        if prerequisite_count and prerequisite_count.count < instance.count:
                             to_flag.append(CountFlag(
                                 count=instance,
                                 reason=reason,
                                 auto_flagged=True
                             ))
-                    else:
-                        outstanding_flag = existing_flags.filter(count=instance, reason=reason, resolved=False).first()
-                        if outstanding_flag:
-
-                            outstanding_flag.resolved=True
-                            outstanding_flag.auto_resolved=True
-                            outstanding_flag.resolved_at=now()
-                            to_resolve.append(outstanding_flag)
-
-                    reason=f'The amount of this count is greater than its corresponding prerequisite "{prereq.name}" amount.'
-                    if prerequisite_count and prerequisite_count.count < instance.count:
-                        to_flag.append(CountFlag(
-                            count=instance,
-                            reason=reason,
-                            auto_flagged=True
-                        ))
-                    else:
-                        outstanding_flag = existing_flags.filter(count=instance, reason=reason, resolved=False).first()
-                        if outstanding_flag:
-                            outstanding_flag.resolved=True
-                            outstanding_flag.auto_resolved=True
-                            outstanding_flag.resolved_at=now()
-                            to_resolve.append(outstanding_flag)
+                        else:
+                            outstanding_flag = existing_flags.filter(count=instance, reason=reason, resolved=False).first()
+                            if outstanding_flag:
+                                outstanding_flag.resolved=True
+                                outstanding_flag.auto_resolved=True
+                                outstanding_flag.resolved_at=now()
+                                to_resolve.append(outstanding_flag)
 
         CountFlag.objects.bulk_create(to_flag)
         CountFlag.objects.bulk_update(to_resolve, ['resolved', 'auto_resolved', 'resolved_at'])

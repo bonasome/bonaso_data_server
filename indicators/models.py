@@ -31,7 +31,7 @@ class Indicator(models.Model):
     status = models.CharField(max_length=25, choices=Status.choices, default=Status.ACTIVE, verbose_name='Indicator Status')
     indicator_type = models.CharField(max_length=25, choices=IndicatorType.choices, default=IndicatorType.RESPONDENT, verbose_name='Indicator Type')
     code = models.CharField(max_length=10, verbose_name='Indicator Code')
-    prerequisite = models.ForeignKey('self', on_delete=models.SET_NULL, blank=True, null=True, verbose_name='Prerequisite Indicator')
+    prerequisites = models.ManyToManyField('self', blank=True, symmetrical=False, related_name='dependent_indicators', verbose_name='Prerequisite Indicators')
     required_attribute = models.ManyToManyField('respondents.RespondentAttributeType', blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -39,16 +39,9 @@ class Indicator(models.Model):
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='indicator_updated_by')
     require_numeric = models.BooleanField(blank=True, null=True, default=False, verbose_name='Indicator requires an accompanying numeric value.')
     subcategories = models.ManyToManyField(IndicatorSubcategory, blank=True)
-    match_subcategories = models.BooleanField(default=False, blank=True, null=True)
+    match_subcategories_to = models.ForeignKey("self", on_delete=models.SET_NULL, blank=True, null=True)
     allow_repeat = models.BooleanField(default=False, blank=True, null=True)
-    '''
-    def clean(self):
-        if self.prerequisite_id == self.id:
-            self.prerequisite = None
-            raise ValidationError("An indicator cannot be its own prerequisite.")
-        if self.prerequisite and self.prerequisite.indicator_type != self.indicator_type:
-            raise ValidationError("Indicator prerequisite must be of the same type.")
-    '''
+
     def __str__(self):
         return f'{self.code}: {self.name}'
 

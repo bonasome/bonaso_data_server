@@ -556,7 +556,7 @@ class InteractionSerializer(serializers.ModelSerializer):
             )
         #auto flag does not need to run if the interaction has been manually marked OK or manually flagged for another reason
         auto_flag_logic(interaction, downstream=False)
-        dependent_tasks = Task.objects.filter(indicator__prerequisite=interaction.task.indicator)
+        dependent_tasks = Task.objects.filter(indicator__prerequisites=interaction.task.indicator)
         #possible that edits to a parent may cause a child to flag or unflag, so verify them as well
         #but only check if no one manually flagged it or manually marked it as ok
         downstream = Interaction.objects.filter(
@@ -603,7 +603,7 @@ class InteractionSerializer(serializers.ModelSerializer):
         instance.save()
 
         auto_flag_logic(instance, downstream=False)
-        dependent_tasks = Task.objects.filter(indicator__prerequisite=instance.task.indicator)
+        dependent_tasks = Task.objects.filter(indicator__prerequisites=instance.task.indicator)
         #possible that edits to a parent may cause a child to flag or unflag, so verify them as well
         #but only check if no one manually flagged it or manually marked it as ok
         downstream = Interaction.objects.filter(

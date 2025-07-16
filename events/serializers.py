@@ -96,11 +96,6 @@ class EventSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     f"Task '{task.indicator.name}' for organization '{task.organization.name}' is associcated with a project whose start and end dates do not align with this events date."
                 )
-            prereq = task.indicator.prerequisite
-            if prereq and prereq.id not in old_indicators and prereq.id not in new_indicators:
-                raise serializers.ValidationError(
-                    f"Task '{task.indicator.name}' has a prerequisite that must be added first."
-                )
             if task.id not in existing_task_ids:
                 new_links.append(EventTask(event=event, task=task, added_by=user))
             else:

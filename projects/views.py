@@ -131,11 +131,12 @@ class TaskViewSet(RoleRestrictedViewSet):
             raise PermissionDenied('You do not have permission to perform this action.')
 
         # Check prerequisites (shared by both roles)
-        prereq = getattr(indicator, 'prerequisite', None)
-        if prereq and not Task.objects.filter(project=project, organization=organization, indicator=prereq).exists():
-            raise ValidationError(
-                "This task's indicator has a prerequisite. Please assign that indicator as a task first."
-            )
+        prereqs = getattr(indicator, 'prerequisites', None)
+        for prereq in prereqs.all():
+            if prereq and not Task.objects.filter(project=project, organization=organization, indicator=prereq).exists():
+                raise ValidationError(
+                    f"This task's indicator has a prerequisite '{prereq.name}'. Please assign that indicator as a task first."
+                )
 
         task = Task.objects.create(
             project=project,
@@ -170,7 +171,7 @@ class TaskViewSet(RoleRestrictedViewSet):
                     {"detail": "You can only delete tasks assigned to your child organizations."},
                     status=status.HTTP_403_FORBIDDEN
                 )
-        if Task.objects.filter(indicator__prerequisite = instance.indicator, project=instance.project, organization=instance.organization).exists():
+        if Task.objects.filter(indicator__prerequisites = instance.indicator, project=instance.project, organization=instance.organization).exists():
             return Response(
                     {"detail": "You cannot remove this task since it is a prerequisite for one or more tasks."},
                     status=status.HTTP_409_CONFLICT
@@ -363,7 +364,7 @@ class ProjectViewSet(RoleRestrictedViewSet):
                     status=status.HTTP_409_CONFLICT
                 )
 
-            if ProjectIndicator.objects.filter(project=project, indicator__prerequisite__id=indicator_id).exists():
+            if ProjectIndicator.objects.filter(project=project, indicator__prerequisites__id=indicator_id).exists():
                 return Response(
                     {"detail": "You cannot remove this indicator since it is a prerequisite for other indicators in this project. Please remove those first."},
                     status=status.HTTP_409_CONFLICT

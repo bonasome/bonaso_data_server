@@ -120,11 +120,12 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
 
         new_links = []
         for indicator in indicators:
-            prereq = getattr(indicator, 'prerequisite', None)
-            if prereq and prereq.id not in existing_ind_ids and prereq.id not in incoming_ind_ids:
-                raise serializers.ValidationError(
-                    f"Indicator '{indicator}' has a prerequisite that must be added first."
-                )
+            prereqs = getattr(indicator, 'prerequisites', None)
+            for prereq in prereqs.all():
+                if prereq and prereq.id not in existing_ind_ids and prereq.id not in incoming_ind_ids:
+                    raise serializers.ValidationError(
+                        f"Indicator '{indicator}' has a prerequisite '{prereq.name}' that must be added first."
+                    )
             if indicator.id not in existing_ind_ids:
                 new_links.append(ProjectIndicator(project=project, indicator=indicator, added_by=user))
 

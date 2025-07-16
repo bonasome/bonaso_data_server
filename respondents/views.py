@@ -283,7 +283,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 },
                 status=status.HTTP_403_FORBIDDEN 
             )
-        if Interaction.objects.filter(respondent=instance.respondent, task__indicator__prerequisite=instance.task.indicator).exists():
+        if Interaction.objects.filter(respondent=instance.respondent, task__indicator__prerequisites=instance.task.indicator).exists():
             return Response(
                 {
                     "detail": "Another interaction is relying on this as a prerequisite interaction. Please delete that interaction first."

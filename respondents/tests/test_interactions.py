@@ -63,7 +63,8 @@ class InteractionViewSetTest(APITestCase):
         )
 
         self.indicator = Indicator.objects.create(code='1', name='Parent')
-        self.child_indicator = Indicator.objects.create(code='2', name='Child', prerequisite=self.indicator)
+        self.child_indicator = Indicator.objects.create(code='2', name='Child')
+        self.child_indicator.prerequisites.set([self.indicator])
         self.not_in_project = Indicator.objects.create(code='3', name='Unrelated')
         
         self.req1 = RespondentAttributeType.objects.create(name='PLWHIV')
@@ -399,7 +400,8 @@ class InteractionViewSetTest(APITestCase):
     def test_create_interaction_prereq_subcats(self):
         self.client.force_authenticate(user=self.data_collector)
         ind1 = Indicator.objects.create(code='10', name='ParentSubcat')
-        ind2 = Indicator.objects.create(code='11', name='ChildSubcat', prerequisite=ind1, match_subcategories=True)
+        ind2 = Indicator.objects.create(code='11', name='ChildSubcat', match_subcategories_to=ind1)
+        ind2.prerequisites.set([ind1])
         category = IndicatorSubcategory.objects.create(name='Cat 1')
         category2 = IndicatorSubcategory.objects.create(name='Cat 2')
         ind1.subcategories.set([category, category2])

@@ -65,7 +65,8 @@ class TargetViewSetTest(APITestCase):
         )
 
         self.indicator = Indicator.objects.create(code='1', name='Parent')
-        self.child_indicator = Indicator.objects.create(code='2', name='Child', prerequisite=self.indicator)
+        self.child_indicator = Indicator.objects.create(code='2', name='Child')
+        self.child_indicator.prerequisites.set([self.indicator])
         self.not_in_project = Indicator.objects.create(code='3', name='Unrelated')
         
         self.project.indicators.set([self.indicator, self.child_indicator])

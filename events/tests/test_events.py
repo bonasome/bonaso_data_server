@@ -349,7 +349,8 @@ class DemographicCountsTest(APITestCase):
         self.subcats_indicator.subcategories.set([self.category1, self.category2])
 
         self.prerequsite_indicator = Indicator.objects.create(code='p', name='Prereq')
-        self.child_indicator = Indicator.objects.create(code='c', name='Child', prerequisite=self.prerequsite_indicator)
+        self.child_indicator = Indicator.objects.create(code='c', name='Child')
+        self.child_indicator.prerequisites.set([self.prerequsite_indicator])
         
         self.project.indicators.set([self.indicator, self.subcats_indicator, self.prerequsite_indicator, self.child_indicator])
         self.task = Task.objects.create(indicator=self.indicator, project=self.project, organization=self.parent_org)

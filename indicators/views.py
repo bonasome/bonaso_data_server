@@ -14,43 +14,12 @@ from projects.models import Task
 from respondents.models import Interaction
 from rest_framework import status
 
-def topological_sort(indicators):
-    from collections import defaultdict, deque
-
-    graph = defaultdict(list)
-    in_degree = defaultdict(int)
-
-    for indicator in indicators:
-        if indicator.prerequisite:
-            graph[indicator.prerequisite.id].append(indicator.id)
-            in_degree[indicator.id] += 1
-        else:
-            in_degree[indicator.id] += 0
-
-    id_map = {indicator.id: ind for ind in indicators}
-
-    queue = deque([id for id in in_degree if in_degree[id] == 0])
-    sorted_ids = []
-
-    while queue:
-        current = queue.popleft()
-        sorted_ids.append(current)
-        for dependent in graph[current]:
-            in_degree[dependent] -= 1
-            if in_degree[dependent] == 0:
-                queue.append(dependent)
-
-    if len(sorted_ids) != len(indicators):
-        raise Exception("Cycle detected in prerequisites")
-
-    return [id_map[i] for i in sorted_ids]
-
 class IndicatorViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
     queryset = Indicator.objects.all()
     serializer_class = IndicatorSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['project', 'prerequisite', 'status']
+    filterset_fields = ['project', 'status']
     ordering_fields = ['code', 'name']
     search_fields = ['name', 'code', 'description'] 
 

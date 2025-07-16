@@ -36,6 +36,18 @@ class EventTask(models.Model):
     added_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True)
 
 
+class CountFlag(models.Model):
+    count = models.ForeignKey("DemographicCount", on_delete=models.CASCADE, related_name="count_flags")
+    reason = models.TextField()
+    auto_flagged = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='count_flag_created_by')
+    resolved = models.BooleanField(default=False)
+    auto_resolved = models.BooleanField(default=False)
+    resolved_reason = models.TextField(null=True, blank=True)
+    resolved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='count_flag_resolved_by')
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
 class DemographicCount(models.Model):
     class Sex(models.TextChoices):
         FEMALE = 'F', _('Female')
@@ -90,8 +102,6 @@ class DemographicCount(models.Model):
     organization = models.ForeignKey(Organization, on_delete=models.PROTECT, null=True, blank=True)
     task = models.ForeignKey(Task, on_delete=models.PROTECT, null=True, blank=True)
     subcategory = models.ForeignKey(IndicatorSubcategory, on_delete=models.PROTECT, null=True, blank=True)
-
-    flagged = models.BooleanField(default=False)
 
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='count_created_by')
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='count_updated_by')

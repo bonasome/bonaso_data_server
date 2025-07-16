@@ -350,7 +350,9 @@ class InteractionViewSet(RoleRestrictedViewSet):
         org = user.organization
 
         # Start with flagged interactions
-        queryset = Interaction.objects.filter(flagged=True)
+        flags = InteractionFlag.objects.all()
+        related_ids = [flag.interaction.id for flag in flags.all()]
+        queryset = Interaction.objects.filter(id__in=related_ids)
 
         # Role-based filtering
         if role == 'client':
@@ -366,13 +368,29 @@ class InteractionViewSet(RoleRestrictedViewSet):
         project_id = request.query_params.get('project')
         organization_id = request.query_params.get('organization')
         indicator_id = request.query_params.get('indicator')
-        
+        resolved_param = request.query_params.get('resolved')
+        auto_param = request.query_params.get('auto_flagged')
+        start_param = self.request.query_params.get('start')
+        if start_param:
+            queryset = queryset.filter(interaction_date__gte=start_param)
+
+        end_param = self.request.query_params.get('end')
+        if end_param:
+            queryset = queryset.filter(interaction_date__lte=end_param)
+
         if project_id:
             queryset = queryset.filter(task__project__id = project_id)
         if organization_id:
             queryset = queryset.filter(task__organization__id = organization_id)
         if indicator_id:
             queryset = queryset.filter(task__indicator__id = indicator_id)
+        
+        if resolved_param:
+            queryset = queryset.filter(flags__resolved = resolved_param in ['true', '1']).distinct()
+            print(queryset.count())
+        if auto_param:
+            queryset = queryset.filter(flags__auto_flagged = auto_param in ['true', '1']).distinct()
+            print(queryset.count())
 
         # Search filter (e.g., by respondent name or ID or comment)
         search_term = request.query_params.get('search')
@@ -386,8 +404,9 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 Q(task__indicator__name__icontains=search_term) |
                 Q(task__indicator__code__icontains=search_term) |
                 Q(task__organization__name__icontains=search_term) |
-                Q(task__project__name__icontains=search_term)
-            )
+                Q(task__project__name__icontains=search_term) |
+                Q(flags__reason__icontains=search_term)
+            ).distinct()
 
         # Pagination
         page = self.paginate_queryset(queryset)

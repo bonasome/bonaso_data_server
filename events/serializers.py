@@ -2,15 +2,46 @@ from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Q
-from events.models import Event, DemographicCount, EventTask, EventOrganization
+from events.models import Event, DemographicCount, EventTask, EventOrganization, CountFlag
 from projects.models import Project, Task
 from organizations.models import Organization
 from organizations.serializers import OrganizationListSerializer, OrganizationSerializer
 from projects.serializers import TaskSerializer
 from datetime import date
+
+class CountFlagSerializer(serializers.ModelSerializer):
+    created_by = serializers.SerializerMethodField()
+    resolved_by = serializers.SerializerMethodField()
+    def get_created_by(self, obj):
+        if obj.created_by:
+            return {
+                "id": obj.created_by.id,
+                "username": obj.created_by.username,
+                "first_name": obj.created_by.first_name,
+                "last_name": obj.created_by.last_name,
+            }
+        return None
+    def get_resolved_by(self, obj):
+        if obj.resolved_by:
+            return {
+                "id": obj.resolved_by.id,
+                "username": obj.resolved_by.username,
+                "first_name": obj.resolved_by.first_name,
+                "last_name": obj.resolved_by.last_name,
+            }
+        return None
+    
+    class Meta:
+        model=CountFlag
+        fields = [
+            'id', 'reason', 'auto_flagged', 'created_by', 'created_at', 'resolved', 'auto_resolved',
+            'resolved_reason', 'resolved_by', 'resolved_at'
+        ]
+
 class DCSerializer(serializers.ModelSerializer):
     organization=OrganizationListSerializer(read_only=True)
     task = TaskSerializer(read_only=True)
+    count_flags = CountFlagSerializer(read_only=True, many=True)
     class Meta:
         model=DemographicCount
         fields = '__all__'

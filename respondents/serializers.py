@@ -388,6 +388,7 @@ class InteractionFlagSerializer(serializers.ModelSerializer):
             'id', 'reason', 'auto_flagged', 'created_by', 'created_at', 'resolved', 'auto_resolved',
             'resolved_reason', 'resolved_by', 'resolved_at'
         ]
+
 class InteractionSerializer(serializers.ModelSerializer):
     respondent = serializers.PrimaryKeyRelatedField(queryset=Respondent.objects.all())
     task = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True)
@@ -539,7 +540,6 @@ class InteractionSerializer(serializers.ModelSerializer):
             created_by=user,
             **validated_data
         )
-
         for subcat in subcategories:
             subcat_id = subcat['id']
             numeric_value = subcat.get('numeric_component')

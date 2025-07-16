@@ -14,7 +14,7 @@ from rest_framework.decorators import action
 from rest_framework import status
 from django.db import transaction
 from users.restrictviewset import RoleRestrictedViewSet
-from events.models import Event, DemographicCount, EventTask, EventOrganization
+from events.models import Event, DemographicCount, EventTask, EventOrganization, CountFlag
 from organizations.models import Organization
 from projects.models import Project, Task
 from indicators.models import Indicator, IndicatorSubcategory
@@ -22,6 +22,7 @@ from events.serializers import EventSerializer, DCSerializer
 from django.contrib.auth import get_user_model
 from collections import defaultdict
 from datetime import date
+from django.utils.timezone import now
 
 User = get_user_model()
 
@@ -254,6 +255,7 @@ class EventViewSet(RoleRestrictedViewSet):
     @transaction.atomic
     @action(detail=True, methods=['patch'], url_path='update-counts')
     def update_counts(self, request, pk=None):
+        from events.utils import get_breakdown_keys, get_schema_key, make_key
         event=self.get_object()
         user = request.user
         counts = request.data.get('counts', [])
@@ -300,6 +302,7 @@ class EventViewSet(RoleRestrictedViewSet):
         valid_citizenships = [c for c, _ in DemographicCount.Citizenship.choices]
 
         to_create = []
+        to_update = []
 
         grouped_counts = defaultdict(list)
         for count in counts:
@@ -319,12 +322,25 @@ class EventViewSet(RoleRestrictedViewSet):
                         status=status.HTTP_403_FORBIDDEN
                     )
 
-            # Delete existing counts for this task in this event
-            DemographicCount.objects.filter(event=event, task=task).delete()
+            existing_counts = list(DemographicCount.objects.filter(task=task).values())
+
+            existing_schema = get_schema_key(existing_counts)
+            incoming_schema = get_schema_key(group)
+
+            update = False
+            existing_map = {}
+            if existing_schema != incoming_schema:
+                schema_keys = list(incoming_schema)
+                DemographicCount.objects.filter(event=event, task=task).delete()
+            else:
+                update=True
+                schema_keys = list(existing_schema)
+                existing_map = {
+                    make_key(c, schema_keys): c['count'] for c in existing_counts
+                }
 
             seen_keys = set()
             for count in group:
-                flagged = False
                 amount = count.get('count')
                 if not amount or amount in ['', None]:
                     continue
@@ -379,8 +395,6 @@ class EventViewSet(RoleRestrictedViewSet):
                     org = orgs.get(org_id)
                     if not org or org.id not in event_org_ids:
                         return Response({'detail': f'Invalid Organization: {org_id}'}, status=400)
-                    
-    
 
                 if task.indicator.subcategories.exists():
                     subcategory_id = count.get('subcategory_id')
@@ -392,68 +406,98 @@ class EventViewSet(RoleRestrictedViewSet):
                 else:
                     subcategory = None
                 
-                if task.indicator.prerequisite:
-                    prereq = task.indicator.prerequisite
-                    prerequisite_count = DemographicCount.objects.filter(
-                        event=event, task__indicator = prereq, sex=sex, age_range=age_range, citizenship=citizenship,
-                        hiv_status=hiv_status, pregnancy=pregnancy, disability_type=disability_type,
-                        kp_type=kp_type, subcategory=subcategory, organization=org,
-                        status=status_name).first()
-                    if not prerequisite_count or prerequisite_count.count < amount:
-                        flagged = True
-                
-                key = (
-                    sex, age_range, citizenship, hiv_status, pregnancy, disability_type,
-                    kp_type, status_name, subcategory.id if subcategory else None,
-                    org.id if org else None
-                )
+                key = make_key(count, schema_keys)
                 if key in seen_keys:
                     return Response({'detail': f'Duplicate count breakdown for task {task_id}'}, status=400)
                 seen_keys.add(key)
+                
+                if update and key in existing_map:
+                    if amount != existing_map[key]:
+                        existing_count = DemographicCount.objects.filter(task=task, **dict(key)).first()
+                        existing_count.count = amount
+                        to_update.append(existing_count)
+                    continue
 
                 instance = DemographicCount(
                     event=event, count=amount, sex=sex, age_range=age_range, citizenship=citizenship,
                     hiv_status=hiv_status, pregnancy=pregnancy, disability_type=disability_type,
                     kp_type=kp_type, task=task, subcategory=subcategory, organization=org,
-                    status=status_name, created_by=user, flagged=flagged
+                    status=status_name, created_by=user
                 )
                 to_create.append(instance)
-
+                
         DemographicCount.objects.bulk_create(to_create)
+        DemographicCount.objects.bulk_update(to_update, ['count'])
+        
 
+        all_edited = to_create+to_update
+        grouped_obj = defaultdict(list)
+        for count in all_edited:
+            task_id = count.task.id
+            grouped_obj[task_id].append(count)
+        
+        to_flag = []
+        to_resolve = []
+        for task_id, group in grouped_obj.items():
+            existing_flags = CountFlag.objects.filter(count__event=event, count__task__id=task_id)
+        
+            for instance in group:
+                task = instance.task
+                if task.indicator.prerequisite:
+                    prereq = task.indicator.prerequisite
+                    prerequisite_count = DemographicCount.objects.filter(
+                        event=instance.event,
+                        task__indicator=prereq,
+                        sex=instance.sex,
+                        age_range=instance.age_range,
+                        citizenship=instance.citizenship,
+                        hiv_status=instance.hiv_status,
+                        pregnancy=instance.pregnancy,
+                        disability_type=instance.disability_type,
+                        kp_type=instance.kp_type,
+                        subcategory=instance.subcategory,
+                        organization=instance.organization,
+                        status=instance.status
+                    ).first()
+
+                    reason = f'Task "{task.indicator.name}" has a prerequisite "{prereq.name}" that does not have an associated count.'
+                    if not prerequisite_count:
+                        already_flagged = existing_flags.filter(count=instance, reason=reason).exists()
+                        if not already_flagged:
+                            to_flag.append(CountFlag(
+                                count=instance,
+                                reason=reason,
+                                auto_flagged=True
+                            ))
+                    else:
+                        outstanding_flag = existing_flags.filter(count=instance, reason=reason, resolved=False).first()
+                        if outstanding_flag:
+
+                            outstanding_flag.resolved=True
+                            outstanding_flag.auto_resolved=True
+                            outstanding_flag.resolved_at=now()
+                            to_resolve.append(outstanding_flag)
+
+                    reason=f'The amount of this count is greater than its corresponding prerequisite "{prereq.name}" amount.'
+                    if prerequisite_count and prerequisite_count.count < instance.count:
+                        to_flag.append(CountFlag(
+                            count=instance,
+                            reason=reason,
+                            auto_flagged=True
+                        ))
+                    else:
+                        outstanding_flag = existing_flags.filter(count=instance, reason=reason, resolved=False).first()
+                        if outstanding_flag:
+                            outstanding_flag.resolved=True
+                            outstanding_flag.auto_resolved=True
+                            outstanding_flag.resolved_at=now()
+                            to_resolve.append(outstanding_flag)
+
+        CountFlag.objects.bulk_create(to_flag)
+        CountFlag.objects.bulk_update(to_resolve, ['resolved', 'auto_resolved', 'resolved_at'])
         return Response({
             'created': DCSerializer(to_create, many=True).data,
         }, status=200)
-    
-    @action(detail=True, methods=['patch'], url_path='flag-counts/(?P<task_id>[^/.]+)')
-    def flag_count(self, request, pk=None, task_id=None):
-        event=self.get_object()
-        user=request.user
-        set_flag = request.data.get('set_flag', None)
-        if user.role not in ['meofficer', 'admin', 'manager']:
-            return Response(
-                {'detail': 'You do not have permission to flag event counts.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        if user.role != 'admin':
-            if not event.host or event.host != user.organization or event.host.parent_organization != user.organization:
-                return Response(
-                    {'detail': 'You do not have permission to flag counts for this event.'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-        if set_flag is None:
-            return Response(
-                {'detail': 'Missing flag status.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        set_flag = str(set_flag).lower() in ['true', '1']
-
-        counts = DemographicCount.objects.filter(event=event, task__id=task_id)
-        for count in counts: 
-            print(set_flag)
-            count.flagged = set_flag 
-            count.save()
-        return Response({"detail": f"Count flagged."}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['delete'], url_path='delete-count/(?P<task_id>[^/.]+)')
     def delete_count(self, request, pk=None, task_id=None):
@@ -475,5 +519,137 @@ class EventViewSet(RoleRestrictedViewSet):
         for count in counts: 
             count.delete() 
         return Response({"detail": f"Count deleted."}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['patch'], url_path='flag-counts/(?P<task_id>[^/.]+)')
+    def flag_all_counts(self, request, pk=None, task_id=None):
+        event=self.get_object()
+        user=request.user
+        reason = request.data.get('reason', None)
+        if user.role not in ['meofficer', 'admin', 'manager']:
+            return Response(
+                {'detail': 'You do not have permission to flag event counts.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        if user.role != 'admin':
+            if not event.host or event.host != user.organization or event.host.parent_organization != user.organization:
+                return Response(
+                    {'detail': 'You do not have permission to flag counts for this event.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        if reason is None:
+            return Response(
+                {'detail': 'Missing flag reason.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        counts = DemographicCount.objects.filter(event=event, task__id=task_id)
+        to_create = []
+        for count in counts: 
+            instance = CountFlag(count=count, created_by=user, reason=reason)
+            to_create.append(instance)
+        CountFlag.objects.bulk_create(to_create)
+        return Response({"detail": f"Flagged {len(to_create)} counts."}, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['patch'], url_path='resolve-count-flags/(?P<task_id>[^/.]+)')
+    def resolve_all_counts(self, request, pk=None, task_id=None):
+        event=self.get_object()
+        user=request.user
+        reason = request.data.get('resolved_reason', None)
+        if user.role not in ['meofficer', 'admin', 'manager']:
+            return Response(
+                {'detail': 'You do not have permission to flag event counts.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        if user.role != 'admin':
+            if not event.host or event.host != user.organization or event.host.parent_organization != user.organization:
+                return Response(
+                    {'detail': 'You do not have permission to flag counts for this event.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        if reason is None:
+            return Response(
+                {'detail': 'Missing resolved status.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        flags = CountFlag.objects.filter(count__event=event, count__task__id=task_id)
+        print(flags.count())
+        for flag in flags: 
+            flag.resolved = True
+            flag.resolved_at = now()
+            flag.resolved_by = user
+            flag.reason_resolved = reason
+            flag.save()
+        return Response({"detail": f"Resolved {flags.count()} flags."}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['patch'], url_path='flag-count/(?P<count_id>[^/.]+)')
+    def flag_count(self, request, pk=None, count_id=None):
+        from events.serializers import CountFlagSerializer
+        event=self.get_object()
+        user=request.user
+        reason = request.data.get('reason', None)
+        if user.role not in ['meofficer', 'admin', 'manager']:
+            return Response(
+                {'detail': 'You do not have permission to flag event counts.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        if user.role != 'admin':
+            if not event.host or event.host != user.organization or event.host.parent_organization != user.organization:
+                return Response(
+                    {'detail': 'You do not have permission to flag counts for this event.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        if reason is None:
+            return Response(
+                {'detail': 'Missing flag reason.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        count = DemographicCount.objects.filter(id=count_id).first()
+        if not count:
+            return Response(
+                {'detail': 'Invalid count id provided.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        flag = CountFlag.objects.create(count=count, created_by=user, reason=reason)
+        serializer = CountFlagSerializer(flag)
+        return Response({"detail": f"Flagged count {count_id}.", "flag": serializer.data}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['patch'], url_path='resolve-flag/(?P<count_flags_id>[^/.]+)')
+    def resolve_count(self, request, pk=None, count_flags_id=None):
+        from events.serializers import CountFlagSerializer
+        event=self.get_object()
+        user=request.user
+        reason = request.data.get('resolved_reason', None)
+        if user.role not in ['meofficer', 'admin', 'manager']:
+            return Response(
+                {'detail': 'You do not have permission to flag event counts.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        if user.role != 'admin':
+            if not event.host or event.host != user.organization or event.host.parent_organization != user.organization:
+                return Response(
+                    {'detail': 'You do not have permission to flag counts for this event.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        if reason is None:
+            return Response(
+                {'detail': 'Missing flag reason.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        flag = CountFlag.objects.filter(id=count_flags_id).first()
+        if not flag:
+            return Response(
+                {'detail': 'Flag does not exist.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        flag.resolved = True
+        flag.resolved_at = now()
+        flag.resolved_by = user
+        flag.resolved_reason = reason
+        flag.save()
+        serializer = CountFlagSerializer(flag)
+        return Response({"detail": f"Resolved flag.", "flag": serializer.data}, status=status.HTTP_200_OK)
         
             

@@ -5,7 +5,7 @@ from rest_framework import status
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 
-from events.models import Event, EventOrganization, EventTask, DemographicCount
+from events.models import Event, EventOrganization, EventTask, DemographicCount, CountFlag
 from projects.models import Project, Client, Task
 from respondents.models import Respondent, Interaction
 from organizations.models import Organization
@@ -666,12 +666,19 @@ class DemographicCountsTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         count = DemographicCount.objects.filter(event=self.event, task=self.prereq_task).first()
         self.assertEqual(count.count, 25)
-        self.assertEqual(count.flagged, False)
         flagged_payload = {
             'counts': [
                 {
-                    'count': 35,
+                    'count': 50,
                     'sex': 'M',
+                    'age_range': 'under_18',
+                    'citizenship': 'citizen',
+                    'status': 'Staff',
+                    'task_id': self.dependent_task.id,
+                },
+                {
+                    'count': 51,
+                    'sex': 'F',
                     'age_range': 'under_18',
                     'citizenship': 'citizen',
                     'status': 'Staff',
@@ -680,8 +687,60 @@ class DemographicCountsTest(APITestCase):
             ]
         }
         response = self.client.patch(f'/api/activities/events/{self.event.id}/update-counts/', flagged_payload, content_type='application/json')
-        counts = DemographicCount.objects.filter(event=self.event)
+        counts = DemographicCount.objects.filter(event=self.event, task=self.dependent_task)
         self.assertEqual(counts.count(), 2)
-        count = DemographicCount.objects.filter(event=self.event, task=self.dependent_task).first()
-        self.assertEqual(count.count, 35)
-        self.assertEqual(count.flagged, True)
+        count1 = DemographicCount.objects.filter(count=50).first()
+        count2 = DemographicCount.objects.filter(count=51).first()
+        flag1 = CountFlag.objects.filter(count=count1).first()
+        self.assertIn(f'The amount of this count is greater than its corresponding prerequisite', flag1.reason)
+        flag2 = CountFlag.objects.filter(count=count2).first()
+        self.assertIn(f'that does not have an associated count', flag2.reason)
+
+        #counts delete so try again with appropriate values
+        resolve_payload = {
+            'counts': [
+                {
+                    'count': 40,
+                    'sex': 'M',
+                    'age_range': 'under_18',
+                    'citizenship': 'citizen',
+                    'status': 'Staff',
+                    'task_id': self.prereq_task.id,
+                },
+                {
+                    'count': 30,
+                    'sex': 'F',
+                    'age_range': 'under_18',
+                    'citizenship': 'citizen',
+                    'status': 'Staff',
+                    'task_id': self.prereq_task.id,
+                },
+                {
+                    'count': 20,
+                    'sex': 'M',
+                    'age_range': 'under_18',
+                    'citizenship': 'citizen',
+                    'status': 'Staff',
+                    'task_id': self.dependent_task.id,
+                },
+                {
+                    'count': 10,
+                    'sex': 'F',
+                    'age_range': 'under_18',
+                    'citizenship': 'citizen',
+                    'status': 'Staff',
+                    'task_id': self.dependent_task.id,
+                }
+            ]
+        }
+        response = self.client.patch(f'/api/activities/events/{self.event.id}/update-counts/', resolve_payload, content_type='application/json')
+        counts = DemographicCount.objects.filter(event=self.event)
+        self.assertEqual(counts.count(), 4)
+        flags = CountFlag.objects.all()
+        self.assertEqual(flags.count(), 2)
+        flag1 = CountFlag.objects.filter(count=count1).first()
+        self.assertEqual(flag1.resolved, True)
+        self.assertEqual(flag1.auto_flagged, True)
+        flag2 = CountFlag.objects.filter(count=count2).first()
+        self.assertEqual(flag2.resolved, True)
+        self.assertEqual(flag2.auto_flagged, True)

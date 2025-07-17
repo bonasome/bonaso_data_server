@@ -57,7 +57,7 @@ class EventSerializer(serializers.ModelSerializer):
     class Meta:
         model = Event
         fields = ['id', 'name', 'description', 'host', 'host_id', 'tasks', 'organizations', 'organization_id', 
-                  'task_id', 'location', 'event_date', 'event_type']
+                  'task_id', 'location', 'event_date', 'event_type', 'status']
     
     def _add_organizations(self, event, organizations, user):
         existing_org_ids = set(

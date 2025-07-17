@@ -295,7 +295,7 @@ class ChartSerializer(serializers.ModelSerializer):
         organization_id = self.context.get('organization_id')
         project_id = self.context.get('project_id')
 
-        events = Event.objects.filter(tasks__indicator=obj).distinct()
+        events = Event.objects.filter(tasks__indicator=obj, status='Completed').distinct()
         if organization_id:
             events = events.filter(Q(organizations__id=organization_id) | Q(host_id=organization_id))
         if project_id:

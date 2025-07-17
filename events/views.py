@@ -115,8 +115,12 @@ class EventViewSet(RoleRestrictedViewSet):
     @action(detail=False, methods=['get'], url_path='meta')
     def get_events_meta(self, request):
         event_types = [t for t, _ in Event.EventType.choices]
+        event_statuses = [s for s, _ in Event.EventStatus.choices]
+        event_status_labels = [choice.label for choice in Event.EventStatus]
         return Response({
             'event_types': event_types,
+            'statuses': event_statuses,
+            'status_labels': event_status_labels
         })
     @action(detail=False, methods=['get'], url_path='breakdowns-meta')
     def get_breakdowns_meta(self, request):

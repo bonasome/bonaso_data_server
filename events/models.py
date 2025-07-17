@@ -8,6 +8,10 @@ from projects.models import Task
 User = get_user_model()
 
 class Event(models.Model):
+    class EventStatus(models.TextChoices):
+        PLANNED = 'Planned', _('Planned') 
+        COMPLETED = 'Completed', _('Completed')
+        ON_HOLD = 'On_Hold', _('On Hold')
     class EventType(models.TextChoices):
         TRAINING = 'Training', _('Training') 
         ACTIVITY = 'Activity', _('Activity')
@@ -15,6 +19,7 @@ class Event(models.Model):
     name = models.CharField(max_length=255, verbose_name='Event Name')
     description = models.TextField(verbose_name='Description of Event', blank=True, null=True)
     event_type = models.CharField(max_length=25, choices=EventType.choices, default=EventType.TRAINING, verbose_name='Event Type')
+    status = models.CharField(max_length=25, choices=EventStatus.choices, default=EventStatus.PLANNED, verbose_name='Event Status')
     host = models.ForeignKey(Organization, verbose_name='Hosting Organization', on_delete=models.SET_NULL, blank=True, null=True, related_name='host')
     organizations = models.ManyToManyField(Organization, through='EventOrganization', blank=True)
     tasks = models.ManyToManyField(Task, through='EventTask', blank=True)

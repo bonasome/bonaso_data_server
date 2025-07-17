@@ -298,6 +298,9 @@ class EventViewSet(RoleRestrictedViewSet):
         valid_disability_types = [dis for dis, _ in DemographicCount.DisabilityType.choices]
         valid_statuses = [s for s, _ in DemographicCount.Status.choices]
         valid_citizenships = [c for c, _ in DemographicCount.Citizenship.choices]
+        valid_hiv = [c for c, _ in DemographicCount.HIVStatus.choices]
+        valid_preg = [c for c, _ in DemographicCount.Pregnancy.choices]
+
 
         to_create = []
         to_update = []
@@ -372,20 +375,12 @@ class EventViewSet(RoleRestrictedViewSet):
                     return Response({'detail': f'Invalid Status: {status_name}'}, status=400)
 
                 hiv_status = count.get('hiv_status')
-                if hiv_status in [True, 'true', 1, '1']:
-                    hiv_status = True
-                elif hiv_status in [False, 'false', 0, '0']:
-                    hiv_status = False
-                elif hiv_status is not None:
+                if hiv_status and hiv_status not in valid_hiv:
                     return Response({'detail': f'Invalid HIV Status: {hiv_status}'}, status=400)
                 
                 pregnancy = count.get('pregnancy')
-                if pregnancy in ['true', True, 1, '1']:
-                    pregnancy = True
-                elif pregnancy in ['false', False, 0, '0']:
-                    pregnancy = False 
-                elif pregnancy is not None:
-                    return Response({'detail': f'Invalid Pregnancy: {pregnancy}'}, status=400)
+                if pregnancy and pregnancy not in valid_preg:
+                    return Response({'detail': f'Invalid Pregnancy Status: {pregnancy}'}, status=400)
 
                 org_id = count.get('organization_id')
                 org = None

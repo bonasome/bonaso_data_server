@@ -45,11 +45,20 @@ class AnalysisViewSet(RoleRestrictedViewSet):
                 {"detail": "Please provide a valid indicator id to view aggregate counts."},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        project_id = request.query_params.get('project')
+        organization_id = request.query_params.get('organization')
+        start = request.query_params.get('start')
+        end = request.query_params.get('end')
+        project = Project.objects.filter(id=project_id).first() if project_id else None
+        organization = Organization.objects.filter(id=organization_id) if organization_id else None
+
         params = {}
         for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy']:
             params[cat] = request.query_params.get(cat) in ['true', '1']
+        
+        split = request.query_params.get('split')
 
-        aggregate = get_indicator_aggregate(user, indicator, params)
+        aggregate = get_indicator_aggregate(user, indicator, params, split, project, organization, start, end)
         return Response(
                 {"counts": aggregate},
                 status=status.HTTP_200_OK
@@ -74,8 +83,8 @@ class AnalysisViewSet(RoleRestrictedViewSet):
         params = {}
         for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy']:
             params[cat] = request.query_params.get(cat) in ['true', '1']
-
-        aggregates = get_indicator_aggregate(user, indicator, params)
+        split = request.query_params.get('split')
+        aggregates = get_indicator_aggregate(user, indicator, params, split)
 
         if not aggregates:
             return Response(
@@ -83,16 +92,19 @@ class AnalysisViewSet(RoleRestrictedViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        fieldnames = list(next(iter(aggregates.values())).keys())
         timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         filename = f'aggregates_{indicator.code}_{timestamp}.csv'
 
+        
+        rows = prep_csv(aggregates, params)
+        fieldnames = rows[0]
         buffer = StringIO()
         writer = csv.DictWriter(buffer, fieldnames=fieldnames)
         writer.writeheader()
-        rows = prep_csv(aggregates, params)
-        for row in rows:
-            writer.writerow(row)
+
+        for row in rows[1:]:
+            row_dict = dict(zip(fieldnames, row))
+            writer.writerow(row_dict)
 
         response = HttpResponse(buffer.getvalue(), content_type='text/csv')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'

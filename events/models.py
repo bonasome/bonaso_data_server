@@ -93,14 +93,22 @@ class DemographicCount(models.Model):
     class Citizenship(models.TextChoices):
         CIT = 'citizen', _('Citizen')
         NC = 'non_citizen', _('Non-Citizen')
+    
+    class Pregnancy(models.TextChoices):
+        YES = 'Pregnant', _('Pregnant')
+        NO = 'Not_Pregnant', _('Not Pregnant')
+    
+    class HIVStatus(models.TextChoices):
+        YES = 'HIV_Positive', _('HIV Positive')
+        NO = 'HIV_Negative', _('HIV Negative')
 
     event = models.ForeignKey(Event, on_delete=models.CASCADE)
     count = models.PositiveIntegerField()
     sex = models.CharField(max_length = 2, choices=Sex.choices, null=True, blank=True)
     age_range = models.CharField(max_length = 25, choices=AgeRange.choices, null=True, blank=True)
     citizenship = models.CharField(max_length = 25, choices=Citizenship.choices, null=True, blank=True)
-    hiv_status = models.BooleanField(null=True, blank=True)
-    pregnancy = models.BooleanField(null=True, blank=True)
+    hiv_status = models.CharField(max_length = 25, choices=HIVStatus.choices, null=True, blank=True)
+    pregnancy = models.CharField(max_length = 25, choices=Pregnancy.choices, null=True, blank=True)
     disability_type = models.CharField(max_length = 25, choices=DisabilityType.choices, null=True, blank=True)
     kp_type = models.CharField(max_length = 25, choices=KeyPopulationType.choices, null=True, blank=True)
     status = models.CharField(max_length = 25, choices=Status.choices, null=True, blank=True)

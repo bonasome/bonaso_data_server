@@ -69,11 +69,12 @@ MIDDLEWARE = [
 ]
 
 CORS_ALLOWED_ORIGINS = ['http://localhost:5173', 'https://comfy-kataifi-b7f809.netlify.app', 
-                        'https://bonasodataserver-production.up.railway.app']
+                        'https://bonasodataserver-production.up.railway.app',
+                        'http://localhost:3000']
 CORS_ALLOW_CREDENTIALS = True
 
 CSRF_TRUSTED_ORIGINS = [
-    "https://comfy-kataifi-b7f809.netlify.app", 'http://localhost:5173'
+    "https://comfy-kataifi-b7f809.netlify.app", 'http://localhost:5173', 'http://localhost:3000'
 ]
 ROOT_URLCONF = 'bonaso_data_server.urls'
 

@@ -14,13 +14,12 @@ from rest_framework.decorators import action
 from rest_framework import status
 from django.db import transaction
 from users.restrictviewset import RoleRestrictedViewSet
-from events.models import Event, DemographicCount, EventTask, EventOrganization, CountFlag
 from organizations.models import Organization
-from projects.models import Project, Task
+from projects.models import Project
 from indicators.models import Indicator, IndicatorSubcategory
-from events.serializers import EventSerializer, DCSerializer
 from django.contrib.auth import get_user_model
-from collections import defaultdict
+from analysis.serializers import DashboardSettingSerializer, DashboardSettingListSerializer, DashboardIndicatorChartSerializer
+from analysis.models import DashboardSetting, IndicatorChartSetting, ChartField, DashboardIndicatorChart
 from datetime import date
 import csv
 from django.utils.timezone import now
@@ -53,7 +52,7 @@ class AnalysisViewSet(RoleRestrictedViewSet):
         organization = Organization.objects.filter(id=organization_id) if organization_id else None
 
         params = {}
-        for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy']:
+        for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory']:
             params[cat] = request.query_params.get(cat) in ['true', '1']
         
         split = request.query_params.get('split')
@@ -109,3 +108,116 @@ class AnalysisViewSet(RoleRestrictedViewSet):
         response = HttpResponse(buffer.getvalue(), content_type='text/csv')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
+
+class DashboardSettingViewSet(RoleRestrictedViewSet):
+    serializer_class = DashboardSettingSerializer  # default
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return DashboardSettingListSerializer
+        else:
+            return DashboardSettingSerializer
+        
+    def get_queryset(self):
+        return DashboardSetting.objects.filter(created_by=self.request.user)
+    
+    @action(detail=False, methods=['get'], url_path='meta')
+    def get_dashboard_meta(self, request):
+        chart_types = [t for t, _ in IndicatorChartSetting.ChartType.choices]
+        chart_type_labels = [choice.label for choice in IndicatorChartSetting.ChartType]
+        fields = [f for f, _ in ChartField.Field.choices]
+        field_labels = [choice.label for choice in ChartField.Field]
+        axes = [s for s, _ in IndicatorChartSetting.AxisOptions.choices]
+        axis_labels = [choice.label for choice in IndicatorChartSetting.AxisOptions]
+        
+        return Response({
+            'chart_types': chart_types,
+            'chart_type_labels': chart_type_labels,
+            'fields': fields,
+            'field_labels': field_labels,
+            'axes': axes,
+            'axis_labels': axis_labels
+        })
+
+    @action(detail=True, methods=['patch'], url_path='charts')
+    def create_update_chart(self, request, pk=None):
+        dashboard = self.get_object()
+        user = request.user
+        existing_id = request.data.get('chart_id')
+        indicator_id = request.data.get('indicator')
+        indicator = Indicator.objects.filter(id=indicator_id).first()
+        if not indicator:
+            return Response(
+                {"detail": "A valid indicator id is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        chart_type = request.data.get('chart_type')
+        if not chart_type:
+            return Response(
+                {"detail": "A valid chart type is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        legend = request.data.get('legend')
+        axis = request.data.get('axis')
+        stack = request.data.get('stack')
+        use_target = str(request.data.get('use_target')).lower() in ['true', '1']
+        tabular = str(request.data.get('tabular')).lower() in ['true', '1']
+        order = request.data.get('order', 0)
+        width = request.data.get('width')
+        height = request.data.get('height')
+        print(stack)
+        if legend and use_target:
+                legend = None
+        if stack and use_target:
+            stack=None
+
+        if existing_id:    
+            chart_link = DashboardIndicatorChart.objects.filter(id=existing_id).first()
+            chart = chart_link.chart
+            chart.chart_type = chart_type
+            chart.axis = axis
+            chart.use_target = use_target
+            chart.legend = legend
+            chart.stack = stack
+            chart.indicator = indicator
+            chart.tabular = tabular
+            chart.save()
+
+            chart_link.width = width
+            chart_link.height = height
+            chart_link.order = order
+            chart_link.save()
+
+        else:
+            chart = IndicatorChartSetting.objects.create(
+                indicator = indicator,
+                chart_type = chart_type,
+                tabular = tabular,
+                axis = axis,
+                legend = legend,
+                stack=stack,
+                use_target = use_target,
+                created_by=user,
+            )
+            chart_link = DashboardIndicatorChart.objects.create(
+                dashboard=dashboard,
+                chart = chart,
+                width = width,
+                height = height,
+                order = order,
+            )
+        serializer = DashboardIndicatorChartSerializer(chart_link)
+        print(serializer.data)
+        return Response({"detail": f"Dashboard updated.", "chart_data": serializer.data}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['delete'], url_path='remove-chart/(?P<chart_link_id>[^/.]+)')
+    def remove_chart(self, request, pk=None, chart_link_id=None):
+        dashboard = self.get_object()
+        user = request.user
+        IndicatorChartSetting.objects.filter(id=chart_link_id).delete()
+        return Response({"detail": f"Removed chart from dashboard.", "id": chart_link_id}, status=status.HTTP_200_OK)
+class IndicatorChartSettingViewSet(RoleRestrictedViewSet):
+    serializer_class = IndicatorChartSetting
+        
+    def get_queryset(self):
+        return IndicatorChartSetting.objects.filter(created_by=self.request.user)

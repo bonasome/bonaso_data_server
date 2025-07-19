@@ -1,8 +1,11 @@
 from django.db.models import Q
 from respondents.models import Interaction, InteractionFlag, HIVStatus, Pregnancy, InteractionSubcategory
+from projects.models import Target
 from events.models import DemographicCount, CountFlag
 from itertools import product
-from datetime import date
+from datetime import date, datetime
+from dateutil.relativedelta import relativedelta
+from collections import defaultdict
 
 FIELD_MAP = {
     'kp_type': 'kp_status',
@@ -11,10 +14,26 @@ FIELD_MAP = {
 }
 
 def get_month_string(date):
-    return date.strftime('%b %Y')  # e.g., "Jul 2025"
+    return date.strftime('%b %Y') 
 
 def get_quarter_string(date):
     return f"Q{((date.month - 1) // 3) + 1} {date.year}"
+
+def get_month_strings_between(start_date, end_date):
+    months = []
+    current = start_date.replace(day=1)
+    while current <= end_date:
+        months.append(get_month_string(current)) 
+        current += relativedelta(months=1)
+    return months
+
+def get_quarter_strings_between(start_date, end_date):
+    quarters = []
+    current = start_date.replace(day=1)
+    while current <= end_date:
+        quarters.append(get_quarter_string(current))
+        current += relativedelta(months=3)
+    return quarters
 
 
 #theoretically unnecessary to check other roles since the viewset should bar them
@@ -62,7 +81,6 @@ def get_event_counts_from_indicator(user, indicator, params, project, organizati
     flagged_ids = flags.values_list('count_id', flat=True)
     queryset  = [obj for obj in queryset if obj.id not in flagged_ids]
     #pre_exclude any count that does not match the requested breakdowns
-    print(queryset)
     return queryset
 
 def get_pregnancies(respondent_ids):
@@ -86,9 +104,13 @@ def get_indicator_aggregate(user, indicator, params, split=None, project=None, o
     interactions = get_interactions_from_indicator(user, indicator, project, organization, start, end)
     counts = get_event_counts_from_indicator(user, indicator, params, project, organization, start, end)
     fields_map = {}
-    print(params)
+    include_subcats=False
     for param, include in params.items():
         if include:
+            if param == 'subcategory' and indicator.subcategories.exists():
+                include_subcats = True
+                fields_map['subcategory'] = [cat.name for cat in indicator.subcategories.all()]
+                continue
             field = DemographicCount._meta.get_field(param)
             if field:
                 fields_map[param] = [value for value, label in field.choices]
@@ -99,8 +121,7 @@ def get_indicator_aggregate(user, indicator, params, split=None, project=None, o
     if split in ['month', 'quarter']:
         fields_map['period'] = periods
 
-    if indicator.subcategories.exists():
-        fields_map['subcategory'] = [cat.name for cat in indicator.subcategories.all()]
+    
 
     #fields_map = {age_range: [18-24, 25-34...], sex: ['Male', 'Female]}
 
@@ -121,6 +142,9 @@ def get_indicator_aggregate(user, indicator, params, split=None, project=None, o
     hiv_status_map = get_hiv_statuses(respondent_ids=respondent_ids)
     pregnancies_map = get_pregnancies(respondent_ids=respondent_ids)
     subcats = get_interaction_subcats(interactions)
+
+    cartesian_product_sets = {frozenset(item) for item in cartesian_product}
+    product_index_sets = {frozenset(k): v for k, v in product_index.items()}
 
     for interaction in interactions:
         include = False
@@ -151,7 +175,7 @@ def get_indicator_aggregate(user, indicator, params, split=None, project=None, o
             interaction_params.append(period_func(interaction.interaction_date))
         permus = []
         numerics = []
-        if indicator.subcategories.exists():
+        if indicator.subcategories.exists() and include_subcats:
             interaction_subcats = subcats.filter(interaction=interaction)
             for cat in interaction_subcats:
                 combo = tuple(interaction_params + [cat.subcategory.name])
@@ -161,32 +185,48 @@ def get_indicator_aggregate(user, indicator, params, split=None, project=None, o
         else:
             combo = tuple(interaction_params)
             permus.append(combo)
-            if indicator.require_numeric:
+            if indicator.subcategories.exists() and indicator.require_numeric and not include_subcats:
+                total = 0
+                interaction_subcats = subcats.filter(interaction=interaction)
+                for cat in interaction_subcats:
+                    total += cat.numeric_component
+                numerics.append(total)
+            elif indicator.require_numeric:
                 numerics.append(interaction.numeric_component)
+        
+
         for i, combination in enumerate(permus):
-            print(combination)
-            if combination in cartesian_product:
-                pos = product_index.get(tuple(combination))
+            combo_set = frozenset(combination)
+            if combo_set in cartesian_product_sets:
+                pos = product_index_sets.get(combo_set)
                 if pos is not None:
                     amount = numerics[i] if numerics else 1
                     aggregates[pos]['count'] += amount
 
+
     for count in counts:
         count_params = []
         for field in fields_map.keys():
-            if field == 'period':
+            if field == 'period':   
                 field_val=None
             else:
-                field_val = getattr(count, get_field)
-            count_params.append(field_val)
+                print(field)
+                field_val = getattr(count, field)
+                print(field_val)
+            if field == 'subcategory':
+                field_val = field_val.name 
+            if field_val: 
+                count_params.append(field_val)
         if split in ['month', 'quarter']:
-            print(period_func(count.event.event_date))
             count_params.append(period_func(count.event.event_date))
-        if combination in cartesian_product:
-            pos = product_index.get(tuple(combination))
+
+        param_set = frozenset(count_params)
+        print(param_set, cartesian_product_sets)
+        if param_set in cartesian_product_sets:
+            print('found')
+            pos = product_index_sets.get(param_set)
             if pos is not None:
                 aggregates[pos]['count'] += count.count
-
     print(aggregates)
     return aggregates
     
@@ -219,8 +259,47 @@ def prep_csv(aggregates, params):
 
     return rows
 
+def get_target_aggregates(user, indicator, split, start=None, end=None, project=None, organization=None):
+    queryset = Target.objects.filter(task__indicator=indicator)
 
+    if user.role not in ['admin', 'client']:
+        queryset = queryset.filter(
+            Q(task__organization=user.organization) |
+            Q(task__organization__parent_organization=user.organization)
+        )
 
+    if project:
+        queryset = queryset.filter(task__project=project)
+    if organization:
+        queryset = queryset.filter(task__organization=organization)
+    if start:
+        queryset = queryset.filter(interaction_date__gte=start)
+    if end:
+        queryset = queryset.filter(interaction_date__lte=end)
+
+    targets_map = defaultdict(float)
+
+    range_func = get_quarter_strings_between if split == 'quarter' else get_month_strings_between
+
+    for target in queryset:
+        amount = target.amount
+        if not amount and target.related_to and target.percentage_of_related:
+            amount = round(
+                Interaction.objects.filter(
+                    task=target.related_to,
+                    interaction_date__gte=target.start,
+                    interaction_date__lte=target.end
+                ).count() * (target.percentage_of_related / 100)
+            )
+
+        if not amount or not target.start or not target.end:
+            continue
+
+        periods = range_func(target.start, target.end)
+        for period in periods:
+            targets_map[period] += round(amount / len(periods))
+
+    return dict(targets_map)
         
 
 

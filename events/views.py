@@ -136,6 +136,10 @@ class EventViewSet(RoleRestrictedViewSet):
         status_labels = [s.label for s in DemographicCount.Status]
         citizenships = [c for c, _ in DemographicCount.Citizenship.choices]
         citizenship_labels = [c.label for c in DemographicCount.Citizenship]
+        hiv_statuses = [c for c, _ in DemographicCount.HIVStatus.choices]
+        hiv_status_labels = [c.label for c in DemographicCount.HIVStatus]
+        pregnant = [c for c, _ in DemographicCount.Pregnancy.choices]
+        pregnant_labels = [c.label for c in DemographicCount.Pregnancy]
         return Response({
             'status': statuses,
             'status_labels': status_labels,
@@ -149,6 +153,10 @@ class EventViewSet(RoleRestrictedViewSet):
             'disability_type_labels': dis_labels,
             'citizenship': citizenships,
             'citizenship_labels': citizenship_labels,
+            'hiv_status': hiv_statuses,
+            'hiv_status_labels': hiv_status_labels,
+            'pregnancy': pregnant,
+            'pregnancy_labels': pregnant_labels,
         })
     
     @transaction.atomic

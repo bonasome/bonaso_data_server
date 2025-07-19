@@ -1,23 +1,35 @@
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 from django.db import transaction
-from analysis.models import DashboardFilter, ChartField, IndicatorChartSetting, DashboardSetting, DashboardIndicatorChart
+from analysis.models import DashboardFilter, ChartField, IndicatorChartSetting, DashboardSetting, DashboardIndicatorChart, ChartFilter
 from analysis.utils import get_indicator_aggregate, get_target_aggregates
 from projects.serializers import ProjectListSerializer, Target
 from indicators.serializers import IndicatorListSerializer
+from collections import defaultdict
 
 
 class IndicatorChartSerializer(serializers.ModelSerializer):
     chart_data = serializers.SerializerMethodField(read_only=True)
     targets = serializers.SerializerMethodField(read_only=True)
     indicator = IndicatorListSerializer(read_only=True)
+    filters = serializers.SerializerMethodField(read_only=True)
     allow_targets = serializers.SerializerMethodField(read_only=True) #simple helper var to help the frontend determine whether or not to shown the option, cause no one wants that crap where you select an option and its like screw you, there's not data here. Get pranked, nerd
     def get_chart_data(self, obj):
         params = {}
         for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory']:
-            params[cat] = (cat == obj.legend or cat == obj.stack)
-        aggr  = get_indicator_aggregate(user=obj.created_by, indicator=obj.indicator, params=params, split=obj.axis, start=obj.start_date, end=obj.end_date)
+            params[cat] = (cat == obj.legend) or (cat == obj.stack)
+        filters = self.get_filters(obj)
+        aggr  = get_indicator_aggregate(user=obj.created_by, indicator=obj.indicator, params=params, split=obj.axis, start=obj.start_date, end=obj.end_date, filters=filters)
         return aggr
+    
+    def get_filters(self, obj):
+        queryset = ChartFilter.objects.filter(chart=obj)
+        filters = defaultdict(list)
+        for fi in queryset:
+            filters[fi.field.name].append(fi.value)
+        print(filters)
+        return filters
+    
     def get_allow_targets(self, obj):
         return Target.objects.filter(task__indicator=obj.indicator).exists()
     
@@ -29,7 +41,7 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
     class Meta:
         model = IndicatorChartSetting
         fields = ['id', 'indicator', 'created_by', 'tabular', 'axis', 'legend', 'stack', 'chart_type', 'use_target',
-                  'start_date', 'end_date', 'chart_data', 'allow_targets', 'targets']
+                  'start_date', 'end_date', 'chart_data', 'allow_targets', 'targets', 'filters']
 
 
 class DashboardFilterSerializer(serializers.ModelSerializer):

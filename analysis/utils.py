@@ -13,6 +13,12 @@ FIELD_MAP = {
     # others as needed
 }
 
+FILTERS_MAP = {
+    'kp_type': 'kp_status__name',
+    'disability_type': 'disability_status__name',
+    # others as needed
+}
+
 def get_month_string(date):
     return date.strftime('%b %Y') 
 
@@ -37,7 +43,7 @@ def get_quarter_strings_between(start_date, end_date):
 
 
 #theoretically unnecessary to check other roles since the viewset should bar them
-def get_interactions_from_indicator(user, indicator, project, organization, start, end):
+def get_interactions_from_indicator(user, indicator, project, organization, start, end, filters):
     queryset = Interaction.objects.filter(task__indicator=indicator)
     if user.role not in ['admin', 'client']:
         queryset=queryset.filter(Q(task__organization=user.organization)|Q(task__organization__parent_organization=user.organization))
@@ -49,6 +55,55 @@ def get_interactions_from_indicator(user, indicator, project, organization, star
         queryset=queryset.filter(interaction_date__gte=start)
     if end:
         queryset=queryset.filter(interaction_date__lte=end)
+    if filters:
+        for field, values in filters.items():
+            if field == 'subcategory':
+                continue #this has to be handled at a lower level
+            elif field in ['pregnancy', 'hiv_status']:
+                if len(values) == 2 or len(values) == 0:
+                        continue
+                respondent_ids = {i.respondent_id for i in queryset}
+                if field == 'pregnancy':
+                    pregnancies_map = get_pregnancies(respondent_ids)
+                    preg_ids = [
+                        interaction.id for interaction in queryset
+                        if any(
+                            p.term_began <= interaction.interaction_date <= (p.term_ended or date.today())
+                            for p in pregnancies_map.get(interaction.respondent.id, [])
+                        )
+                    ]
+                    if values[0] == 'Pregnant':
+                        queryset = queryset.filter(id__in=preg_ids)
+                    elif values[0] == 'Not_Pregnant':
+                        queryset = queryset.exclude(id__in=preg_ids)
+                if field == 'hiv_status':
+                    hiv_status_map = get_hiv_statuses(respondent_ids)
+                    pos_ids = [
+                        interaction.id for interaction in queryset
+                        if any(
+                            hs.date_positive <= interaction.interaction_date
+                            for hs in hiv_status_map.get(interaction.respondent.id, [])
+                        )
+                    ]
+                    if values[0] == 'HIV_Positive':
+                        queryset = queryset.filter(id__in=pos_ids)
+                    elif values[0] == 'HIV_Negative':
+                        queryset = queryset.exclude(id__in=pos_ids)
+            elif field == 'citizenship':
+                if len(values) == 2 or len(values) == 0:
+                    continue
+                if values[0] == 'citizen':
+                    queryset = queryset.filter(respondent__citizenship='Motswana')
+                elif values[0] == 'non_citizen':
+                    queryset = queryset.exclude(respondent__citizenship='Motswana')
+            else:
+                field_name = FILTERS_MAP.get(field, field)
+                if isinstance(values, list):
+                    lookup = f"respondent__{field_name}__in"
+                    queryset = queryset.filter(**{lookup: values})
+                else:
+                    queryset = queryset.filter(**{field_name: values})
+
     interaction_ids = queryset.values_list('id', flat=True)
     flags = InteractionFlag.objects.filter(interaction__id__in=interaction_ids)
     flagged_ids = flags.values_list('interaction_id', flat=True)
@@ -59,7 +114,7 @@ def get_interaction_subcats(interactions):
     return InteractionSubcategory.objects.filter(interaction__id__in=interaction_ids)
 
 
-def get_event_counts_from_indicator(user, indicator, params, project, organization, start, end):
+def get_event_counts_from_indicator(user, indicator, params, project, organization, start, end, filters):
     query = Q()
     for field, should_exist in params.items():
         if should_exist:
@@ -76,6 +131,13 @@ def get_event_counts_from_indicator(user, indicator, params, project, organizati
         queryset=queryset.filter(event__event_date__lte=end)
     if user.role not in ['admin', 'client']:
         queryset=queryset.filter(Q(task__organization=user.organization) | Q(task__organization__parent_organization=user.organization))
+    if filters:
+        for field, values in filters.items():
+            if isinstance(values, list):
+                lookup = f"{field}__in"
+                queryset = queryset.filter(**{lookup: values})
+            else:
+                queryset = queryset.filter(**{field: values})
     count_ids = queryset.values_list('id', flat=True)
     flags = CountFlag.objects.filter(count__id__in=count_ids)
     flagged_ids = flags.values_list('count_id', flat=True)
@@ -100,9 +162,9 @@ def get_hiv_statuses(respondent_ids):
             hiv_status_by_respondent.setdefault(hs.respondent_id, []).append(hs)
     return hiv_status_by_respondent
 
-def get_indicator_aggregate(user, indicator, params, split=None, project=None, organization=None, start=None, end=None):
-    interactions = get_interactions_from_indicator(user, indicator, project, organization, start, end)
-    counts = get_event_counts_from_indicator(user, indicator, params, project, organization, start, end)
+def get_indicator_aggregate(user, indicator, params, split=None, project=None, organization=None, start=None, end=None, filters=None):
+    interactions = get_interactions_from_indicator(user, indicator, project, organization, start, end, filters)
+    counts = get_event_counts_from_indicator(user, indicator, params, project, organization, start, end, filters)
     fields_map = {}
     include_subcats=False
     for param, include in params.items():
@@ -146,6 +208,10 @@ def get_indicator_aggregate(user, indicator, params, split=None, project=None, o
     cartesian_product_sets = {frozenset(item) for item in cartesian_product}
     product_index_sets = {frozenset(k): v for k, v in product_index.items()}
 
+    subcat_filter = None
+    if filters:
+        subcat_filter = filters.get('subcategory', None)
+
     for interaction in interactions:
         include = False
         interaction_params = []
@@ -178,6 +244,9 @@ def get_indicator_aggregate(user, indicator, params, split=None, project=None, o
         if indicator.subcategories.exists() and include_subcats:
             interaction_subcats = subcats.filter(interaction=interaction)
             for cat in interaction_subcats:
+                if subcat_filter:
+                    if str(cat.subcategory.id) in subcat_filter:
+                        continue
                 combo = tuple(interaction_params + [cat.subcategory.name])
                 permus.append(combo)
                 if indicator.require_numeric:
@@ -189,6 +258,9 @@ def get_indicator_aggregate(user, indicator, params, split=None, project=None, o
                 total = 0
                 interaction_subcats = subcats.filter(interaction=interaction)
                 for cat in interaction_subcats:
+                    if subcat_filter:
+                        if str(cat.subcategory.id) in subcat_filter:
+                            continue
                     total += cat.numeric_component
                 numerics.append(total)
             elif indicator.require_numeric:
@@ -210,9 +282,7 @@ def get_indicator_aggregate(user, indicator, params, split=None, project=None, o
             if field == 'period':   
                 field_val=None
             else:
-                print(field)
                 field_val = getattr(count, field)
-                print(field_val)
             if field == 'subcategory':
                 field_val = field_val.name 
             if field_val: 
@@ -221,13 +291,10 @@ def get_indicator_aggregate(user, indicator, params, split=None, project=None, o
             count_params.append(period_func(count.event.event_date))
 
         param_set = frozenset(count_params)
-        print(param_set, cartesian_product_sets)
         if param_set in cartesian_product_sets:
-            print('found')
             pos = product_index_sets.get(param_set)
             if pos is not None:
                 aggregates[pos]['count'] += count.count
-    print(aggregates)
     return aggregates
     
 def prep_csv(aggregates, params):

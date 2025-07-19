@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'organizations.apps.OrganizationsConfig',
     'profiles.apps.ProfilesConfig',
     'analysis.apps.AnalysisConfig',
+    'messaging.apps.MessagingConfig',
     'uploads.apps.UploadsConfig',
     'corsheaders',
     'django.contrib.admin',

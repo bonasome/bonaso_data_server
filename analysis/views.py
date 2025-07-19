@@ -19,7 +19,7 @@ from projects.models import Project
 from indicators.models import Indicator, IndicatorSubcategory
 from django.contrib.auth import get_user_model
 from analysis.serializers import DashboardSettingSerializer, DashboardSettingListSerializer, DashboardIndicatorChartSerializer
-from analysis.models import DashboardSetting, IndicatorChartSetting, ChartField, DashboardIndicatorChart
+from analysis.models import DashboardSetting, IndicatorChartSetting, ChartField, DashboardIndicatorChart, ChartFilter
 from datetime import date
 import csv
 from django.utils.timezone import now
@@ -165,7 +165,9 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
         order = request.data.get('order', 0)
         width = request.data.get('width')
         height = request.data.get('height')
-        print(stack)
+        filters_map = request.data.get('filters', [])
+
+
         if legend and use_target:
                 legend = None
         if stack and use_target:
@@ -181,6 +183,7 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
             chart.stack = stack
             chart.indicator = indicator
             chart.tabular = tabular
+            ChartFilter.objects.filter(chart=chart).delete()
             chart.save()
 
             chart_link.width = width
@@ -206,8 +209,15 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
                 height = height,
                 order = order,
             )
+        filters = []
+        if filters_map:
+            for field, values in filters_map.items():
+                for val in values:
+                    field_obj = ChartField.objects.get_or_create(name=field)[0]
+                    fil = ChartFilter.objects.create(field=field_obj, value=val, chart=chart)
+                    filters.append(fil)
+
         serializer = DashboardIndicatorChartSerializer(chart_link)
-        print(serializer.data)
         return Response({"detail": f"Dashboard updated.", "chart_data": serializer.data}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['delete'], url_path='remove-chart/(?P<chart_link_id>[^/.]+)')

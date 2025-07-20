@@ -1,11 +1,13 @@
 from rest_framework import serializers
-from profiles.models import FavoriteProject, FavoriteRespondent, FavoriteTask
+from profiles.models import FavoriteProject, FavoriteRespondent, FavoriteEvent
 
 from respondents.serializers import RespondentSerializer
 from respondents.models import Respondent
 
-from projects.serializers import TaskSerializer, ProjectDetailSerializer, ClientSerializer
+from projects.serializers import ProjectListSerializer, ClientSerializer
 from projects.models import Task, Project, Client
+from events.models import Event
+from events.serializers import EventSerializer
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -13,6 +15,11 @@ User = get_user_model()
 from organizations.serializers import OrganizationListSerializer
 from organizations.models import Organization
 
+class ProfileListSerailizer(serializers.ModelSerializer):
+    organization = OrganizationListSerializer(read_only=True)
+    class Meta:
+        model=User
+        fields = ['id', 'first_name', 'last_name', 'organization']
 
 class ProfileSerializer(serializers.ModelSerializer):
     organization_detail = OrganizationListSerializer(source='organization', read_only=True)
@@ -34,17 +41,17 @@ class ProfileSerializer(serializers.ModelSerializer):
 
         return fields
 
-class FavoriteTaskSerializer(serializers.ModelSerializer):
-    task = TaskSerializer(read_only=True)
-    task_id = serializers.PrimaryKeyRelatedField(
-        queryset=Task.objects.all(), write_only=True, source='task'
+class FavoriteEventSerializer(serializers.ModelSerializer):
+    event = EventSerializer(read_only=True)
+    event_id = serializers.PrimaryKeyRelatedField(
+        queryset=Event.objects.all(), write_only=True, source='event'
     )
     class Meta:
-        model = FavoriteTask
-        fields = ['id', 'task', 'task_id']
+        model = FavoriteEvent
+        fields = ['id', 'event', 'event_id']
 
 class FavoriteProjectSerializer(serializers.ModelSerializer):
-    project = ProjectDetailSerializer(read_only=True)
+    project = ProjectListSerializer(read_only=True)
     project_id = serializers.PrimaryKeyRelatedField(
         queryset=Project.objects.all(), write_only=True, source='project'
     )

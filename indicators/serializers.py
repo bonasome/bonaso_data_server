@@ -169,6 +169,8 @@ class IndicatorSerializer(serializers.ModelSerializer):
         return attrs
     
     def validate_governs_attribute(self, value):
+        if not value:
+            return None
         from respondents.models import RespondentAttributeType
         valid_choices = set(choice[0] for choice in RespondentAttributeType.Attributes.choices)
         if value not in valid_choices:

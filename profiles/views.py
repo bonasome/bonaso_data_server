@@ -4,8 +4,8 @@ from django.db.models import Q
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.filters import SearchFilter, OrderingFilter
-from profiles.models import FavoriteProject, FavoriteRespondent, FavoriteTask
-from profiles.serializers import ProfileSerializer, FavoriteProjectSerializer, FavoriteRespondentSerializer, FavoriteTaskSerializer
+from profiles.models import FavoriteProject, FavoriteRespondent, FavoriteEvent
+from profiles.serializers import ProfileSerializer, FavoriteProjectSerializer, FavoriteRespondentSerializer, FavoriteEventSerializer
 from django.contrib.auth import get_user_model
 from rest_framework import status
 from django.shortcuts import get_object_or_404
@@ -254,15 +254,62 @@ class ProfileViewSet(RoleRestrictedViewSet):
             'role_labels': role_labels,
         })
 
-class FavoriteTaskViewSet(RoleRestrictedViewSet):
-    serializer_class = FavoriteTaskSerializer
+    @action(detail=True, methods=['get'], url_path='favorites')
+    def get_favorites(self, request, pk=None):
+        user = request.user
+        events = FavoriteEvent.objects.filter(user=user)
+        projects = FavoriteProject.objects.filter(user=user)
+        respondents = FavoriteRespondent.objects.filter(user=user)
+
+        data = {
+            'projects': FavoriteProjectSerializer(projects, many=True).data,
+            'events': FavoriteEventSerializer(events, many=True).data,
+            'respondents': FavoriteRespondentSerializer(respondents, many=True).data,
+        }
+
+        return Response(data, status=status.HTTP_200_OK)
+
+
+class FavoriteEventViewSet(RoleRestrictedViewSet):
+    serializer_class = FavoriteEventSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return FavoriteTask.objects.filter(user=self.request.user)
+        return FavoriteEvent.objects.filter(user=self.request.user)
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+    @action(detail=False, methods=['get'], url_path='is-favorited')
+    def is_favorited(self, request):
+        user = request.user
+        event_id = request.query_params.get('id')
+        if not event_id:
+            return Response({"detail": "Missing id"}, status=400)
+
+        is_fav = FavoriteEvent.objects.filter(user=user, event_id=event_id).exists()
+        return Response({"is_favorited": is_fav})
+    
+    @action(detail=False, methods=['post'], url_path='unfavorite')
+    def unfavorite(self, request):
+        user = request.user
+        event_id = request.data.get('event_id')
+        if not event_id:
+            return Response(
+                {"detail": "No target object provided."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        fav = FavoriteEvent.objects.filter(user=user, event__id=event_id)
+        if not fav.exists():
+            return Response(
+                {"detail": "No favorite found to unfavorite."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        fav.delete()
+        return Response(
+            {"detail": f"Event id {event_id} unfavorited."},
+            status=status.HTTP_204_NO_CONTENT
+        )
 
 class FavoriteProjectViewSet(RoleRestrictedViewSet):
     serializer_class = FavoriteProjectSerializer
@@ -274,6 +321,37 @@ class FavoriteProjectViewSet(RoleRestrictedViewSet):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
+    @action(detail=False, methods=['get'], url_path='is-favorited')
+    def is_favorited(self, request):
+        user = request.user
+        project_id = request.query_params.get('id')
+        if not project_id:
+            return Response({"detail": "Missing id"}, status=400)
+
+        is_fav = FavoriteProject.objects.filter(user=user, project_id=project_id).exists()
+        return Response({"is_favorited": is_fav})
+
+    @action(detail=False, methods=['post'], url_path='unfavorite')
+    def unfavorite(self, request):
+        user = request.user
+        project_id = request.data.get('project_id')
+        if not project_id:
+            return Response(
+                {"detail": "No target object provided."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        fav = FavoriteProject.objects.filter(user=user, project__id=project_id)
+        if not fav.exists():
+            return Response(
+                {"detail": "No favorite found to unfavorite."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        fav.delete()
+        return Response(
+            {"detail": f"Event id {project_id} unfavorited."},
+            status=status.HTTP_204_NO_CONTENT
+        )
+    
 class FavoriteRespondentViewSet(RoleRestrictedViewSet):
     serializer_class = FavoriteRespondentSerializer
     permission_classes = [IsAuthenticated]
@@ -283,3 +361,34 @@ class FavoriteRespondentViewSet(RoleRestrictedViewSet):
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+    @action(detail=False, methods=['get'], url_path='is-favorited')
+    def is_favorited(self, request):
+        user = request.user
+        respondent_id = request.query_params.get('id')
+        if not respondent_id:
+            return Response({"detail": "Missing id"}, status=400)
+
+        is_fav = FavoriteRespondent.objects.filter(user=user, respondent_id=respondent_id).exists()
+        return Response({"is_favorited": is_fav})
+    
+    @action(detail=False, methods=['post'], url_path='unfavorite')
+    def unfavorite(self, request):
+        user = request.user
+        respondent_id = request.data.get('respondent_id')
+        if not respondent_id:
+            return Response(
+                {"detail": "No target object provided."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        fav = FavoriteRespondent.objects.filter(user=user, respondent__id=respondent_id)
+        if not fav.exists():
+            return Response(
+                {"detail": "No favorite found to unfavorite."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        fav.delete()
+        return Response(
+            {"detail": f"Event id {respondent_id} unfavorited."},
+            status=status.HTTP_204_NO_CONTENT
+        )

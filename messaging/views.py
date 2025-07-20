@@ -13,12 +13,13 @@ from rest_framework.decorators import action
 from users.restrictviewset import RoleRestrictedViewSet
 from rest_framework import serializers
 from rest_framework import status
-
+from django.utils.timezone import now
 from datetime import datetime, date
 
 from projects.models import Project
-from messaging.models import Message, Announcement
-from messaging.serializers import MessageSerializer, AnnouncementSerializer
+from profiles.serializers import ProfileListSerailizer
+from messaging.models import Message, Announcement, MessageRecipient, Alert, AlertRecipient
+from messaging.serializers import MessageSerializer, AnnouncementSerializer, AlertSerializer
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
@@ -31,8 +32,45 @@ class MessageViewSet(RoleRestrictedViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        queryset = Message.objects.filter(Q(recipients=user) | Q(sender=user)).distinct()
+        if self.action in ['update', 'partial_update', 'set_completed']:
+            queryset = Message.objects.filter(Q(sender=user) | Q(recipients=user))
+        else:
+            queryset = Message.objects.filter(Q(recipients=user) | Q(sender=user)).distinct().exclude(deleted_by_sender=True)
+            queryset = queryset.filter(parent__isnull=True)
         return queryset
+    @action(detail=False, methods=['get'], url_path='recipients')
+    def get_recipients(self, request, pk=None):
+        user = request.user
+        queryset = User.objects.all()
+        if user.role in ['meofficer', 'manager']:
+            queryset = queryset.filter(Q(organization=user.organization)|
+                        Q(organization__parent_organization=user.organization) | 
+                        Q(role='admin'))
+        elif user.role in ['data_collector', 'client']:
+            queryset = queryset.filter(Q(organization=user.organization)|Q(role='admin'))
+        serializer = ProfileListSerailizer(queryset, many=True)
+        return Response(serializer.data)
+    @action(detail=True, methods=['patch'], url_path='read')
+    def set_read(self, request, pk=None):
+        user = request.user
+        message = self.get_object()
+        mr = MessageRecipient.objects.filter(Q(message=message, recipient=user) | Q(message__parent=message, recipient=user))
+        mr.update(read=True, read_on=now())
+        return Response(
+                {'detail': 'Message read.'},
+                status=status.HTTP_200_OK
+            )
+    @action(detail=True, methods=['patch'], url_path='complete')
+    def set_completed(self, request, pk=None):
+        user = request.user
+        message = self.get_object()
+        mr = MessageRecipient.objects.filter(recipient=user, message=message)
+        mr.update(completed=True, completed_on=now())
+        return Response(
+                {'detail': 'Message completed.'},
+                status=status.HTTP_200_OK
+            )
+    
 
 class AnnouncementViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
@@ -45,3 +83,25 @@ class AnnouncementViewSet(RoleRestrictedViewSet):
         user = self.request.user
         queryset = Announcement.objects.filter(Q(organization=None) | Q(organization=user.organization) | Q(cascade_to_children=True, organization=user.organization.parent_organization) | Q(project__organizations=user.organization))
         return queryset
+
+class AlertViewSet(RoleRestrictedViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = AlertSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
+    ordering_fields = ['sent_on']
+
+    def get_queryset(self):
+        user = self.request.user
+        queryset = Alert.objects.filter(recipients=user)
+        return queryset
+
+    @action(detail=True, methods=['patch'], url_path='read')
+    def set_read(self, request, pk=None):
+        user = request.user
+        alert = self.get_object()
+        ar = AlertRecipient.objects.filter(alert=alert, recipient=user)
+        ar.update(read=True, read_on=now())
+        return Response(
+                {'detail': 'Alert read.'},
+                status=status.HTTP_200_OK
+            )

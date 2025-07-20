@@ -23,6 +23,8 @@ from django.contrib.auth import get_user_model
 from collections import defaultdict
 from datetime import date
 from django.utils.timezone import now
+from messaging.models import Alert, AlertRecipient
+from django.contrib.contenttypes.models import ContentType
 
 User = get_user_model()
 
@@ -493,9 +495,32 @@ class EventViewSet(RoleRestrictedViewSet):
                                 outstanding_flag.auto_resolved=True
                                 outstanding_flag.resolved_at=now()
                                 to_resolve.append(outstanding_flag)
-
+       
         CountFlag.objects.bulk_create(to_flag)
+        
         CountFlag.objects.bulk_update(to_resolve, ['resolved', 'auto_resolved', 'resolved_at'])
+
+        if len(to_flag) > 0:
+            send_alert_to = User.objects.filter(
+                Q(role='meofficer', organization=user.organization) |
+                Q(role='admin')
+            ).distinct()
+
+            # Create the alert
+            content_type = ContentType.objects.get_for_model(Event)
+            alert = Alert.objects.create(
+                subject='Flag Raised (Event Counts)',
+                body=f'One or more recently updated counts for event {event.name} were flagged.',
+                alert_type=Alert.AlertType.FLAG,
+                content_type=content_type,
+                object_id=event.id
+            )
+
+            # Create AlertRecipient objects
+            AlertRecipient.objects.bulk_create([
+                AlertRecipient(alert=alert, recipient=user) for user in send_alert_to
+            ])
+
         return Response({
             'created': DCSerializer(to_create, many=True).data,
         }, status=200)

@@ -5,7 +5,7 @@ from rest_framework import status
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 
-from projects.models import Project, Client, Task, Target
+from projects.models import Project, Client, Task, Target, ProjectOrganization
 from respondents.models import Respondent, Interaction
 from organizations.models import Organization
 from indicators.models import Indicator
@@ -25,7 +25,7 @@ class TargetViewSetTest(APITestCase):
         self.client_user = User.objects.create_user(username='client', password='testpass', role='client')
         #set up a parent/child org and an unrelated org
         self.parent_org = Organization.objects.create(name='Parent')
-        self.child_org = Organization.objects.create(name='Child', parent_organization=self.parent_org)
+        self.child_org = Organization.objects.create(name='Child')
         self.other_org = Organization.objects.create(name='Other')
         self.loser_org = Organization.objects.create(name='Not Invited')
 
@@ -53,6 +53,10 @@ class TargetViewSetTest(APITestCase):
             created_by=self.admin,
         )
         self.project.organizations.set([self.parent_org, self.child_org, self.other_org])
+        
+        child_link = ProjectOrganization.objects.filter(organization=self.child_org).first()
+        child_link.parent_organization = self.parent_org
+        child_link.save()
 
         self.planned_project = Project.objects.create(
             name='Beta Project',
@@ -78,9 +82,9 @@ class TargetViewSetTest(APITestCase):
 
         self.inactive_task = Task.objects.create(project=self.planned_project, organization=self.parent_org, indicator=self.indicator)
         
-        self.child_target = Target.objects.create(task=self.child_task, amount=50, start='2025-04-01', end='2025-04-30')
-        self.target = Target.objects.create(task=self.task, amount=50, start='2025-06-01', end='2025-06-30')
-        self.other_target = Target.objects.create(task=self.other_task, amount=50, start='2025-06-01', end='2025-06-30')
+        self.child_target = Target.objects.create(task=self.child_task, amount=50, start='2024-04-01', end='2024-04-30')
+        self.target = Target.objects.create(task=self.task, amount=50, start='2024-06-01', end='2024-06-30')
+        self.other_target = Target.objects.create(task=self.other_task, amount=50, start='2024-06-01', end='2024-06-30')
 
 
     def test_target_admin_view(self):
@@ -131,16 +135,16 @@ class TargetViewSetTest(APITestCase):
         self.assertEqual(self.target.amount, 70)
         self.assertEqual(self.target.updated_by, self.admin)
     
-    def test_task_create_child(self):
+    def test_target_create_child(self):
         self.client.force_authenticate(user=self.manager)
         valid_payload = {
             'task_id': self.child_task.id,
             'amount': 60,
-            'start': '2025-07-01',
-            'end': '2025-07-31'
+            'start': '2024-07-01',
+            'end': '2024-07-31'
         }
         response = self.client.post('/api/manage/targets/', valid_payload, format='json')
-
+        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
     
     def test_task_patch_child(self):
@@ -160,6 +164,7 @@ class TargetViewSetTest(APITestCase):
             'amount': 70,
         }
         response = self.client.patch(f'/api/manage/targets/{self.other_target.id}/', valid_payload, format='json')
+        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
     
     def test_task_patch_client(self):

@@ -16,6 +16,7 @@ from respondents.models import Interaction, Respondent
 from organizations.models import Organization
 from indicators.models import Indicator
 from projects.models import Project, Task, Target
+from projects.utils import get_valid_orgs
 from uploads.models import NarrativeReport
 from django.utils import timezone
 from datetime import datetime, timedelta
@@ -236,7 +237,8 @@ class ProfileViewSet(RoleRestrictedViewSet):
         if user.role == 'admin':
             return User.objects.all()
         elif user.role in ['meofficer', 'manager']:
-            return User.objects.filter(Q(organization=user.organization) | Q(organization__parent_organization=user.organization))
+            valid_orgs = get_valid_orgs(user)
+            return User.objects.filter(organization_id__in=valid_orgs)
         
         return User.objects.filter(id=user.id)
     

@@ -27,7 +27,7 @@ class InteractionViewSetTest(APITestCase):
 
         #set up a parent/child org and an unrelated org
         self.parent_org = Organization.objects.create(name='Parent')
-        self.child_org = Organization.objects.create(name='Child', parent_organization=self.parent_org)
+        self.child_org = Organization.objects.create(name='Child')
         self.other_org = Organization.objects.create(name='Other')
         
         self.admin.organization = self.parent_org
@@ -52,6 +52,7 @@ class InteractionViewSetTest(APITestCase):
         )
         self.project.organizations.set([self.parent_org, self.other_org])
 
+        
         self.planned_project = Project.objects.create(
             name='Beta Project',
             client=self.client_obj,

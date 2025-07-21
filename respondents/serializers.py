@@ -3,6 +3,7 @@ from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, Ke
 from respondents.exceptions import DuplicateExists
 from projects.models import Task, Target
 from projects.serializers import TaskSerializer
+from projects.utils import get_valid_orgs
 from indicators.models import IndicatorSubcategory
 from indicators.serializers import IndicatorSubcategorySerializer
 from datetime import datetime, date
@@ -454,9 +455,7 @@ class InteractionSerializer(serializers.ModelSerializer):
 
             # Ensure the task is part of the user's org or child orgs
             if role in ['meofficer', 'manager']:
-                allowed_org_ids = Organization.objects.filter(
-                    Q(parent_organization=org) | Q(id=org.id)
-                ).values_list('id', flat=True)
+                allowed_org_ids = get_valid_orgs(user)
             else:
                 allowed_org_ids = [org.id]
 

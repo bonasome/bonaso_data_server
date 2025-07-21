@@ -5,7 +5,7 @@ from rest_framework import status
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 
-from projects.models import Project, Client, Task, Target
+from projects.models import Project, Client, Task, Target, ProjectOrganization
 from respondents.models import Respondent, Interaction
 from organizations.models import Organization
 from indicators.models import Indicator
@@ -25,7 +25,7 @@ class TaskViewSetTest(APITestCase):
         self.client_user = User.objects.create_user(username='client', password='testpass', role='client')
         #set up a parent/child org and an unrelated org
         self.parent_org = Organization.objects.create(name='Parent')
-        self.child_org = Organization.objects.create(name='Child', parent_organization=self.parent_org)
+        self.child_org = Organization.objects.create(name='Child')
         self.other_org = Organization.objects.create(name='Other')
         self.loser_org = Organization.objects.create(name='Not Invited')
 
@@ -51,6 +51,10 @@ class TaskViewSetTest(APITestCase):
             created_by=self.admin,
         )
         self.project.organizations.set([self.parent_org, self.child_org, self.other_org])
+
+        child_link = ProjectOrganization.objects.filter(organization=self.child_org).first()
+        child_link.parent_organization = self.parent_org
+        child_link.save()
 
         self.planned_project = Project.objects.create(
             name='Beta Project',

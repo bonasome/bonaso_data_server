@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.contrib.auth import get_user_model
 
 from events.models import Event, EventOrganization, EventTask, DemographicCount, CountFlag
-from projects.models import Project, Client, Task
+from projects.models import Project, Client, Task, ProjectOrganization
 from respondents.models import Respondent, Interaction
 from organizations.models import Organization
 from indicators.models import Indicator, IndicatorSubcategory
@@ -27,7 +27,7 @@ class EventViewSetTest(APITestCase):
 
         #set up a parent/child org and an unrelated org
         self.parent_org = Organization.objects.create(name='Parent')
-        self.child_org = Organization.objects.create(name='Child', parent_organization=self.parent_org)
+        self.child_org = Organization.objects.create(name='Child')
         self.other_org = Organization.objects.create(name='Other')
         
         self.admin.organization = self.parent_org
@@ -52,12 +52,17 @@ class EventViewSetTest(APITestCase):
             description='Test project',
             created_by=self.admin,
         )
-        self.project.organizations.set([self.parent_org, self.other_org])
+        self.project.organizations.set([self.parent_org, self.other_org, self.child_org])
+        
+        child_link = ProjectOrganization.objects.filter(organization=self.child_org).first()
+        child_link.parent_organization = self.parent_org
+        child_link.save()
 
         self.indicator = Indicator.objects.create(code='1', name='Parent')
         self.new_indicator = Indicator.objects.create(code='2', name='New')
         self.prerequisite_indicator = Indicator.objects.create(code='p', name='Prereq')
-        self.child_indicator = Indicator.objects.create(code='c', name='Child', prerequisite=self.prerequisite_indicator)
+        self.child_indicator = Indicator.objects.create(code='c', name='Child')
+        self.child_indicator.prerequisites.set([self.prerequisite_indicator])
 
         self.project.indicators.set([self.indicator, self.prerequisite_indicator, self.child_indicator])
         self.task = Task.objects.create(indicator=self.indicator, project=self.project, organization=self.parent_org)
@@ -315,7 +320,7 @@ class DemographicCountsTest(APITestCase):
 
         #set up a parent/child org and an unrelated org
         self.parent_org = Organization.objects.create(name='Parent')
-        self.child_org = Organization.objects.create(name='Child', parent_organization=self.parent_org)
+        self.child_org = Organization.objects.create(name='Child')
         self.other_org = Organization.objects.create(name='Other')
         
         self.admin.organization = self.parent_org
@@ -340,7 +345,11 @@ class DemographicCountsTest(APITestCase):
             description='Test project',
             created_by=self.admin,
         )
-        self.project.organizations.set([self.parent_org, self.other_org])
+        self.project.organizations.set([self.parent_org, self.other_org, self.child_org])
+
+        child_link = ProjectOrganization.objects.filter(organization=self.child_org).first()
+        child_link.parent_organization = self.parent_org
+        child_link.save()
 
         self.indicator = Indicator.objects.create(code='1', name='Parent')
         self.subcats_indicator = Indicator.objects.create(code='3', name='Subcats')

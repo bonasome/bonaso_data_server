@@ -20,6 +20,8 @@ from datetime import timedelta
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
 from django.http import HttpResponse
 from django.conf import settings
+
+from projects.utils import get_valid_orgs
 User = get_user_model()
 
 import os
@@ -148,7 +150,8 @@ class ApplyForNewUser(APIView):
         except Organization.DoesNotExist:
             return Response({'detail': 'Organization not found.'}, status=400)
         if user.role != 'admin':
-            if not (org == user.organization or org.parent_organization == user.organization):
+            valid_orgs = get_valid_orgs(user)
+            if org.id not in valid_orgs:
                 return Response({'detail': 'You do not have permission to create this user.'}, status=403)
         
         username = data.get('username')

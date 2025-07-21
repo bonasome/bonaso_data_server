@@ -1,6 +1,6 @@
 from django.db.models import Q
 from respondents.models import Interaction, InteractionFlag, HIVStatus, Pregnancy, InteractionSubcategory
-from projects.models import Target
+from projects.models import Target, ProjectOrganization
 from events.models import DemographicCount, CountFlag
 from itertools import product
 from datetime import date, datetime
@@ -46,7 +46,12 @@ def get_quarter_strings_between(start_date, end_date):
 def get_interactions_from_indicator(user, indicator, project, organization, start, end, filters):
     queryset = Interaction.objects.filter(task__indicator=indicator)
     if user.role not in ['admin', 'client']:
-        queryset=queryset.filter(Q(task__organization=user.organization)|Q(task__organization__parent_organization=user.organization))
+        child_orgs = ProjectOrganization.objects.filter(
+                parent_organization=user.organization,
+            ).values_list('organization', flat=True)
+        queryset = queryset.filter(
+                Q(task__organization=user.organization) | Q(task__organization__in=child_orgs)
+            )
     if project:
         queryset=queryset.filter(task__project=project)
     if organization:
@@ -130,7 +135,12 @@ def get_event_counts_from_indicator(user, indicator, params, project, organizati
     if end:
         queryset=queryset.filter(event__event_date__lte=end)
     if user.role not in ['admin', 'client']:
-        queryset=queryset.filter(Q(task__organization=user.organization) | Q(task__organization__parent_organization=user.organization))
+        child_orgs = ProjectOrganization.objects.filter(
+                parent_organization=user.organization,
+            ).values_list('organization', flat=True)
+        queryset = queryset.filter(
+                Q(task__organization=user.organization) | Q(task__organization__in=child_orgs)
+            )
     if filters:
         for field, values in filters.items():
             if isinstance(values, list):
@@ -234,9 +244,10 @@ def get_indicator_aggregate(user, indicator, params, split=None, project=None, o
             else:
                 field_val = getattr(interaction.respondent, get_field)
                 if field == 'citizenship':
-                    field_val = 'Citizen' if field_val == 'Motswana' else 'Non-Citizen'
+                    field_val = 'citizen' if field_val == 'Motswana' else 'non-citizen'
             if field_val:
                 interaction_params.append(field_val)
+        print(interaction_params)
         if split in ['month', 'quarter']:
             interaction_params.append(period_func(interaction.interaction_date))
         permus = []
@@ -330,10 +341,12 @@ def get_target_aggregates(user, indicator, split, start=None, end=None, project=
     queryset = Target.objects.filter(task__indicator=indicator)
 
     if user.role not in ['admin', 'client']:
+        child_orgs = ProjectOrganization.objects.filter(
+                parent_organization=user.organization,
+            ).values_list('organization', flat=True)
         queryset = queryset.filter(
-            Q(task__organization=user.organization) |
-            Q(task__organization__parent_organization=user.organization)
-        )
+                Q(task__organization=user.organization) | Q(task__organization__in=child_orgs)
+            )
 
     if project:
         queryset = queryset.filter(task__project=project)

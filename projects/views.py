@@ -26,6 +26,7 @@ today = date.today().isoformat()
 
 from projects.models import Project, ProjectIndicator, ProjectOrganization, Client, Task, Target
 from projects.serializers import ProjectListSerializer, ProjectDetailSerializer, TaskSerializer, TargetSerializer, ClientSerializer
+from projects.utils import get_valid_orgs
 from respondents.models import Interaction
 from events.models import Event
 
@@ -35,7 +36,6 @@ class TaskViewSet(RoleRestrictedViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
     ordering_fields = ['indicator__code']
     search_fields = ['indicator__code', 'indicator__name']
-    filterset_fields = ['project', 'organization', 'indicator', 'indicator__indicator_type']
     
     def get_queryset(self):
         user = self.request.user
@@ -69,7 +69,16 @@ class TaskViewSet(RoleRestrictedViewSet):
         if role == 'admin':
             return queryset
         elif role in ['meofficer', 'manager'] and user_org:
-            return queryset.filter(Q(organization=user_org) | Q(organization__parent_organization=user_org), project__status=Project.Status.ACTIVE)
+            child_orgs = ProjectOrganization.objects.filter(
+                parent_organization=user.organization
+            ).values_list('organization', flat=True)
+
+            queryset = queryset.filter(
+                Q(organization=user.organization) | Q(organization__in=child_orgs)
+            ).filter(
+                project__status=Project.Status.ACTIVE
+            )
+            return queryset
         elif role in ['client'] and user_client:
             return queryset.filter(project__client=user_client)
         elif role in ['data_collector'] and user_org:
@@ -117,8 +126,9 @@ class TaskViewSet(RoleRestrictedViewSet):
                 raise ValidationError("Organization/indicator are not in this project.")
 
         elif role in ['meofficer', 'manager']:
-            # Validate org/indicator/project assignment
-            if not Organization.objects.filter(id=org_id, parent_organization=user_org).exists():
+            valid_orgs = get_valid_orgs(user)
+
+            if not organization.id in valid_orgs:
                 raise PermissionDenied('You may only assign tasks to your child organizations.')
 
             if not Task.objects.filter(organization=user_org, indicator=indicator).exists():
@@ -166,7 +176,13 @@ class TaskViewSet(RoleRestrictedViewSet):
 
         # Restrict deletion to child organizations for non-admins
         if user.role in ['meofficer', 'manager']:
-            if instance.organization.parent_organization_id != user.organization_id:
+            is_child = ProjectOrganization.objects.filter(
+                organization=instance.organization,
+                parent_organization=user.organization
+            ).exists()
+
+            if not is_child:
+                # This includes the case where instance.organization == user.organization
                 return Response(
                     {"detail": "You can only delete tasks assigned to your child organizations."},
                     status=status.HTTP_403_FORBIDDEN
@@ -326,7 +342,7 @@ class ProjectViewSet(RoleRestrictedViewSet):
 
             # Additional org-level check for non-admins
             if user.role in ['meofficer', 'manager']:
-                if org_link.organization.parent_organization_id != user.organization_id:
+                if org_link.parent_organization != user.organization:
                     return Response(
                         {"detail": "You can only remove child organizations of your own organization."},
                         status=status.HTTP_403_FORBIDDEN
@@ -391,19 +407,22 @@ class TargetViewSet(RoleRestrictedViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         user = self.request.user
-        role = getattr(user, 'role', None)
-        org = getattr(user, 'organization', None)
         client_org = getattr(user, 'client_organization', None)
-        if not role or not org:
-            return Target.objects.none()
         
-        if role == 'admin':
+        if user.role == 'admin':
             queryset= Target.objects.all()
-        elif role == 'client' and client_org:
+        elif user.role == 'client' and client_org:
             queryset= Target.objects.filter(task__project__client = client_org)
         else:
-            queryset= Target.objects.filter(Q(task__organization=org) | Q(task__organization__parent_organization=org))
-            queryset = queryset.filter(task__project__status=Project.Status.ACTIVE)
+            child_orgs = ProjectOrganization.objects.filter(
+                parent_organization=user.organization
+            ).values_list('organization', flat=True)
+
+            queryset = Target.objects.filter(
+                Q(task__organization=user.organization) | Q(task__organization__in=child_orgs)
+            ).filter(
+                task__project__status=Project.Status.ACTIVE
+            )
 
         start = self.request.query_params.get('start')
         end = self.request.query_params.get('end')
@@ -433,9 +452,15 @@ class TargetViewSet(RoleRestrictedViewSet):
 
         # Restrict deletion to child organizations for non-admins
         if user.role in ['meofficer', 'manager']:
-            if instance.task.organization.parent_organization_id != user.organization_id:
+            is_child = ProjectOrganization.objects.filter(
+                organization=instance.task.organization,
+                parent_organization=user.organization
+            ).exists()
+
+            if not is_child:
+                # This includes the case where instance.organization == user.organization
                 return Response(
-                    {"detail": "You can only delete targets from your child organizations."},
+                    {"detail": "You can only delete targets assigned to your child organizations."},
                     status=status.HTTP_403_FORBIDDEN
                 )
 

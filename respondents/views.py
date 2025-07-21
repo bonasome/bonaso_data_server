@@ -33,7 +33,8 @@ import traceback
 
 from datetime import datetime, date
 today = date.today().isoformat()
-from projects.models import Task
+from projects.models import Task, ProjectOrganization
+from projects.utils import get_valid_orgs
 from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType, RespondentAttributeType, InteractionFlag
 from respondents.serializers import RespondentSerializer, RespondentListSerializer, InteractionSerializer
 from indicators.models import IndicatorSubcategory
@@ -301,8 +302,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
         if user.role not in ['admin', 'meofficer', 'manager']:
             raise PermissionDenied('You do not have permission to raise a flag.')
         if user.role in ['meoficer', 'manager'] and not (
-        interaction.task.organization == user.organization or 
-        interaction.task.organization.parent_organization == user.organization):
+            interaction.task.organization == user.organization or 
+            ProjectOrganization.objects.filter(organization=interaction.task.organization, parent_organization=user.organization).exists()):
             raise PermissionDenied('You do not have permission to raise a flag for this interaction.')
         reason = request.data.get('reason', None)
         if not reason:
@@ -324,7 +325,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
             return Response({"detail": f"You do not have permissiont to resolve a flag for this interaction."}, status=status.HTTP_403_FORBIDDEN)
         if user.role in ['meoficer', 'manager'] and not (
         interaction.task.organization == user.organization or 
-        interaction.task.organization.parent_organization == user.organization):
+         ProjectOrganization.objects.filter(organization=interaction.task.organization, parent_organization=user.organization).exists()):
             return Response({"detail": f"You do not have permissiont to resolve a flag for this interaction."}, status=status.HTTP_403_FORBIDDEN)
 
         if not interaction_flag:
@@ -358,9 +359,12 @@ class InteractionViewSet(RoleRestrictedViewSet):
         if role == 'client':
             raise PermissionDenied('You do not have permission to view this page.')
         elif role in ['meofficer', 'manager']:
+            child_orgs = ProjectOrganization.objects.filter(
+                parent_organization=user.organization
+            ).values_list('organization', flat=True)
+
             queryset = queryset.filter(
-                Q(task__organization=org) |
-                Q(task__organization__parent_organization=org)
+                Q(task__organization=user.organization) | Q(task__organization__in=child_orgs)
             )
         elif role == 'data_collector':
             queryset = queryset.filter(created_by=user)
@@ -480,8 +484,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
         org_id = request.GET.get('organization')
         if not project_id or not org_id:
             raise serializers.ValidationError('Template requires a project and organization.')
-        valid_orgs = Organization.objects.filter(Q(parent_organization=user.organization) | Q(id=user.organization.id))
-        if user.role != 'admin' and not valid_orgs.filter(id=org_id).exists():
+        valid_orgs = get_valid_orgs(user)
+        if user.role != 'admin' and not org_id in valid_orgs:
             raise PermissionDenied('You do not have permission to access this template.')
         
         district_labels = [choice.label for choice in Respondent.District]
@@ -625,8 +629,9 @@ class InteractionViewSet(RoleRestrictedViewSet):
         # 4. Organization permission check
     
         if user.role != 'admin':
-            valid_orgs = Organization.objects.filter(Q(parent_organization=user.organization) | Q(id=user.organization_id))
-            if not valid_orgs.filter(id=org_id).exists():
+            valid_orgs = get_valid_orgs(user)
+            print(valid_orgs, org_id)
+            if org_id not in valid_orgs:
                 raise PermissionDenied('You do not have permission to access this template.')
 
         ws = wb['Data'] 

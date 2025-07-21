@@ -7,6 +7,7 @@ from projects.models import Project, Task
 from organizations.models import Organization
 from organizations.serializers import OrganizationListSerializer, OrganizationSerializer
 from projects.serializers import TaskSerializer
+from projects.utils import get_valid_orgs
 from datetime import date
 
 class CountFlagSerializer(serializers.ModelSerializer):
@@ -64,9 +65,10 @@ class EventSerializer(serializers.ModelSerializer):
             EventOrganization.objects.filter(event=event).values_list('organization_id', flat=True)
         )
         new_links = []
+        valid_orgs = get_valid_orgs(user)
         for org in organizations:
             if user.role != 'admin':
-                if not org == user.organization and not org.parent_organization == user.organization:
+                if not org.id in valid_orgs:
                     raise PermissionDenied(
                         f"Cannot assign an organization that is not your organization or your child organization."
                     )
@@ -79,9 +81,10 @@ class EventSerializer(serializers.ModelSerializer):
         new_indicators = [t.indicator.id for t in tasks]
         old_indicators = [t.task.indicator.id for t in EventTask.objects.filter(event=event)]
         new_links = []
+        valid_orgs = get_valid_orgs(user)
         for task in tasks:
             if user.role != 'admin':
-                if not task.organization == user.organization and not task.organization.parent_organization == user.organization:
+                if not task.organization.id in valid_orgs:
                     raise PermissionDenied(
                         f"Cannot assign a task that is not associcated with your organization or child organization."
                     )

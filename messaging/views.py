@@ -17,6 +17,7 @@ from django.utils.timezone import now
 from datetime import datetime, date
 
 from projects.models import Project
+from projects.utils import get_valid_orgs, is_child_of
 from profiles.serializers import ProfileListSerailizer
 from messaging.models import Message, Announcement, MessageRecipient, Alert, AlertRecipient
 from messaging.serializers import MessageSerializer, AnnouncementSerializer, AlertSerializer
@@ -38,18 +39,19 @@ class MessageViewSet(RoleRestrictedViewSet):
             queryset = Message.objects.filter(Q(recipients=user) | Q(sender=user)).distinct().exclude(deleted_by_sender=True)
             queryset = queryset.filter(parent__isnull=True)
         return queryset
+    
     @action(detail=False, methods=['get'], url_path='recipients')
     def get_recipients(self, request, pk=None):
         user = request.user
         queryset = User.objects.all()
         if user.role in ['meofficer', 'manager']:
-            queryset = queryset.filter(Q(organization=user.organization)|
-                        Q(organization__parent_organization=user.organization) | 
-                        Q(role='admin'))
+            valid_orgs = get_valid_orgs(user)
+            queryset = queryset.filter(Q(organization_id__in=valid_orgs) | Q(role='admin'))
         elif user.role in ['data_collector', 'client']:
             queryset = queryset.filter(Q(organization=user.organization)|Q(role='admin'))
         serializer = ProfileListSerailizer(queryset, many=True)
         return Response(serializer.data)
+    
     @action(detail=True, methods=['patch'], url_path='read')
     def set_read(self, request, pk=None):
         user = request.user
@@ -81,7 +83,10 @@ class AnnouncementViewSet(RoleRestrictedViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        queryset = Announcement.objects.filter(Q(organization=None) | Q(organization=user.organization) | Q(cascade_to_children=True, organization=user.organization.parent_organization) | Q(project__organizations=user.organization))
+        
+        queryset = Announcement.objects.filter(Q(organization=None) | Q(organization=user.organization) | 
+            Q(cascade_to_children=True, organization=user.organization.parent_organization) | 
+            Q(project__organizations=user.organization))
         return queryset
 
 class AlertViewSet(RoleRestrictedViewSet):

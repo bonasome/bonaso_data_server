@@ -18,6 +18,7 @@ from users.restrictviewset import RoleRestrictedViewSet
 from organizations.models import Organization
 from projects.models import Project, Task
 from organizations.serializers import OrganizationListSerializer, OrganizationSerializer
+from projects.utils import get_valid_orgs
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
@@ -26,7 +27,7 @@ class OrganizationViewSet(RoleRestrictedViewSet):
     queryset = Organization.objects.none()
     serializer_class = OrganizationSerializer
     filter_backends = [SearchFilter, OrderingFilter]
-    filterset_fields = ['project', 'parent_organization', 'indicator']
+    filterset_fields = ['project', 'indicator']
     ordering_fields = ['name']
     search_fields = ['name'] 
     def get_queryset(self):
@@ -36,18 +37,11 @@ class OrganizationViewSet(RoleRestrictedViewSet):
         org = getattr(user, 'organization', None)
         if role == 'admin':
             queryset = Organization.objects.all()
-        elif role and org:
-            queryset =  Organization.objects.filter(Q(parent_organization=org) | Q(id=org.id))
+        elif role in ['meofficer', 'manager']:
+            valid_orgs = get_valid_orgs(user)
+            queryset =  Organization.objects.filter(id__in=valid_orgs)
         else:
-            return Organization.objects.none()
-        parent_organization = self.request.query_params.get('parent_organization')
-        if parent_organization:
-            queryset = queryset.filter(Q(parent_organization__id=parent_organization) | Q(id=parent_organization)).annotate(priority=Case(
-                   When(pk=parent_organization, then=Value(0)),
-                   default=Value(1),
-                   output_field=IntegerField(),
-               )
-           ).order_by('priority', 'name')
+            return Organization.objects.filter(id=user.organization.id)
         
         project_id = self.request.query_params.get('project')
         if project_id:
@@ -63,7 +57,6 @@ class OrganizationViewSet(RoleRestrictedViewSet):
             tasks = Task.objects.filter(organization__in=queryset, indicator__id=indicator_id)
             queryset = queryset.filter(id__in=tasks.values_list('organization_id', flat=True))
         return queryset
-        
 
 
     def get_serializer_class(self):

@@ -51,7 +51,7 @@ class AnnouncementSerializer(serializers.ModelSerializer):
             if not org:
                 raise serializers.ValidationError('You must select an organization to write an announcement.')
 
-            if org != user.organization and org.parent_organization != user.organization:
+            if org != user.organization:
                 raise serializers.PermissionDenied('You do not have permission to target this organization.')
 
         return attrs
@@ -78,9 +78,13 @@ class ReplySerializer(serializers.ModelSerializer):
 class MessageSerializer(serializers.ModelSerializer):
     sender = ProfileListSerailizer(read_only=True)
     recipients = MessageRecipientSerializer(source='recipient_links', many=True, read_only=True)
-    recipient_ids = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), many=True, write_only=True)
+    recipient_data = serializers.ListField(
+        child=serializers.DictField(),
+        required=True,
+        write_only=True
+    )
     replies = serializers.SerializerMethodField()
-    actionable = serializers.BooleanField(allow_null=True)
+
     def get_replies(self, obj):
         queryset = Message.objects.filter(parent=obj, deleted_by_sender=False)
         serializer = ReplySerializer(queryset, many=True)
@@ -89,59 +93,81 @@ class MessageSerializer(serializers.ModelSerializer):
         model = Message
         fields = [
             'id', 'subject', 'sender','body', 'sent_on', 'parent','deleted_by_sender', 
-            'recipients', 'recipient_ids', 'send_to_admin', 'deleted_by_sender',
-            'replies', 'actionable'
+            'recipients', 'recipient_data', 'send_to_admin', 'deleted_by_sender',
+            'replies',
         ]
     def validate(self, attrs):
         if attrs.get('deleted_by_sender'):
             return attrs
         send_to_admin = attrs.get('send_to_admin', False)
-        recipient_ids = self.initial_data.get('recipient_ids', [])
-        parent = self.initial_data.get('parent', None)
+        recipient_data = attrs.get('recipient_data', [])
+        parent = attrs.get('parent', None)
         subject = attrs.get('subject')
-        if not send_to_admin and not recipient_ids:
+        if not send_to_admin and not recipient_data:
             raise serializers.ValidationError('Message must have at least one recipient')
         if not parent and not subject:
             raise serializers.ValidationError('Non-replies must have a subject.')
         return attrs
-    
+    def validate_recipient_data(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError("recipient_data must be a list.")
+        for item in value:
+            if not isinstance(item, dict) or 'id' not in item:
+                raise serializers.ValidationError("Each item must be a dict with at least an 'id'.")
+        return value
     def create(self, validated_data):
-        recipient_ids = self.initial_data.get('recipient_ids', [])
-        send_to_admin = self.initial_data.get('send_to_admin', False)
-        #for now, this will apply to all members of a threat
-        actionable = self.validated_data.get('actionable', False)
+        recipients_data = validated_data.pop('recipient_data', [])
+        send_to_admin = validated_data.pop('send_to_admin', False)
         user = self.context['request'].user
 
         message = Message.objects.create(
             sender=user,
-            subject=validated_data['subject'],
-            body=validated_data['body'],
+            subject=validated_data.get('subject'),
+            body=validated_data.get('body'),
             parent=validated_data.get('parent'),
         )
 
         if send_to_admin:
-            recipient_ids += [admin.id for admin in User.objects.filter(role='admin').all()]
-        for recipient_id in recipient_ids:
+            admin_users = User.objects.filter(role='admin')
+            for admin in admin_users:
+                if not any(rec.get('id') == admin.id for rec in recipients_data):
+                    recipients_data.append({'id': admin.id, 'actionable': True})
+
+        seen = set()
+
+        for recipient in recipients_data:
+            rid = recipient.get('id')
+            if rid in seen:
+                continue 
+            seen.add(rid)
             MessageRecipient.objects.create(
                 message=message,
-                recipient_id=recipient_id,
-                actionable=actionable
+                recipient_id=recipient.get('id'),
+                actionable=recipient.get('actionable', False)
             )
 
-        return message 
+        return message
+    
     def update(self, instance, validated_data):
-        #currently the idea is that once a thread is established, its recipients are immutable, though this may change later
+        # Recipients are immutable by current policy
         if validated_data.pop('deleted_by_sender', None):
             instance.deleted_by_sender = True
             instance.save()
             return instance
-        actionable = self.validated_data.get('actionable', False)
+
+        recipient_updates = validated_data.pop('recipient_data', [])
+
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
+
         instance.edited_on = now()
-        mr = MessageRecipient.objects.filter(message=instance)
-        print(actionable)
-        mr.update(actionable=actionable)
         instance.save()
 
-        return instance
+        if recipient_updates:
+            for rec in recipient_updates:
+                mr = MessageRecipient.objects.filter(message=instance, recipient_id=rec.get('id')).first()
+                if mr:
+                    mr.actionable = rec.get('actionable', False)
+                    mr.save()
+                else:
+                    raise serializers.ValidationError('Cannot change participants in an active thread.')

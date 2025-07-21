@@ -3,6 +3,7 @@ from rest_framework.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Q
 from projects.models import Project, Task, Client, Target, ProjectIndicator, ProjectOrganization
+from projects.utils import get_valid_orgs
 from organizations.models import Organization
 from indicators.models import Indicator
 from organizations.serializers import OrganizationListSerializer
@@ -70,9 +71,12 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
         if user.role == 'admin' or user.role=='client':
             queryset = obj.organizations.all()
         else:
-            org = user.organization
-            queryset = obj.organizations.filter(
-                Q(parent_organization=org) | Q(id=org.id)
+            child_orgs = ProjectOrganization.objects.filter(
+                parent_organization=user.organization
+            ).values_list('organization', flat=True)
+
+            queryset = Organization.objects.filter(
+                Q(task__organization=user.organization) | Q(task__organization__in=child_orgs)
             )
         return OrganizationListSerializer(queryset, many=True, context=self.context).data
 
@@ -189,29 +193,40 @@ class TargetSerializer(serializers.ModelSerializer):
     achievement = serializers.SerializerMethodField()
     
     def get_related_as_number(self, obj):
-        from respondents.models import Interaction
-        from events.models import Event, DemographicCount
+        from respondents.models import Interaction, InteractionFlag, InteractionSubcategory
+        from events.models import Event, DemographicCount, CountFlag
         if not obj.related_to:
             return None
         amount = 0
         if obj.related_to.indicator.indicator_type == 'Respondent':
-            amount += Interaction.objects.filter(task=obj.related_to, interaction_date__gte=obj.start, interaction_date__lte=obj.end, flagged=False).count()
-            counts = DemographicCount.objects.filter(task=obj.related_to, event__event_date__gte=obj.start, event__event_date__lte=obj.end, flagged=False)
+            flagged_irs = InteractionFlag.objects.values_list('interaction_id', flat=True)
+            irs = Interaction.objects.filter(task=obj.related_to, interaction_date__gte=obj.start, interaction_date__lte=obj.end).exclude(id__in=flagged_irs)
+            for ir in irs:
+                total = 1
+                if ir.task.indicator.require_numeric and ir.task.indicator.subcategories.exists():
+                    for cat in InteractionSubcategory.objects.filter(interaction=ir):
+                        total+= cat.numeric_component
+                elif ir.task.indicator.require_numeric:
+                    total += ir.numeric_component
+                amount += total
+            flagged_counts = CountFlag.objects.values_list('count_id', flat=True)
+            counts = DemographicCount.objects.filter(task=obj.related_to, event__event_date__gte=obj.start, event__event_date__lte=obj.end).exclude(id__in=flagged_counts)
             for dc in counts:
                 amount += dc.count
         elif obj.task.indicator.indicator_type == 'Count':
-            counts = DemographicCount.objects.filter(task=obj.related_to, event__event_date__gte=obj.start, event__event_date__lte=obj.end, flagged=False)
+            flagged_counts = CountFlag.objects.values_list('count_id', flat=True)
+            counts = DemographicCount.objects.filter(task=obj.related_to, event__event_date__gte=obj.start, event__event_date__lte=obj.end).exclude(id__in=flagged_counts)
             for dc in counts:
                 amount += dc.count
         return amount
 
     def get_achievement(self, obj):
-        from respondents.models import Interaction, InteractionSubcategory
-        from events.models import Event, DemographicCount
+        from respondents.models import Interaction, InteractionSubcategory, InteractionFlag
+        from events.models import Event, DemographicCount, CountFlag
         amount = 0
         if obj.task.indicator.indicator_type == 'Respondent':
-            interactions = Interaction.objects.filter(task=obj.task, interaction_date__gte=obj.start, interaction_date__lte=obj.end, flagged=False)
-            print(interactions)
+            flagged_irs = InteractionFlag.objects.values_list('interaction_id', flat=True)
+            interactions = Interaction.objects.filter(task=obj.task, interaction_date__gte=obj.start, interaction_date__lte=obj.end).exclude(id__in=flagged_irs)
             for ir in interactions:
                 if ir.subcategories.exists() and ir.task.indicator.require_numeric:
                     for cat in InteractionSubcategory.objects.filter(interaction=ir):
@@ -220,17 +235,19 @@ class TargetSerializer(serializers.ModelSerializer):
                     amount += ir.numeric_component
                 else:
                     amount += 1
-            counts = DemographicCount.objects.filter(task=obj.task, event__event_date__gte=obj.start, event__event_date__lte=obj.end, flagged=False)
+            flagged_counts = CountFlag.objects.values_list('count_id', flat=True)
+            counts = DemographicCount.objects.filter(task=obj.task, event__event_date__gte=obj.start, event__event_date__lte=obj.end).exclude(id__in=flagged_counts)
             for dc in counts:
                 amount += dc.count
         elif obj.task.indicator.indicator_type == 'Count':
-            counts = DemographicCount.objects.filter(task=obj.task, event__event_date__gte=obj.start, event__event_date__lte=obj.end, flagged=False)
+            flagged_counts = CountFlag.objects.values_list('count_id', flat=True)
+            counts = DemographicCount.objects.filter(task=obj.task, event__event_date__gte=obj.start, event__event_date__lte=obj.end).exclude(id__in=flagged_counts)
             for dc in counts:
                 amount += dc.count
         elif obj.task.indicator.indicator_type == 'Event_No':
-            amount += Event.objects.filter(tasks=obj.task, event_date__gte=obj.start, event_date__lte=obj.end).count()
+            amount += Event.objects.filter(tasks=obj.task, status= Event.EventStatus.COMPLETED, event_date__gte=obj.start, event_date__lte=obj.end).count()
         elif obj.task.indicator.indicator_type == 'Org_Event_No':
-            events = Event.objects.filter(tasks=obj.task, event_date__gte=obj.start, event_date__lte=obj.end)
+            events = Event.objects.filter(tasks=obj.task, status= Event.EventStatus.COMPLETED, event_date__gte=obj.start, event_date__lte=obj.end)
             for event in events:
                 amount += event.organizations.count()
         return amount
@@ -243,14 +260,19 @@ class TargetSerializer(serializers.ModelSerializer):
     
     def validate(self, attrs):
         task = attrs.get('task', getattr(self.instance, 'task', None))
-        org = attrs.get('organization', getattr(self.instance, 'organization', None)) \
-            or getattr(task, 'organization', None)
         
         user = self.context['request'].user
         if user.role not in ['meofficer', 'manager', 'admin']:
             raise PermissionDenied("You do not have permission to create targets.")
-        if user.role != 'admin' and org.parent_organization.id != user.organization_id:
-            raise PermissionDenied("You may only assign targets to your child organizations.")
+        
+        if user.role != 'admin':
+            is_child = ProjectOrganization.objects.filter(
+                organization=task.organization,
+                parent_organization=user.organization
+            ).exists()
+            if not is_child:
+                # This includes the case where instance.organization == user.organization
+                raise PermissionDenied("You may only assign targets to your child organizations.")
         
         related = attrs.get('related_to')
         if not task:
@@ -278,10 +300,10 @@ class TargetSerializer(serializers.ModelSerializer):
         proj_start = task.project.start
         proj_end = task.project.end
 
-        if start < proj_start:
+        if start < proj_start or start > proj_end:
             raise serializers.ValidationError(f"Target start is outside the range of the project {proj_start}")
         
-        if end > proj_end:
+        if end > proj_end or end < proj_start:
             raise serializers.ValidationError(f"Target end is outside the range of the project {proj_end}")
         
         if task and start and end:

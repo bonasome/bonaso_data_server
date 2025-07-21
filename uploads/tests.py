@@ -5,14 +5,14 @@ from rest_framework import status
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from projects.models import Project, Client, Task, Target
+from projects.models import Project, Client, Task, Target, ProjectOrganization
 from organizations.models import Organization
 from uploads.models import NarrativeReport
 from datetime import date
 User = get_user_model()
 
 
-class ProjectViewSetTest(APITestCase):
+class UploadViewSetTest(APITestCase):
     def setUp(self):
         #set up users for each role
         self.admin = User.objects.create_user(username='admin', password='testpass', role='admin')
@@ -21,7 +21,7 @@ class ProjectViewSetTest(APITestCase):
 
         #set up a parent/child org and an unrelated org
         self.parent_org = Organization.objects.create(name='Parent')
-        self.child_org = Organization.objects.create(name='Child', parent_organization=self.parent_org)
+        self.child_org = Organization.objects.create(name='Child')
         self.other_org = Organization.objects.create(name='Other')
         
         self.admin.organization = self.parent_org
@@ -40,7 +40,12 @@ class ProjectViewSetTest(APITestCase):
             description='Test project',
             created_by=self.admin,
         )
-        self.project.organizations.set([self.parent_org, self.other_org])
+        self.project.organizations.set([self.parent_org, self.other_org, self.child_org])
+
+        child_link = ProjectOrganization.objects.filter(organization=self.child_org).first()
+        child_link.parent_organization = self.parent_org
+        child_link.save()
+
 
         self.sample_file = SimpleUploadedFile("report.pdf", b"dummy content", content_type="application/pdf")
         self.report = NarrativeReport.objects.create(
@@ -49,6 +54,13 @@ class ProjectViewSetTest(APITestCase):
             uploaded_by=self.admin,
             file=self.sample_file,
             title="Monthly Report"
+        )
+        self.report = NarrativeReport.objects.create(
+            organization=self.other_org,
+            project=self.project,
+            uploaded_by=self.admin,
+            file=self.sample_file,
+            title="Other Monthly Report"
         )
 
     def test_upload_valid_report(self):

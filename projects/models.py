@@ -23,7 +23,7 @@ class Project(models.Model):
     name = models.CharField(max_length=255, verbose_name='Project Name')
     status = models.CharField(max_length=25, choices=Status.choices, default=Status.PLANNED, verbose_name='Project Status')
     client = models.ForeignKey(Client, verbose_name='Project Organized on Behalf of', blank=True, null=True, default=None, on_delete=models.SET_DEFAULT)
-    organizations = models.ManyToManyField(Organization, through='ProjectOrganization', blank=True)
+    organizations = models.ManyToManyField(Organization, through='ProjectOrganization', blank=True, through_fields=('project', 'organization'),)
     indicators = models.ManyToManyField(Indicator, through='ProjectIndicator', blank=True)
     start = models.DateField(verbose_name='Project Start Date')
     end = models.DateField(verbose_name='Project Completion Date')
@@ -37,8 +37,9 @@ class Project(models.Model):
         return f'Project {self.name} for {self.client}'
 
 class ProjectOrganization(models.Model):
-    project = models.ForeignKey(Project, on_delete=models.CASCADE)
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
+    parent_organization = models.ForeignKey(Organization, on_delete=models.SET_NULL, blank=True, null=True, related_name='child_links')
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='org_links')
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='project_organization')
     added_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True)
 
 class ProjectIndicator(models.Model):

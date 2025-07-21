@@ -5,7 +5,7 @@ from rest_framework import status
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 from datetime import datetime
-from projects.models import Project, Client, Task, Target
+from projects.models import Project, Client, Task, Target, ProjectOrganization
 from respondents.models import Respondent, Interaction, InteractionSubcategory, HIVStatus, Pregnancy
 from organizations.models import Organization
 from indicators.models import Indicator, IndicatorSubcategory
@@ -25,7 +25,7 @@ class UploadViewSetTest(APITestCase):
         
 
         self.parent_org = Organization.objects.create(name='Test Org')
-        self.child_org = Organization.objects.create(name='Test Org', parent_organization=self.parent_org)
+        self.child_org = Organization.objects.create(name='Test Org')
         self.other_org = Organization.objects.create(name='Test Org')
 
         self.admin.organization = self.parent_org
@@ -53,10 +53,15 @@ class UploadViewSetTest(APITestCase):
             description='Test project',
             created_by=self.admin,
         )
-        self.project.organizations.set([self.parent_org, self.other_org])
+        self.project.organizations.set([self.parent_org, self.other_org, self.child_org])
+
+        child_link = ProjectOrganization.objects.filter(organization=self.child_org).first()
+        child_link.parent_organization = self.parent_org
+        child_link.save()
 
         self.indicator = Indicator.objects.create(code='TEST1', name='Parent Indicator')
-        self.child_indicator = Indicator.objects.create(code='TEST2', name='Child Indicator', prerequisite=self.indicator)
+        self.child_indicator = Indicator.objects.create(code='TEST2', name='Child Indicator')
+        self.child_indicator.prerequisites.set([self.indicator])
         
         self.project.indicators.set([self.indicator, self.child_indicator])
 
@@ -306,6 +311,7 @@ class UploadViewSetTest(APITestCase):
 
         #both of these should fail 
         response = self.client.post('/api/record/interactions/upload/', {'file': file_obj}, format='multipart')
+        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         
         response = self.client.get('/api/record/respondents/')

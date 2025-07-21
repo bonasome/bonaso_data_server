@@ -2,7 +2,9 @@ from django.shortcuts import render
 from rest_framework import viewsets, permissions
 from uploads.models import NarrativeReport
 from uploads.serializers import NarrativeReportSerializer
+from projects.models import ProjectOrganization
 from organizations.models import Organization
+from projects.utils import get_valid_orgs
 from django.db.models import Q
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
@@ -30,10 +32,10 @@ class NarrativeReportViewSet(viewsets.ModelViewSet):
         if user.role == 'admin':
             return NarrativeReport.objects.all()
         elif user.role in ['meofficer', 'manager']:
-            return NarrativeReport.objects.filter(
-                Q(organization=user.organization) |
-                Q(organization__parent_organization=user.organization)
-            )
+            child_orgs = ProjectOrganization.objects.filter(
+                parent_organization=user.organization,
+            ).values_list('organization', flat=True)
+            return NarrativeReport.objects.filter(Q(organization=user.organization) | Q(organization__in=child_orgs))
         else:
             return NarrativeReport.objects.none()
     
@@ -44,7 +46,8 @@ class NarrativeReportViewSet(viewsets.ModelViewSet):
         if user.role != 'admin':
             if user.role not in ['meofficer', 'manager']:
                 raise PermissionDenied("You do not have permissiont to perform this action.")
-            if org != user.organization and org.parent_organization != user.organization:
+            valid_orgs = get_valid_orgs(user)
+            if org.id not in valid_orgs:
                 raise PermissionDenied("You can only upload reports for your own organization or a child organization.")
         serializer.save(uploaded_by=user)
 
@@ -61,13 +64,8 @@ class NarrativeReportViewSet(viewsets.ModelViewSet):
 
         # Restrict non-admins to their own or child orgs
         if user.role != 'admin':
-            org = instance.organization
-            if not (
-                org and (
-                    org.id == user.organization_id or
-                    (org.parent_organization_id == user.organization_id)
-                )
-            ):
+            if not ( instance.organization == user.organization or 
+            ProjectOrganization.objects.filter(organization=instance.organization, parent_organization=user.organization).exists()):
                 return Response(
                     {"detail": "You do not have permission to download this report."},
                     status=status.HTTP_403_FORBIDDEN

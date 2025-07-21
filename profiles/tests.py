@@ -5,7 +5,8 @@ from rest_framework import status
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 
-from profiles.models import FavoriteProject, FavoriteRespondent, FavoriteTask
+from profiles.models import FavoriteProject, FavoriteRespondent
+from projects.models import Project, ProjectOrganization
 from organizations.models import Organization
 from projects.models import Project, Client
 from indicators.models import Indicator, IndicatorSubcategory
@@ -15,7 +16,7 @@ User = get_user_model()
 class TestProfileViewSet(APITestCase):
     def setUp(self):
         self.parent = Organization.objects.create(name='Parent Org')
-        self.child = Organization.objects.create(name='Child Org', parent_organization=self.parent)
+        self.child = Organization.objects.create(name='Child Org')
         self.wrong = Organization.objects.create(name='Wrong Org')
 
         self.admin = User.objects.create_user(username='admin', password='testpass', role='admin', organization=self.parent)
@@ -25,6 +26,24 @@ class TestProfileViewSet(APITestCase):
         self.wrong_org = User.objects.create_user(username='wrong_org', password='testpass', role='meofficer', organization=self.wrong)
         self.data_collector = User.objects.create_user(username='dc', password='testpass', role='data_collector', organization=self.parent)
 
+        #set up a client
+        self.client_obj = Client.objects.create(name='Test Client', created_by=self.admin)
+
+        self.project = Project.objects.create(
+            name='Alpha Project',
+            client=self.client_obj,
+            status=Project.Status.ACTIVE,
+            start='2024-01-01',
+            end='2024-12-31',
+            description='Test project',
+            created_by=self.admin,
+        )
+        self.project.organizations.set([self.parent, self.wrong, self.child])
+
+        
+        child_link = ProjectOrganization.objects.filter(organization=self.child).first()
+        child_link.parent_organization = self.parent
+        child_link.save()
 
     def test_admin_see_all(self):
         self.client.force_authenticate(user=self.admin)

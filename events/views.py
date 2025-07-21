@@ -16,7 +16,8 @@ from django.db import transaction
 from users.restrictviewset import RoleRestrictedViewSet
 from events.models import Event, DemographicCount, EventTask, EventOrganization, CountFlag
 from organizations.models import Organization
-from projects.models import Project, Task
+from projects.models import Project, Task, ProjectOrganization
+from projects.utils import get_valid_orgs
 from indicators.models import Indicator, IndicatorSubcategory
 from events.serializers import EventSerializer, DCSerializer
 from django.contrib.auth import get_user_model
@@ -88,8 +89,8 @@ class EventViewSet(RoleRestrictedViewSet):
             if not host:
                 raise PermissionDenied("Host organization does not exist.")
 
-            if user.organization != host and user.organization != host.parent_organization:
-                raise PermissionDenied("You can only create an event where you are the host or its parent.")
+            if user.organization != host:
+                raise PermissionDenied("You can only create an event where you are the host.")
 
         return super().create(request, *args, **kwargs)
     
@@ -104,8 +105,8 @@ class EventViewSet(RoleRestrictedViewSet):
             if not instance.host:
                 raise PermissionDenied("You must provide a host organization.")
 
-            if user.organization != instance.host and user.organization != instance.host.parent_organization:
-                raise PermissionDenied("You can only edit an event where you are the host or its parent.")
+            if user.organization != instance.host:
+                raise PermissionDenied("You can only edit an event where you are the host.")
         return super().update(request, *args, **kwargs)
     
     def perform_create(self, serializer):
@@ -247,13 +248,14 @@ class EventViewSet(RoleRestrictedViewSet):
 
         if user.role not in ['meofficer', 'admin', 'manager']:
             return Response(
-                {'detail': 'You do not have permission to edit event counts.'},
+                {'detail': 'You do not have permission to view event counts.'},
                 status=status.HTTP_403_FORBIDDEN
             )
         if user.role != 'admin':
-            if not event.host or event.host != user.organization or event.host.parent_organization != user.organization:
+            valid_orgs = get_valid_orgs(user)
+            if event.host.id not in valid_orgs:
                 return Response(
-                {'detail': 'You do not have permission to edit counts for this event.'},
+                {'detail': 'You do not have permission to view counts for this event.'},
                 status=status.HTTP_403_FORBIDDEN
             )
         queryset = DemographicCount.objects.filter(event=event)
@@ -273,16 +275,7 @@ class EventViewSet(RoleRestrictedViewSet):
                 {'detail': 'You do not have permission to edit event counts.'},
                 status=status.HTTP_403_FORBIDDEN
             )
-        if user.role != 'admin':
-           if not event.host or not (
-                user.organization == event.host or
-                user.organization == event.host.parent_organization or
-                EventOrganization.objects.filter(organization = user.organization).exists() 
-            ):
-                return Response(
-                {'detail': 'You do not have permission to edit counts for this event.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        
         if event.event_date > date.today():
             return Response(
                 {'detail': 'You cannot add counts for events in the future.'},
@@ -327,7 +320,7 @@ class EventViewSet(RoleRestrictedViewSet):
             if not task or task.id not in event_task_ids:
                 return Response({'detail': f'Invalid or unauthorized Task: {task_id}'}, status=400)
             elif user.role !='admin':
-                if not (task.organization == user.organization or task.organization.parent_organization == user.organization):
+                if not (task.organization == user.organization or ProjectOrganization.objects.filter(organization=interaction.task.organization, parent_organization=user.organization).exists()):
                     return Response(
                         {'detail': 'You do not have permission to edit counts for this task.'},
                         status=status.HTTP_403_FORBIDDEN
@@ -536,7 +529,7 @@ class EventViewSet(RoleRestrictedViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         if user.role != 'admin':
-            if not event.host or event.host != user.organization or event.host.parent_organization != user.organization:
+            if not event.host or event.host!= user.organization:
                 return Response(
                     {'detail': 'You do not have permission to remove counts for this event.'},
                     status=status.HTTP_403_FORBIDDEN
@@ -556,8 +549,14 @@ class EventViewSet(RoleRestrictedViewSet):
                 {'detail': 'You do not have permission to flag event counts.'},
                 status=status.HTTP_403_FORBIDDEN
             )
+        task = Task.objects.filter(id=task_id).first()
+        if not task:
+            return Response(
+                {'detail': 'Invalid task id.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         if user.role != 'admin':
-            if not event.host or event.host != user.organization or event.host.parent_organization != user.organization:
+            if task.organization != user.organization and not ProjectOrganization.objects.filter(organization=task.organization, parent_organization=user.organization).exists():
                 return Response(
                     {'detail': 'You do not have permission to flag counts for this event.'},
                     status=status.HTTP_403_FORBIDDEN
@@ -586,8 +585,15 @@ class EventViewSet(RoleRestrictedViewSet):
                 {'detail': 'You do not have permission to flag event counts.'},
                 status=status.HTTP_403_FORBIDDEN
             )
+        task = Task.objects.filter(id=task_id).first()
+        if not task:
+            return Response(
+                {'detail': 'Invalid task id.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         if user.role != 'admin':
-            if not event.host or event.host != user.organization or event.host.parent_organization != user.organization:
+             if task.organization != user.organization and not ProjectOrganization.objects.filter(organization=task.organization, parent_organization=user.organization).exists():
                 return Response(
                     {'detail': 'You do not have permission to flag counts for this event.'},
                     status=status.HTTP_403_FORBIDDEN
@@ -599,7 +605,6 @@ class EventViewSet(RoleRestrictedViewSet):
             )
 
         flags = CountFlag.objects.filter(count__event=event, count__task__id=task_id)
-        print(flags.count())
         for flag in flags: 
             flag.resolved = True
             flag.resolved_at = now()
@@ -619,8 +624,15 @@ class EventViewSet(RoleRestrictedViewSet):
                 {'detail': 'You do not have permission to flag event counts.'},
                 status=status.HTTP_403_FORBIDDEN
             )
+        count = DemographicCount.objects.filter(id=count_id).first()
+        if not count:
+            return Response(
+                {'detail': 'Invalid count id provided.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         if user.role != 'admin':
-            if not event.host or event.host != user.organization or event.host.parent_organization != user.organization:
+             if count.task.organization != user.organization and not ProjectOrganization.objects.filter(organization=count.task.organization, parent_organization=user.organization).exists():
                 return Response(
                     {'detail': 'You do not have permission to flag counts for this event.'},
                     status=status.HTTP_403_FORBIDDEN
@@ -631,12 +643,7 @@ class EventViewSet(RoleRestrictedViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        count = DemographicCount.objects.filter(id=count_id).first()
-        if not count:
-            return Response(
-                {'detail': 'Invalid count id provided.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        
         flag = CountFlag.objects.create(count=count, created_by=user, reason=reason)
         serializer = CountFlagSerializer(flag)
         return Response({"detail": f"Flagged count {count_id}.", "flag": serializer.data}, status=status.HTTP_200_OK)
@@ -652,8 +659,14 @@ class EventViewSet(RoleRestrictedViewSet):
                 {'detail': 'You do not have permission to flag event counts.'},
                 status=status.HTTP_403_FORBIDDEN
             )
+        flag = CountFlag.objects.filter(id=count_flags_id).first()
+        if not flag:
+            return Response(
+                {'detail': 'Flag does not exist.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         if user.role != 'admin':
-            if not event.host or event.host != user.organization or event.host.parent_organization != user.organization:
+            if flag.count.task.organization != user.organization and not ProjectOrganization.objects.filter(organization=flag.count.task.organization, parent_organization=user.organization).exists():
                 return Response(
                     {'detail': 'You do not have permission to flag counts for this event.'},
                     status=status.HTTP_403_FORBIDDEN
@@ -664,12 +677,6 @@ class EventViewSet(RoleRestrictedViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        flag = CountFlag.objects.filter(id=count_flags_id).first()
-        if not flag:
-            return Response(
-                {'detail': 'Flag does not exist.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
         flag.resolved = True
         flag.resolved_at = now()
         flag.resolved_by = user

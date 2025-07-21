@@ -20,6 +20,7 @@ from indicators.models import Indicator, IndicatorSubcategory
 from django.contrib.auth import get_user_model
 from analysis.serializers import DashboardSettingSerializer, DashboardSettingListSerializer, DashboardIndicatorChartSerializer
 from analysis.models import DashboardSetting, IndicatorChartSetting, ChartField, DashboardIndicatorChart, ChartFilter
+from events.models import DemographicCount
 from datetime import date
 import csv
 from django.utils.timezone import now
@@ -108,6 +109,9 @@ class AnalysisViewSet(RoleRestrictedViewSet):
         response = HttpResponse(buffer.getvalue(), content_type='text/csv')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
+    
+    
+
 
 class DashboardSettingViewSet(RoleRestrictedViewSet):
     serializer_class = DashboardSettingSerializer  # default
@@ -166,7 +170,11 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
         width = request.data.get('width')
         height = request.data.get('height')
         filters_map = request.data.get('filters', [])
-
+        
+        if legend == 'subcategory' and not indicator.subcategories.exists():
+            legend=None
+        if stack == 'subcategory' and not indicator.subcategories.exists():
+            stack=None
 
         if legend and use_target:
                 legend = None
@@ -226,6 +234,22 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
         user = request.user
         IndicatorChartSetting.objects.filter(id=chart_link_id).delete()
         return Response({"detail": f"Removed chart from dashboard.", "id": chart_link_id}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='breakdowns')
+    def get_breakdowns_meta(self, request):
+        breakdowns = {}
+
+        # Loop over desired choice fields
+        choice_fields = ['sex', 'age_range', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy']
+
+        for field_name in choice_fields:
+            field = DemographicCount._meta.get_field(field_name)
+            if field.choices:
+                breakdowns[field_name] = {
+                    choice: label for choice, label in field.choices
+                }
+
+        return Response(breakdowns)
 class IndicatorChartSettingViewSet(RoleRestrictedViewSet):
     serializer_class = IndicatorChartSetting
         

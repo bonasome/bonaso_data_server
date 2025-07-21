@@ -5,6 +5,7 @@ from analysis.models import DashboardFilter, ChartField, IndicatorChartSetting, 
 from analysis.utils import get_indicator_aggregate, get_target_aggregates
 from projects.serializers import ProjectListSerializer, Target
 from indicators.serializers import IndicatorListSerializer
+from events.models import DemographicCount
 from collections import defaultdict
 
 
@@ -78,4 +79,3 @@ class DashboardSettingSerializer(serializers.ModelSerializer):
         charts_data = validated_data.pop('dashboardindicatorchart_set', [])
         dashboard = DashboardSetting.objects.create(created_by=self.context['request'].user, **validated_data)
         return dashboard
-        

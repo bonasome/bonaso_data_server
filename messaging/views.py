@@ -85,7 +85,6 @@ class AnnouncementViewSet(RoleRestrictedViewSet):
         user = self.request.user
         
         queryset = Announcement.objects.filter(Q(organization=None) | Q(organization=user.organization) | 
-            Q(cascade_to_children=True, organization=user.organization.parent_organization) | 
             Q(project__organizations=user.organization))
         return queryset
 

@@ -183,8 +183,12 @@ def get_indicator_aggregate(user, indicator, params, split=None, project=None, o
                 include_subcats = True
                 fields_map['subcategory'] = [cat.name for cat in indicator.subcategories.all()]
                 continue
+            elif param == 'subcategory':
+                print('WARNING: This indicator has no subcategories.')
+                continue
             field = DemographicCount._meta.get_field(param)
             if field:
+                print(param)
                 fields_map[param] = [value for value, label in field.choices]
         
     period_func = get_quarter_string if split == 'quarter' else get_month_string

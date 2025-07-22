@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect
 from django.http import JsonResponse
 from django.views import View
+from django.shortcuts import get_object_or_404
 from django.forms.models import model_to_dict
 from rest_framework.viewsets import ModelViewSet
 from rest_framework import filters
@@ -156,6 +157,7 @@ class TaskViewSet(RoleRestrictedViewSet):
         return Response(self.get_serializer(task).data, status=201)
 
     def destroy(self, request, *args, **kwargs):
+        from events.models import DemographicCount
         user = request.user
         instance = self.get_object()
 
@@ -170,6 +172,11 @@ class TaskViewSet(RoleRestrictedViewSet):
         if Interaction.objects.filter(task=instance).exists():
             return Response(
                 {"detail": "You cannot delete a task that has interactions associated with it."},
+                status=status.HTTP_409_CONFLICT
+            )
+        if DemographicCount.objects.filter(task=instance).exists():
+            return Response(
+                {"detail": "You cannot delete a task that has event counts associated with it."},
                 status=status.HTTP_409_CONFLICT
             )
 
@@ -198,7 +205,7 @@ class TaskViewSet(RoleRestrictedViewSet):
 class ProjectViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
-    filterset_fields = ['client', 'start', 'end', 'status', 'indicators', 'organizations']
+    filterset_fields = ['client', 'start', 'end', 'status', 'organizations']
     ordering_fields = ['name','start', 'end', 'client']
     search_fields = ['name', 'description'] 
     queryset = Project.objects.none()
@@ -320,11 +327,96 @@ class ProjectViewSet(RoleRestrictedViewSet):
     @action(detail=False, methods=['get'], url_path='meta')
     def filter_options(self, request):
         statuses = [status for status, _ in Project.Status.choices]
-        clients = Client.objects.values('id', 'name')
+        status_labels = [status.label for status in Project.Status]
+        activity_categories = [cat for cat, _ in ProjectActivity.Category.choices]
+        activity_category_labels = [cat.label for cat in ProjectActivity.Category]
         return Response({
             'statuses': statuses,
-            'clients': list(clients) if clients else None,
+            'status_labels': status_labels,
+            'activity_categories': activity_categories,
+            'activity_category_labels': activity_category_labels
         })
+    
+    @action(detail=True, methods=['patch'], url_path='assign-subgrantee')
+    def assign_child(self, request, pk=None):
+        from organizations.models import Organization
+        project = self.get_object()
+        user = request.user
+        parent_org_id = request.data.get('parent_id')
+        child_org_id = request.data.get('child_id')
+        if user.role not in ['meofficer', 'manager', 'admin']:
+            return Response(
+                {"detail": "You do not have permission to add a child organization."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        parent_org = get_object_or_404(Organization, id=parent_org_id)
+
+        if user.role != 'admin':
+            if parent_org != user.organization:
+                return Response(
+                    {"detail": "You may only assign children to your own organization."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        if not ProjectOrganization.objects.filter(organization=parent_org, project=project).exists():
+            return Response(
+                {"detail": "Parent organization not in the requested project."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        child_org = get_object_or_404(Organization, id=child_org_id)
+        if parent_org == child_org:
+            return Response({"detail": "An organization cannot be its own child."}, status=400)
+            
+        existing_link = ProjectOrganization.objects.filter(organization=child_org, project=project).first()
+        if existing_link:
+            if user.role != 'admin':
+                return Response(
+                    {"detail": "This organization is already associated with this project. Only admins can change its role within the hierarchy."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            # an admin making this request will automatically reassign if they are with another parent or top level
+            existing_link.parent_organization = parent_org
+            print(existing_link.parent_organization, existing_link.organization)
+            existing_link.save()
+            return Response(status=status.HTTP_200_OK)
+        
+        ProjectOrganization.objects.create(organization=child_org, parent_organization=parent_org, project=project)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+    
+    @action(detail=True, methods=['patch'], url_path='promote-org')
+    def promote_org(self, request, pk=None):
+        from organizations.models import Organization
+        project = self.get_object()
+        user = request.user
+        org_id = request.data.get('organization_id')
+        if user.role != 'admin':
+            return Response(
+                {"detail": "You do not have permission to reassign organizations within a project."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        org = Organization.objects.filter(id=org_id).first()
+        if not org:
+            return Response(
+                {"detail": "Invalid child organization id provided.."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        org_link = ProjectOrganization.objects.filter(organization=org, project=project).first()
+        if not org_link:
+            return Response(
+                {"detail": "The target organization is not associated with this project."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if org_link.parent_organization is None:
+            return Response({"detail": "Organization is already a top-level member."}, status=200)
+        org_link.parent_organization = None
+        org_link.save()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+
+
+
     @action(detail=True, methods=['delete'], url_path='remove-organization/(?P<organization_id>[^/.]+)')
     def remove_organization(self, request, pk=None, organization_id=None):
         project = self.get_object()
@@ -467,7 +559,7 @@ class ClientViewSet(RoleRestrictedViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 class ProjectActivityViewSet(RoleRestrictedViewSet):
-    filter_backends = [filters.SearchFilter, OrderingFilter]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
     filterset_fields = ['category', 'project']
     search_fields = ['name', 'description', 'category'] 
     permission_classes = [IsAuthenticated]

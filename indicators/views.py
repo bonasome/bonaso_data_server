@@ -19,28 +19,28 @@ class IndicatorViewSet(RoleRestrictedViewSet):
     queryset = Indicator.objects.all()
     serializer_class = IndicatorSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['project', 'status']
+    filterset_fields = ['status']
     ordering_fields = ['code', 'name']
     search_fields = ['name', 'code', 'description'] 
 
     def get_queryset(self):
         queryset = super().get_queryset() 
         user = self.request.user
-        if user.role != 'admin' and user.role !='client':
+
+        if user.role != 'admin':
             queryset = queryset.filter(status=Indicator.Status.ACTIVE)
-            queryset = queryset.filter(
-                projectindicator__project__organizations__id=user.organization.id
-            )
-        project_id = self.request.query_params.get('project')
-        if project_id:
-            queryset = queryset.filter(projectindicator__project__id=project_id)
+
         exclude_project_id = self.request.query_params.get('exclude_project')
+        exclude_org_id = self.request.query_params.get('exclude_organization')
+
         if exclude_project_id:
-            queryset = queryset.exclude(projectindicator__project__id=exclude_project_id)
-        organization_id = self.request.query_params.get('organization')
-        if organization_id:
-            tasks = Task.objects.filter(indicator__in=queryset, organization__id=organization_id)
-            queryset = queryset.filter(id__in=tasks.values_list('indicator_id', flat=True))
+            task_filter = {'project_id': exclude_project_id}
+            if exclude_org_id:
+                task_filter['organization_id'] = exclude_org_id
+
+            bad_ids = Task.objects.filter(**task_filter).values_list('indicator__id', flat=True)
+            queryset = queryset.exclude(id__in=bad_ids)
+
         return queryset
 
     @action(detail=False, methods=['get'], url_path='chart-data')

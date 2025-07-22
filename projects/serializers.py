@@ -43,58 +43,57 @@ class TaskSerializer(serializers.ModelSerializer):
     organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True)
     indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True)
     project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True)
-
-    targets = serializers.SerializerMethodField()
-
-    def get_targets(self, obj):
-        request = self.context.get('request')
-        if request and request.query_params.get('include_targets') == 'true':
-            return TargetForTaskSerializer(obj.target_set.all(), many=True, context=self.context).data
-        return None
-    
+ 
     class Meta:
         model=Task
         fields = ['id', 'indicator', 'organization', 'project', 'indicator_id', 
-                  'project_id', 'organization_id', 'targets']
+                  'project_id', 'organization_id']
 
 class ProjectDetailSerializer(serializers.ModelSerializer):
     tasks = TaskSerializer(many=True, read_only=True)
     client = ClientSerializer(read_only=True)
     client_id = serializers.PrimaryKeyRelatedField(queryset=Client.objects.all(), write_only=True, required=False, allow_null=True, source='client')
     organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), required=False, many=True, write_only=True, source='organizations')
-    indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), many=True, required=False, write_only=True, source='indicators')
     organizations = serializers.SerializerMethodField()
-    indicators = serializers.SerializerMethodField()
 
     def get_organizations(self, obj):
         user = self.context['request'].user
-        if user.role == 'admin' or user.role=='client':
-            queryset = obj.organizations.all()
-        else:
-            child_orgs = ProjectOrganization.objects.filter(
-                parent_organization=user.organization
-            ).values_list('organization', flat=True)
 
-            queryset = Organization.objects.filter(
-                Q(task__organization=user.organization) | Q(task__organization__in=child_orgs)
-            )
-        return OrganizationListSerializer(queryset, many=True, context=self.context).data
-
-    def get_indicators(self, obj):
-        user = self.context['request'].user
-        if user.role == 'admin' or user.role == 'client':
-            queryset = obj.indicators.all()
+        if user.role in ['admin', 'client']:
+            queryset = ProjectOrganization.objects.filter(project=obj)
         else:
-            org = user.organization
-            tasks = Task.objects.filter(organization=org, project=obj)
-            indicator_ids = tasks.values_list('indicator_id', flat=True).distinct()
-            queryset = Indicator.objects.filter(id__in=indicator_ids)
-        return IndicatorSerializer(queryset, many=True, context=self.context).data
-    
+            queryset = ProjectOrganization.objects.filter( project=obj
+            ).filter(Q(organization=user.organization) | Q(parent_organization=user.organization))
+
+        # Ensure related orgs are prefetched
+        queryset = queryset.select_related('organization', 'parent_organization')
+
+        # Build a map of orgs
+        org_map = {
+            org_link.organization.id: {
+                'id': org_link.organization.id,
+                'name': org_link.organization.name,
+                'parent': {'id': org_link.parent_organization.id, 'name': org_link.parent_organization.name} if org_link.parent_organization else None,
+                'children': []
+            }
+            for org_link in queryset
+        }
+
+        root_nodes = []
+        for org_link in queryset:
+            org_id = org_link.organization.id
+            parent = org_link.parent_organization
+            if parent and parent.id in org_map:
+                org_map[parent.id]['children'].append(org_map[org_id])
+            else:
+                root_nodes.append(org_map[org_id])
+
+        return root_nodes
+
     class Meta:
         model=Project
         fields = ['id', 'name', 'client', 'start', 'end', 'description', 'tasks', 'client_id',
-                  'organization_id', 'indicator_id', 'organizations', 'indicators', 'status']
+                  'organization_id', 'organizations', 'status']
 
     def validate(self, attrs):
         # Use incoming value if present, otherwise fall back to existing value on the instance
@@ -123,7 +122,6 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
         if user.role != 'admin':
             raise PermissionDenied('You do not have permission to edit projects.')
         organizations = validated_data.pop('organizations', [])
-        indicators = validated_data.pop('indicators', [])
         project = Project.objects.create(**validated_data)
 
         self._add_organizations(project, organizations, user)
@@ -137,7 +135,6 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
             raise PermissionDenied('You do not have permission to edit projects.')
 
         organizations = validated_data.pop('organizations', [])
-        indicators = validated_data.pop('indicators', [])
 
         # Update normal fields
         for attr, value in validated_data.items():
@@ -148,20 +145,6 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
         self._add_organizations(instance, organizations, user)
 
         return instance
-
-class TargetForTaskSerializer(serializers.ModelSerializer):
-    related_to = serializers.SerializerMethodField()
-    class Meta:
-        model = Target
-        fields = ['id', 'start', 'end', 'amount','related_to','percentage_of_related']
-    def get_related_to(self, obj):
-        if obj.related_to:
-            return {
-                'id': obj.related_to.id,
-                'code': obj.related_to.indicator.code,
-                'name': obj.related_to.indicator.name,
-            }
-        return None
     
 class TargetSerializer(serializers.ModelSerializer):
     task = TaskSerializer(read_only=True)
@@ -317,7 +300,7 @@ class ProjectActivitySerializer(serializers.ModelSerializer):
     project= ProjectListSerializer(read_only=True)
     project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True, required=False, allow_null=True, source='project')
     organizations = OrganizationListSerializer(read_only=True, many=True)
-    organization_ids = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), many=True, write_only=True, required=False, allow_null=True, source='organizations')
+    organization_ids = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), many=True, write_only=True, required=False, source='organizations')
     comments = ProjectActivityCommentSerializer(read_only=True, many=True)
 
     class Meta:
@@ -333,7 +316,6 @@ class ProjectActivitySerializer(serializers.ModelSerializer):
         orgs = organizations
         if not orgs:
             orgs = [user.organization]
-        print(cascade_to_children)
         if cascade_to_children:
             org_ids = [org.id for org in orgs]
             # Ensure you're collecting orgs, not ProjectOrganization objects

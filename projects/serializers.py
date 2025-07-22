@@ -2,7 +2,7 @@ from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Q
-from projects.models import Project, Task, Client, Target, ProjectIndicator, ProjectOrganization
+from projects.models import Project, Task, Client, Target, ProjectOrganization, ProjectActivity, ProjectActivityComment, ProjectActivityOrganization
 from projects.utils import get_valid_orgs
 from organizations.models import Organization
 from indicators.models import Indicator
@@ -116,25 +116,6 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
         ]
         ProjectOrganization.objects.bulk_create(new_links)
 
-    def _add_indicators(self, project, indicators, user):
-        existing_ind_ids = set(
-            ProjectIndicator.objects.filter(project=project).values_list('indicator_id', flat=True)
-        )
-        incoming_ind_ids = {ind.id for ind in indicators}
-
-        new_links = []
-        for indicator in indicators:
-            prereqs = getattr(indicator, 'prerequisites', None)
-            for prereq in prereqs.all():
-                if prereq and prereq.id not in existing_ind_ids and prereq.id not in incoming_ind_ids:
-                    raise serializers.ValidationError(
-                        f"Indicator '{indicator}' has a prerequisite '{prereq.name}' that must be added first."
-                    )
-            if indicator.id not in existing_ind_ids:
-                new_links.append(ProjectIndicator(project=project, indicator=indicator, added_by=user))
-
-        ProjectIndicator.objects.bulk_create(new_links)
-
 
     @transaction.atomic
     def create(self, validated_data):
@@ -146,7 +127,6 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
         project = Project.objects.create(**validated_data)
 
         self._add_organizations(project, organizations, user)
-        self._add_indicators(project, indicators, user)
         return project
 
 
@@ -166,7 +146,6 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
 
         # Add new organizations (append-only)
         self._add_organizations(instance, organizations, user)
-        self._add_indicators(instance, indicators, user)
 
         return instance
 
@@ -319,4 +298,111 @@ class TargetSerializer(serializers.ModelSerializer):
                 raise ConflictError("This target overlaps with an existing target.")
         
         return attrs
+class ProjectActivityCommentSerializer(serializers.ModelSerializer):
+    author = serializers.SerializerMethodField(read_only=True)
+    def get_created_by(self, obj):
+        if obj.created_by:
+            return {
+                "id": obj.created_by.id,
+                "username": obj.created_by.username,
+                "first_name": obj.created_by.first_name,
+                "last_name": obj.created_by.last_name,
+            }
+        
+    class Meta:
+        model=ProjectActivityComment
+        fields = ['id', 'activity', 'author', 'content', 'created']
 
+class ProjectActivitySerializer(serializers.ModelSerializer):
+    project= ProjectListSerializer(read_only=True)
+    project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True, required=False, allow_null=True, source='project')
+    organizations = OrganizationListSerializer(read_only=True, many=True)
+    organization_ids = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), many=True, write_only=True, required=False, allow_null=True, source='organizations')
+    comments = ProjectActivityCommentSerializer(read_only=True, many=True)
+
+    class Meta:
+        model = ProjectActivity
+        fields = ['id', 'project', 'project_id', 'organizations', 'organization_ids', 'start', 'end', 'comments',
+                'cascade_to_children', 'visible_to_all', 'category', 'status', 'name', 'description',
+                ]
+    
+    def _set_organizations(self, activity, organizations, user, cascade_to_children):
+        # Clear existing relationships first
+        ProjectActivityOrganization.objects.filter(project_activity=activity).delete()
+
+        orgs = organizations
+        if not orgs:
+            orgs = [user.organization]
+        print(cascade_to_children)
+        if cascade_to_children:
+            org_ids = [org.id for org in orgs]
+            # Ensure you're collecting orgs, not ProjectOrganization objects
+            child_orgs = ProjectOrganization.objects.filter(
+                project=activity.project,
+                parent_organization_id__in=org_ids  # cascade from each selected org, not user only
+            )
+            if child_orgs:
+                child_orgs = [org.organization for org in child_orgs]
+            orgs = list(set(orgs) | set(child_orgs))  # de-duplicate
+        else:
+            orgs = organizations
+        links = [
+            ProjectActivityOrganization(project_activity=activity, organization=org)
+            for org in orgs
+        ]
+        ProjectActivityOrganization.objects.bulk_create(links)
+
+    def validate(self, attrs):
+        user = self.context['request'].user
+        project = attrs.get('project', getattr(self.instance, 'project', None))
+        start = attrs.get('start', getattr(self.instance, 'start', None))
+        end = attrs.get('end', getattr(self.instance, 'end', None))
+        visible_to_all = str(attrs.get('visible_to_all', getattr(self.instance, 'visible_to_all', False))).lower() in ['true', '1']
+        organizations = attrs.get('organizations', getattr(self.instance, 'organizations', []))
+
+        cascade_to_children = str(attrs.get('cascade_to_children', getattr(self.instance, 'cascade_to_children', False))).lower() in ['true', '1']
+        if user.role not in ['admin', 'meofficer', 'manager']:
+            raise PermissionDenied('You do not have permission to create project activities.')
+        if user.role != 'admin':
+            if visible_to_all:
+                raise PermissionDenied('Only an admin amy make an activity visible to all members of a project')
+            for organization in organizations:
+                if not user.organization == organization and not ProjectOrganization.objects.filter(project=project, organization=organization, parent_organization=user.organization).exists():
+                    raise PermissionDenied('You may not add organizations that are not your organizaiton or a child organization')
+                
+        if start and end and end < start:
+            raise serializers.ValidationError("Start date must be before end date")
+        
+        proj_start = project.start
+        proj_end = project.end
+
+        if start < proj_start or start > proj_end:
+            raise serializers.ValidationError(f"Target start is outside the range of the project {proj_start}")
+        
+        if end > proj_end or end < proj_start:
+            raise serializers.ValidationError(f"Target end is outside the range of the project {proj_end}")
+        return attrs
+    
+    def create(self, validated_data):
+        user = self.context.get('request').user if self.context.get('request') else None
+        organizations = validated_data.pop('organizations', [])
+        cascade_to_children = validated_data.get('cascade_to_children', False)
+        activity = ProjectActivity.objects.create(**validated_data)
+        print(cascade_to_children)
+        self._set_organizations(activity, organizations, user, cascade_to_children)
+        activity.created_by = user
+        activity.save()
+        return activity
+
+    def update(self, instance, validated_data):
+        user = self.context.get('request').user if self.context.get('request') else None
+        organizations = validated_data.pop('organizations', [])
+        cascade_to_children = validated_data.get('cascade_to_children', False)
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.updated_by = user
+        instance.save()
+        print(cascade_to_children)
+        self._set_organizations(instance, organizations, user, cascade_to_children)
+        return instance

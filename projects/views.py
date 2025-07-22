@@ -24,8 +24,8 @@ import json
 from datetime import datetime, date
 today = date.today().isoformat()
 
-from projects.models import Project, ProjectIndicator, ProjectOrganization, Client, Task, Target
-from projects.serializers import ProjectListSerializer, ProjectDetailSerializer, TaskSerializer, TargetSerializer, ClientSerializer
+from projects.models import Project, ProjectOrganization, Client, Task, Target, ProjectActivity, ProjectActivityOrganization
+from projects.serializers import ProjectListSerializer, ProjectDetailSerializer, TaskSerializer, TargetSerializer, ClientSerializer, ProjectActivitySerializer
 from projects.utils import get_valid_orgs
 from respondents.models import Interaction
 from events.models import Event
@@ -121,9 +121,8 @@ class TaskViewSet(RoleRestrictedViewSet):
         if Task.objects.filter(organization=organization, indicator=indicator, project=project).exists():
             raise ValidationError('This task already exists.')
         if role == 'admin':
-            if not project.organizations.filter(id=organization.id).exists() or \
-            not project.indicators.filter(id=indicator.id).exists():
-                raise ValidationError("Organization/indicator are not in this project.")
+            if not project.organizations.filter(id=organization.id).exists():
+                raise ValidationError("Organization is not in this project.")
 
         elif role in ['meofficer', 'manager']:
             valid_orgs = get_valid_orgs(user)
@@ -359,44 +358,6 @@ class ProjectViewSet(RoleRestrictedViewSet):
         except ProjectOrganization.DoesNotExist:
             return Response({"detail": "Organization not associated with this project."}, status=status.HTTP_404_NOT_FOUND)
     
-    @transaction.atomic
-    @action(detail=True, methods=['delete'], url_path='remove-indicator/(?P<indicator_id>[^/.]+)')
-    def remove_indicator(self, request, pk=None, indicator_id=None):
-        user = request.user
-        if user.role != 'admin':
-            return Response(
-                {"detail": "You do not have permission to remove an indicator from a project."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        project = self.get_object()
-
-        try:
-            indicator_link = ProjectIndicator.objects.get(project=project, indicator__id=indicator_id)
-
-            if Interaction.objects.filter(task__indicator=indicator_link.indicator).exists():
-                return Response(
-                    {"detail": "You cannot remove an indicator from a project when it has active tasks."},
-                    status=status.HTTP_409_CONFLICT
-                )
-
-            if ProjectIndicator.objects.filter(project=project, indicator__prerequisites__id=indicator_id).exists():
-                return Response(
-                    {"detail": "You cannot remove this indicator since it is a prerequisite for other indicators in this project. Please remove those first."},
-                    status=status.HTTP_409_CONFLICT
-                )
-
-            count, _ = Task.objects.filter(project=project, indicator=indicator_link.indicator).delete()
-            indicator_link.delete()
-
-            return Response(
-                {"detail": f"Indicator removed along with {count} associated tasks."},
-                status=status.HTTP_200_OK
-            )
-
-        except ProjectIndicator.DoesNotExist:
-            return Response({"detail": "Indicator not found."}, status=status.HTTP_404_NOT_FOUND)
-    
 
 class TargetViewSet(RoleRestrictedViewSet):
     queryset = Target.objects.none()
@@ -501,6 +462,62 @@ class ClientViewSet(RoleRestrictedViewSet):
                 {"detail": "You do not have permission to delete a client."},
                 status=status.HTTP_403_FORBIDDEN
             )
+
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+class ProjectActivityViewSet(RoleRestrictedViewSet):
+    filter_backends = [filters.SearchFilter, OrderingFilter]
+    filterset_fields = ['category', 'project']
+    search_fields = ['name', 'description', 'category'] 
+    permission_classes = [IsAuthenticated]
+    serializer_class = ProjectActivitySerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        role = getattr(user, 'role', None)
+
+        if role == 'admin':
+            return ProjectActivity.objects.all()
+
+        if role == 'client' and user.client_organization:
+            return ProjectActivity.objects.filter(project__client=user.client_organization)
+
+        if role in ['meofficer', 'manager']:
+            child_orgs = ProjectOrganization.objects.filter(
+                parent_organization=user.organization
+            ).values_list('organization', flat=True)
+
+            return ProjectActivity.objects.filter(
+                Q(visible_to_all=True) |
+                Q(organizations=user.organization) |
+                Q(organizations__in=child_orgs)
+            ).filter(
+                project__status=Project.Status.ACTIVE
+            ).distinct()
+
+        return ProjectActivity.objects.none()
+
+    def destroy(self, request, *args, **kwargs):
+        user = request.user
+        instance = self.get_object()
+        if user.role not in ['meofficer', 'manager', 'admin']:
+            return Response(
+                {"detail": "You do not have permission to delete an activity."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        # Role check
+        if user.role != 'admin':
+            if user.organization != instance.created_by.organization:
+                return Response(
+                    {"detail": "You do not have permission to delete an event."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        if instance.status != Project.Status.PLANNED:
+            return Response(
+                    {"detail": "You may only delete planned activities."},
+                    status=status.HTTP_409_CONFLICT
+                )
 
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)

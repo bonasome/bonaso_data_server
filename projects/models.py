@@ -24,7 +24,6 @@ class Project(models.Model):
     status = models.CharField(max_length=25, choices=Status.choices, default=Status.PLANNED, verbose_name='Project Status')
     client = models.ForeignKey(Client, verbose_name='Project Organized on Behalf of', blank=True, null=True, default=None, on_delete=models.SET_DEFAULT)
     organizations = models.ManyToManyField(Organization, through='ProjectOrganization', blank=True, through_fields=('project', 'organization'),)
-    indicators = models.ManyToManyField(Indicator, through='ProjectIndicator', blank=True)
     start = models.DateField(verbose_name='Project Start Date')
     end = models.DateField(verbose_name='Project Completion Date')
     description = models.TextField(blank=True, null=True, verbose_name='Project Description')
@@ -42,10 +41,6 @@ class ProjectOrganization(models.Model):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='project_organization')
     added_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True)
 
-class ProjectIndicator(models.Model):
-    project = models.ForeignKey(Project, on_delete=models.CASCADE)
-    indicator = models.ForeignKey(Indicator, on_delete=models.CASCADE)
-    added_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True)
 
 class Task(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE)
@@ -94,3 +89,39 @@ class Target(models.Model):
         if overlaps.exists():
             raise ValidationError("Target date range overlaps with an existing target.")
 
+class ProjectActivity(models.Model):
+    class Category(models.TextChoices):
+        GEN = 'general', _('General Activity') #misc
+        ME = 'me', _('Monitoring and Evaluation') #m&e, data checkins
+        FINANCE = 'finance', _('Finance') #finance
+        TRAINING = 'training', _('Training') #training/capacity building
+        MILESTONE = 'milestone', _('Milestone') #mid term, project launch, closeout, etc
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE)
+    organizations = models.ManyToManyField(Organization, through='ProjectActivityOrganization')
+    visible_to_all = models.BooleanField(default=False)
+    cascade_to_children = models.BooleanField(default=False)
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    start = models.DateField()
+    end = models.DateField()
+    status = models.CharField(max_length=25, choices=Project.Status.choices, default=Project.Status.PLANNED)
+    category = models.CharField(max_length=25, choices=Category.choices, default=Category.GEN)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='activity_created_by')
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='activity_updated_by')
+
+
+class ProjectActivityOrganization(models.Model):
+    project_activity = models.ForeignKey(ProjectActivity, on_delete=models.CASCADE)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
+
+class ProjectActivityComment(models.Model):
+    activity = models.ForeignKey(ProjectActivity, on_delete=models.CASCADE, related_name='comments')
+    author = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    content = models.TextField()
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created']

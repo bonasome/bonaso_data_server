@@ -125,3 +125,26 @@ class ProjectActivityComment(models.Model):
 
     class Meta:
         ordering = ['-created']
+
+
+class ProjectDeadline(models.Model):
+    project = models.ForeignKey(Project, on_delete=models.CASCADE)
+    organizations = models.ManyToManyField(Organization, through='ProjectDeadlineOrganization')
+    visible_to_all = models.BooleanField(default=False)
+    cascade_to_children = models.BooleanField(default=False)
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    deadline_date = models.DateField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='deadline_created_by')
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='deadline_updated_by')
+
+class ProjectDeadlineOrganization(models.Model):
+    deadline = models.ForeignKey(ProjectDeadline, on_delete=models.CASCADE)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
+    completed = models.BooleanField(default=False)
+    organization_deadline = models.DateField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('deadline', 'organization')

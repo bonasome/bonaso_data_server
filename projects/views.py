@@ -25,9 +25,9 @@ import json
 from datetime import datetime, date
 today = date.today().isoformat()
 
-from projects.models import Project, ProjectOrganization, Client, Task, Target, ProjectActivity, ProjectActivityOrganization
-from projects.serializers import ProjectListSerializer, ProjectDetailSerializer, TaskSerializer, TargetSerializer, ClientSerializer, ProjectActivitySerializer
-from projects.utils import get_valid_orgs
+from projects.models import Project, ProjectOrganization, Client, Task, Target, ProjectActivity, ProjectDeadline, ProjectActivityOrganization
+from projects.serializers import ProjectListSerializer, ProjectDetailSerializer, TaskSerializer, TargetSerializer, ClientSerializer, ProjectActivitySerializer, ProjectDeadlineSerializer
+from projects.utils import get_valid_orgs, ProjectPermissionHelper
 from respondents.models import Interaction
 from events.models import Event
 
@@ -337,6 +337,26 @@ class ProjectViewSet(RoleRestrictedViewSet):
             'activity_category_labels': activity_category_labels
         })
     
+    @action(detail=True, methods=['get'], url_path='get-related')
+    def get_related(self, request, pk=None):
+        project=self.get_object()
+        user = request.user
+        perm_manager = ProjectPermissionHelper(user, project)
+        #get activities
+        activities = ProjectActivity.objects.all()
+        activities = perm_manager.filter_queryset(activities)
+        activity_serializer = ProjectActivitySerializer(activities, many=True)
+        #get deadlines
+        deadlines = ProjectDeadline.objects.all()
+        deadlines = perm_manager.filter_queryset(deadlines)
+        deadline_serializer = ProjectDeadlineSerializer(deadlines, many=True)
+        return Response({
+            'activities': activity_serializer.data,
+            'deadlines': deadline_serializer.data,
+        })
+
+
+
     @action(detail=True, methods=['patch'], url_path='assign-subgrantee')
     def assign_child(self, request, pk=None):
         from organizations.models import Organization
@@ -412,10 +432,6 @@ class ProjectViewSet(RoleRestrictedViewSet):
         org_link.parent_organization = None
         org_link.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-
-
 
     @action(detail=True, methods=['delete'], url_path='remove-organization/(?P<organization_id>[^/.]+)')
     def remove_organization(self, request, pk=None, organization_id=None):
@@ -567,49 +583,49 @@ class ProjectActivityViewSet(RoleRestrictedViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        role = getattr(user, 'role', None)
 
-        if role == 'admin':
-            return ProjectActivity.objects.all()
+        queryset = ProjectActivity.objects.all()
+        perm_manager = ProjectPermissionHelper(user)
 
-        if role == 'client' and user.client_organization:
-            return ProjectActivity.objects.filter(project__client=user.client_organization)
-
-        if role in ['meofficer', 'manager']:
-            child_orgs = ProjectOrganization.objects.filter(
-                parent_organization=user.organization
-            ).values_list('organization', flat=True)
-
-            return ProjectActivity.objects.filter(
-                Q(visible_to_all=True) |
-                Q(organizations=user.organization) |
-                Q(organizations__in=child_orgs)
-            ).filter(
-                project__status=Project.Status.ACTIVE
-            ).distinct()
-
-        return ProjectActivity.objects.none()
+        return perm_manager.filter_queryset(queryset)
 
     def destroy(self, request, *args, **kwargs):
         user = request.user
         instance = self.get_object()
-        if user.role not in ['meofficer', 'manager', 'admin']:
+        perm_manager = ProjectPermissionHelper(user)
+        perm = perm_manager.destroy(instance)
+        if not perm:
             return Response(
                 {"detail": "You do not have permission to delete an activity."},
                 status=status.HTTP_403_FORBIDDEN
             )
-        # Role check
-        if user.role != 'admin':
-            if user.organization != instance.created_by.organization:
-                return Response(
-                    {"detail": "You do not have permission to delete an event."},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-        if instance.status != Project.Status.PLANNED:
-            return Response(
-                    {"detail": "You may only delete planned activities."},
-                    status=status.HTTP_409_CONFLICT
-                )
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
+class ProjectDeadlineViewSet(RoleRestrictedViewSet):
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
+    filterset_fields = ['project']
+    search_fields = ['name', 'description'] 
+    permission_classes = [IsAuthenticated]
+    serializer_class = ProjectDeadlineSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+
+        queryset = ProjectDeadline.objects.all()
+        perm_manager = ProjectPermissionHelper(user)
+
+        return perm_manager.filter_queryset(queryset)
+
+    def destroy(self, request, *args, **kwargs):
+        user = request.user
+        instance = self.get_object()
+        perm_manager = ProjectPermissionHelper(user)
+        perm = perm_manager.destroy(instance)
+        if not perm:
+            return Response(
+                {"detail": "You do not have permission to delete an activity."},
+                status=status.HTTP_403_FORBIDDEN
+            )
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)

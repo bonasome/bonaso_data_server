@@ -2,8 +2,8 @@ from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Q
-from projects.models import Project, Task, Client, Target, ProjectOrganization, ProjectActivity, ProjectActivityComment, ProjectActivityOrganization
-from projects.utils import get_valid_orgs
+from projects.models import Project, Task, Client, Target, ProjectOrganization, ProjectActivity, ProjectDeadline, ProjectActivityComment, ProjectActivityOrganization, ProjectDeadlineOrganization
+from projects.utils import get_valid_orgs, ProjectPermissionHelper
 from organizations.models import Organization
 from indicators.models import Indicator
 from organizations.serializers import OrganizationListSerializer
@@ -305,29 +305,15 @@ class ProjectActivitySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ProjectActivity
-        fields = ['id', 'project', 'project_id', 'organizations', 'organization_ids', 'start', 'end', 'comments',
-                'cascade_to_children', 'visible_to_all', 'category', 'status', 'name', 'description',
+        fields = [
+                    'id', 'project', 'project_id', 'organizations', 'organization_ids', 'start', 'end', 'comments',
+                    'cascade_to_children', 'visible_to_all', 'category', 'status', 'name', 'description',
                 ]
     
-    def _set_organizations(self, activity, organizations, user, cascade_to_children):
+    def _set_organizations(self, activity, organizations):
         # Clear existing relationships first
         ProjectActivityOrganization.objects.filter(project_activity=activity).delete()
-
         orgs = organizations
-        if not orgs:
-            orgs = [user.organization]
-        if cascade_to_children:
-            org_ids = [org.id for org in orgs]
-            # Ensure you're collecting orgs, not ProjectOrganization objects
-            child_orgs = ProjectOrganization.objects.filter(
-                project=activity.project,
-                parent_organization_id__in=org_ids  # cascade from each selected org, not user only
-            )
-            if child_orgs:
-                child_orgs = [org.organization for org in child_orgs]
-            orgs = list(set(orgs) | set(child_orgs))  # de-duplicate
-        else:
-            orgs = organizations
         links = [
             ProjectActivityOrganization(project_activity=activity, organization=org)
             for org in orgs
@@ -337,20 +323,13 @@ class ProjectActivitySerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         user = self.context['request'].user
         project = attrs.get('project', getattr(self.instance, 'project', None))
+        perm_manager = ProjectPermissionHelper(user=user, project=project)
+        result = perm_manager.alter_switchboard(data=attrs, instance=(self.instance if self.instance else None))
+        if not result.get('success', False):
+            raise PermissionDenied(result.data)
+        
         start = attrs.get('start', getattr(self.instance, 'start', None))
         end = attrs.get('end', getattr(self.instance, 'end', None))
-        visible_to_all = str(attrs.get('visible_to_all', getattr(self.instance, 'visible_to_all', False))).lower() in ['true', '1']
-        organizations = attrs.get('organizations', getattr(self.instance, 'organizations', []))
-
-        cascade_to_children = str(attrs.get('cascade_to_children', getattr(self.instance, 'cascade_to_children', False))).lower() in ['true', '1']
-        if user.role not in ['admin', 'meofficer', 'manager']:
-            raise PermissionDenied('You do not have permission to create project activities.')
-        if user.role != 'admin':
-            if visible_to_all:
-                raise PermissionDenied('Only an admin amy make an activity visible to all members of a project')
-            for organization in organizations:
-                if not user.organization == organization and not ProjectOrganization.objects.filter(project=project, organization=organization, parent_organization=user.organization).exists():
-                    raise PermissionDenied('You may not add organizations that are not your organizaiton or a child organization')
                 
         if start and end and end < start:
             raise serializers.ValidationError("Start date must be before end date")
@@ -363,15 +342,14 @@ class ProjectActivitySerializer(serializers.ModelSerializer):
         
         if end > proj_end or end < proj_start:
             raise serializers.ValidationError(f"Target end is outside the range of the project {proj_end}")
-        return attrs
+        
+        return result['data']
     
     def create(self, validated_data):
         user = self.context.get('request').user if self.context.get('request') else None
         organizations = validated_data.pop('organizations', [])
-        cascade_to_children = validated_data.get('cascade_to_children', False)
         activity = ProjectActivity.objects.create(**validated_data)
-        print(cascade_to_children)
-        self._set_organizations(activity, organizations, user, cascade_to_children)
+        self._set_organizations(activity, organizations)
         activity.created_by = user
         activity.save()
         return activity
@@ -379,12 +357,76 @@ class ProjectActivitySerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         user = self.context.get('request').user if self.context.get('request') else None
         organizations = validated_data.pop('organizations', [])
-        cascade_to_children = validated_data.get('cascade_to_children', False)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.updated_by = user
         instance.save()
-        print(cascade_to_children)
-        self._set_organizations(instance, organizations, user, cascade_to_children)
+        self._set_organizations(instance, organizations)
+        return instance
+    
+class ProjectDeadineOrganizationSerializer(serializers.ModelSerializer):
+    organization = OrganizationListSerializer(read_only=True)
+    class Meta:
+        model = ProjectDeadlineOrganization
+        fields = ['organization', 'organization_deadline', 'completed']
+
+class ProjectDeadlineSerializer(serializers.ModelSerializer):
+    project= ProjectListSerializer(read_only=True)
+    project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True, required=False, allow_null=True, source='project')
+    organizations = ProjectDeadineOrganizationSerializer(read_only=True, many=True)
+    organization_ids = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), many=True, write_only=True, required=False, source='organizations')
+
+    class Meta:
+        model = ProjectDeadline
+        fields = ['id', 'project', 'project_id', 'organizations', 'organization_ids', 'deadline_date',
+                'cascade_to_children', 'visible_to_all', 'name', 'description',
+                ]
+    
+    def _set_organizations(self, deadline, organizations):
+        # Clear existing relationships first
+        ProjectDeadlineOrganization.objects.filter(deadline=deadline).delete()
+        orgs = organizations
+        links = [
+            ProjectDeadlineOrganization(deadline=deadline, organization=org)
+            for org in orgs
+        ]
+        ProjectDeadlineOrganization.objects.bulk_create(links)
+
+    def validate(self, attrs):
+        user = self.context['request'].user
+        project = attrs.get('project', getattr(self.instance, 'project', None))
+        perm_manager = ProjectPermissionHelper(user=user, project=project)
+        result = perm_manager.alter_switchboard(data=attrs, instance=(self.instance if self.instance else None))
+        if not result.get('success', False):
+            raise PermissionDenied(result.data)
+        
+        date = attrs.get('deadline_date', getattr(self.instance, 'deadline_date', None))
+
+        proj_start = project.start
+        proj_end = project.end
+
+        if date < proj_start or date > proj_end:
+            raise serializers.ValidationError(f"Deadline date is outside the range of the project {proj_start} to {proj_end}. Not a bro move.")
+        
+        return result['data']
+    
+    def create(self, validated_data):
+        user = self.context.get('request').user if self.context.get('request') else None
+        organizations = validated_data.pop('organizations', [])
+        deadline = ProjectDeadline.objects.create(**validated_data)
+        self._set_organizations(deadline, organizations)
+        deadline.created_by = user
+        deadline.save()
+        return deadline
+
+    def update(self, instance, validated_data):
+        user = self.context.get('request').user if self.context.get('request') else None
+        organizations = validated_data.pop('organizations', [])
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.updated_by = user
+        instance.save()
+        self._set_organizations(instance, organizations)
         return instance

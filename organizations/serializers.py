@@ -42,10 +42,9 @@ class OrganizationSerializer(serializers.ModelSerializer):
         org = getattr(user, 'organization', None)
 
 
-        if role != 'admin':
-            if role not in ['meofficer', 'manager']:
-                raise serializers.ValidationError(
-                    'You do not have permission to perform this action.'
-                )
+        if role not in ['meofficer', 'manager', 'admin']:
+            raise serializers.ValidationError(
+                'You do not have permission to perform this action.'
+            )
 
         return attrs

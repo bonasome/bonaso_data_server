@@ -246,19 +246,23 @@ class EventViewSet(RoleRestrictedViewSet):
         event=self.get_object()
         user=request.user
 
-        if user.role not in ['meofficer', 'admin', 'manager']:
+        if user.role not in ['meofficer', 'admin', 'manager', 'client']:
             return Response(
                 {'detail': 'You do not have permission to view event counts.'},
                 status=status.HTTP_403_FORBIDDEN
             )
         if user.role != 'admin':
-            valid_orgs = get_valid_orgs(user)
-            if event.host.id not in valid_orgs:
+            if user.organization not in event.organizations:
                 return Response(
-                {'detail': 'You do not have permission to view counts for this event.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+                    {'detail': 'You do not have permission to view counts for this event.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
         queryset = DemographicCount.objects.filter(event=event)
+        if user.role not in ['client', 'admin']:
+            child_orgs = ProjectOrganization.objects.filter(
+                parent_organization=user.organization
+            ).values_list('organization', flat=True)
+            queryset.filter(Q(task__organization=user.organization) | Q(organization__in=child_orgs))
         serializer = DCSerializer(queryset, many=True)
         return Response(serializer.data)
     
@@ -279,6 +283,11 @@ class EventViewSet(RoleRestrictedViewSet):
         if event.event_date > date.today():
             return Response(
                 {'detail': 'You cannot add counts for events in the future.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if event.status != Event.EventStatus.COMPLETED: 
+            return Response(
+                {'detail': 'You cannot add counts for events that are not completed.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         task_ids = set(c['task_id'] for c in counts if 'task_id' in c)
@@ -320,7 +329,7 @@ class EventViewSet(RoleRestrictedViewSet):
             if not task or task.id not in event_task_ids:
                 return Response({'detail': f'Invalid or unauthorized Task: {task_id}'}, status=400)
             elif user.role !='admin':
-                if not (task.organization == user.organization or ProjectOrganization.objects.filter(organization=interaction.task.organization, parent_organization=user.organization).exists()):
+                if not (task.organization == user.organization or ProjectOrganization.objects.filter(organization=task.organization, parent_organization=user.organization).exists()):
                     return Response(
                         {'detail': 'You do not have permission to edit counts for this task.'},
                         status=status.HTTP_403_FORBIDDEN

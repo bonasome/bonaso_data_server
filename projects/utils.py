@@ -52,6 +52,7 @@ class ProjectPermissionHelper:
             project=self.project
         ).exists()
 
+
     def filter_queryset(self, queryset):
         if self.user.role not in ['meofficer', 'manager', 'client', 'admin']:
             return queryset.none()

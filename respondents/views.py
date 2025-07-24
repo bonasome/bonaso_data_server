@@ -484,9 +484,9 @@ class InteractionViewSet(RoleRestrictedViewSet):
         org_id = request.GET.get('organization')
         if not project_id or not org_id:
             raise serializers.ValidationError('Template requires a project and organization.')
-        valid_orgs = get_valid_orgs(user)
-        if user.role != 'admin' and not org_id in valid_orgs:
-            raise PermissionDenied('You do not have permission to access this template.')
+        if user.role != 'admin':
+            if org_id != user.organization.id and org_id not in [co.organization.id for co in ProjectOrganization.objects.filter(parent_organization=user.organization, project__id=project_id)]:
+                raise PermissionDenied('You do not have permission to access this template.')
         
         district_labels = [choice.label for choice in Respondent.District]
         sex_labels = [choice.label for choice in Respondent.Sex]
@@ -629,9 +629,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
         # 4. Organization permission check
     
         if user.role != 'admin':
-            valid_orgs = get_valid_orgs(user)
-            print(valid_orgs, org_id)
-            if org_id not in valid_orgs:
+            if org_id != user.organization.id and org_id not in [co.organization.id for co in ProjectOrganization.objects.filter(parent_organization=user.organization, project__id=project_id)]:
                 raise PermissionDenied('You do not have permission to access this template.')
 
         ws = wb['Data'] 
@@ -1164,7 +1162,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 warnings.extend(row_warnings)
                 continue
 
-            for task in topological_sort(tasks):
+            for task in tasks:
                 col = get_task_column(task)
                 val = str(get_task_value(row, task))
                 val = val.lower().replace(' ', '')

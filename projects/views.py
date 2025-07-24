@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError
 from rest_framework import generics
-from django.db.models import Q
+from django.db.models import Q, Prefetch
 from rest_framework.filters import OrderingFilter
 from rest_framework.decorators import action
 from users.restrictviewset import RoleRestrictedViewSet
@@ -25,7 +25,7 @@ import json
 from datetime import datetime, date
 today = date.today().isoformat()
 
-from projects.models import Project, ProjectOrganization, Client, Task, Target, ProjectActivity, ProjectDeadline, ProjectActivityOrganization
+from projects.models import Project, ProjectOrganization, Client, Task, Target, ProjectActivity, ProjectDeadline, ProjectActivityOrganization, ProjectDeadlineOrganization
 from projects.serializers import ProjectListSerializer, ProjectDetailSerializer, TaskSerializer, TargetSerializer, ClientSerializer, ProjectActivitySerializer, ProjectDeadlineSerializer
 from projects.utils import get_valid_orgs, ProjectPermissionHelper
 from respondents.models import Interaction
@@ -177,6 +177,11 @@ class TaskViewSet(RoleRestrictedViewSet):
         if DemographicCount.objects.filter(task=instance).exists():
             return Response(
                 {"detail": "You cannot delete a task that has event counts associated with it."},
+                status=status.HTTP_409_CONFLICT
+            )
+        if Target.objects.filter(task=instance).exists():
+            return Response(
+                {"detail": "You cannot delete a task has targets associated with it."},
                 status=status.HTTP_409_CONFLICT
             )
 
@@ -356,6 +361,26 @@ class ProjectViewSet(RoleRestrictedViewSet):
         })
 
 
+    @action(detail=True, methods=['get'], url_path='get-orgs')
+    def get_orgs(self, request, pk=None):
+        from organizations.models import Organization
+        from organizations.serializers import OrganizationListSerializer
+        project = self.get_object()
+        user = request.user
+        if user.role not in ['meofficer', 'admin', 'manager']:
+            return Response(
+                {"detail": "You do not have permission view this information."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        in_project = ProjectOrganization.objects.filter(project=project)
+        ids = [po.organization.id for po in in_project]
+        if user.role != 'admin' and user.organization.id not in ids:
+            return Response(
+                {"detail": "You do not have permission view this information."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        orgs = Organization.objects.exclude(id__in=ids)
+        return Response({'results': OrganizationListSerializer(orgs, many=True).data})
 
     @action(detail=True, methods=['patch'], url_path='assign-subgrantee')
     def assign_child(self, request, pk=None):
@@ -611,11 +636,18 @@ class ProjectDeadlineViewSet(RoleRestrictedViewSet):
 
     def get_queryset(self):
         user = self.request.user
-
         queryset = ProjectDeadline.objects.all()
         perm_manager = ProjectPermissionHelper(user)
+        queryset = perm_manager.filter_queryset(queryset)
 
-        return perm_manager.filter_queryset(queryset)
+        # Add optimized prefetching of through table with related organization
+        return queryset.prefetch_related(
+            Prefetch(
+                'projectdeadlineorganization_set',
+                queryset=ProjectDeadlineOrganization.objects.select_related('organization'),
+                to_attr='organizations'  # must match `source='organizations'` in serializer
+            )
+        )
 
     def destroy(self, request, *args, **kwargs):
         user = request.user
@@ -628,4 +660,32 @@ class ProjectDeadlineViewSet(RoleRestrictedViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['patch'], url_path='mark-complete')
+    def mark_complete(self, request, pk=None):
+        from organizations.models import Organization
+        project_deadline = self.get_object()
+        user = request.user
+        
+        organization_id = request.data.get('organization_id')
+        organization = get_object_or_404(Organization, id=organization_id)
+
+        if user.role != 'admin':
+            perm_manager = ProjectPermissionHelper(user=user, project=project_deadline.project)
+            if not perm_manager.verify_in_project():
+                return Response(
+                    {"detail": "You must be in this project to edit deadlines."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            org_link = ProjectOrganization.objects.filter(organization=organization).first()
+            if user.organization != organization and org_link.parent_organization != user.organization:
+                return Response(
+                    {"detail": "You may not edit deadlines for other organizations."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        
+        dl_link = ProjectDeadlineOrganization.objects.filter(organization = organization).first()
+        dl_link.completed= True
+        dl_link.save()
         return Response(status=status.HTTP_204_NO_CONTENT)

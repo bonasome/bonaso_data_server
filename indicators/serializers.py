@@ -111,7 +111,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
         indicator_type = attrs.get('indicator_type', getattr(self.instance, 'indicator_type', None))
         prerequisites = attrs.get('prerequisites', getattr(self.instance, 'prerequisites', None))
         required_attribute = attrs.get('required_attribute_names', getattr(self.instance, 'required_attribute_names', None))
-        governs_attribute = attrs.get('governs_attribute', getattr(self.instance, 'governs_attribute'))
+        governs_attribute = attrs.get('governs_attribute', getattr(self.instance, 'governs_attribute', None))
         ind_id = self.instance.id if self.instance else None
         match_subcategories_to = attrs.get('match_subcategories_to', None)
         subcategory_data = attrs.get('subcategory_data', [])

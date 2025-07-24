@@ -302,12 +302,15 @@ class ProjectActivitySerializer(serializers.ModelSerializer):
     organizations = OrganizationListSerializer(read_only=True, many=True)
     organization_ids = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), many=True, write_only=True, required=False, source='organizations')
     comments = ProjectActivityCommentSerializer(read_only=True, many=True)
-
+    created_by_organization = serializers.SerializerMethodField()
+    def get_created_by_organization(self, obj):
+        return obj.created_by.organization.id
+    
     class Meta:
         model = ProjectActivity
         fields = [
                     'id', 'project', 'project_id', 'organizations', 'organization_ids', 'start', 'end', 'comments',
-                    'cascade_to_children', 'visible_to_all', 'category', 'status', 'name', 'description',
+                    'cascade_to_children', 'visible_to_all', 'category', 'status', 'name', 'description', 'created_by_organization'
                 ]
     
     def _set_organizations(self, activity, organizations):
@@ -326,7 +329,7 @@ class ProjectActivitySerializer(serializers.ModelSerializer):
         perm_manager = ProjectPermissionHelper(user=user, project=project)
         result = perm_manager.alter_switchboard(data=attrs, instance=(self.instance if self.instance else None))
         if not result.get('success', False):
-            raise PermissionDenied(result.data)
+            raise PermissionDenied(result.get('data'))
         
         start = attrs.get('start', getattr(self.instance, 'start', None))
         end = attrs.get('end', getattr(self.instance, 'end', None))
@@ -369,14 +372,22 @@ class ProjectDeadineOrganizationSerializer(serializers.ModelSerializer):
     organization = OrganizationListSerializer(read_only=True)
     class Meta:
         model = ProjectDeadlineOrganization
-        fields = ['organization', 'organization_deadline', 'completed']
+        fields = ['id', 'organization', 'organization_deadline', 'completed']
 
 class ProjectDeadlineSerializer(serializers.ModelSerializer):
     project= ProjectListSerializer(read_only=True)
     project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True, required=False, allow_null=True, source='project')
-    organizations = ProjectDeadineOrganizationSerializer(read_only=True, many=True)
+    organizations = serializers.SerializerMethodField()
     organization_ids = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), many=True, write_only=True, required=False, source='organizations')
 
+    def get_organizations(self, obj):
+        org_links = ProjectDeadlineOrganization.objects.filter(deadline=obj)
+        orgs = []
+        for org in org_links:
+            orgs.append({'id': org.organization.id, 'name': org.organization.name, 
+                         'organization_deadline': org.organization_deadline, 'completed': org.completed})
+        return orgs
+    
     class Meta:
         model = ProjectDeadline
         fields = ['id', 'project', 'project_id', 'organizations', 'organization_ids', 'deadline_date',
@@ -399,7 +410,7 @@ class ProjectDeadlineSerializer(serializers.ModelSerializer):
         perm_manager = ProjectPermissionHelper(user=user, project=project)
         result = perm_manager.alter_switchboard(data=attrs, instance=(self.instance if self.instance else None))
         if not result.get('success', False):
-            raise PermissionDenied(result.data)
+            raise PermissionDenied(result.get('data'))
         
         date = attrs.get('deadline_date', getattr(self.instance, 'deadline_date', None))
 

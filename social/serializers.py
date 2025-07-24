@@ -3,25 +3,55 @@ from django.shortcuts import get_object_or_404
 from django.db.models import Q
 from projects.serializers import TaskSerializer
 from projects.models import Task, ProjectOrganization
-from social.models import SocialMediaPost, SocialMediaPostTasks
+from social.models import SocialMediaPost, SocialMediaPostTasks, SocialMediaPostFlag
 from social.utils import user_has_post_access
 from datetime import date
 from collections import defaultdict
 from rest_framework.exceptions import PermissionDenied
 
+class SocialMediaPostFlagSerializer(serializers.ModelSerializer):
+    created_by = serializers.SerializerMethodField()
+    resolved_by = serializers.SerializerMethodField()
+
+    def get_created_by(self, obj):
+        if obj.created_by:
+            return {
+                "id": obj.created_by.id,
+                "username": obj.created_by.username,
+                "first_name": obj.created_by.first_name,
+                "last_name": obj.created_by.last_name,
+            }
+        return None
+    def get_resolved_by(self, obj):
+        if obj.resolved_by:
+            return {
+                "id": obj.resolved_by.id,
+                "username": obj.resolved_by.username,
+                "first_name": obj.resolved_by.first_name,
+                "last_name": obj.resolved_by.last_name,
+            }
+        return None
+    
+    class Meta:
+        model=SocialMediaPostFlag
+        fields = [
+            'id', 'reason', 'created_by', 'created_at', 'resolved',
+            'resolved_reason', 'resolved_by', 'resolved_at'
+        ]
 
 class SocialMediaPostSerializer(serializers.ModelSerializer):
     tasks = TaskSerializer(read_only=True, many=True)
     task_ids = serializers.PrimaryKeyRelatedField(
         queryset=Task.objects.all(), write_only=True, many=True, required=True
     )
+    flags = SocialMediaPostFlagSerializer(read_only=True, many=True)
 
     class Meta:
         model = SocialMediaPost
         fields = [
             'id', 'name', 'description', 'likes', 'comments', 'views',
             'platform', 'other_platform', 'link_to_post', 'published_at',
-            'tasks', 'task_ids', 'created_at'
+            'tasks', 'task_ids', 'created_at', 'flags'
         ]
 
     def validate(self, attrs):

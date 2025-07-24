@@ -11,11 +11,13 @@ from rest_framework.exceptions import PermissionDenied
 from users.restrictviewset import RoleRestrictedViewSet
 from rest_framework.decorators import action
 from social.models import SocialMediaPost, SocialMediaPostFlag
-from social.serializers import SocialMediaPostSerializer
+from social.serializers import SocialMediaPostSerializer, SocialMediaPostFlagSerializer
 from projects.models import ProjectOrganization
 from social.utils import user_has_post_access
 from rest_framework import status
 from django.utils.timezone import now
+
+
 class SocialMediaPostViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
     queryset = SocialMediaPost.objects.all()
@@ -68,12 +70,12 @@ class SocialMediaPostViewSet(RoleRestrictedViewSet):
         if not reason:
             return Response({"detail": "You must provide a reason for creating a flag."}, status=status.HTTP_400_BAD_REQUEST)
 
-        SocialMediaPostFlag.objects.create(
+        post_flag = SocialMediaPostFlag.objects.create(
             social_media_post=post,
             created_by=user,
             reason=reason,
         )
-        return Response({"detail": "Post flagged."}, status=status.HTTP_200_OK)
+        return Response({"detail": "Post flagged.", "flag": SocialMediaPostFlagSerializer(post_flag).data}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['patch'], url_path='resolve-flag/(?P<postflag_id>[^/.]+)')
     def resolve_flag(self, request, pk=None, postflag_id=None):
@@ -101,4 +103,4 @@ class SocialMediaPostViewSet(RoleRestrictedViewSet):
         post_flag.resolved_at = now()
         post_flag.save()
 
-        return Response({"detail": "Flag resolved."}, status=status.HTTP_200_OK)
+        return Response({"detail": "Flag resolved.", "flag": SocialMediaPostFlagSerializer(post_flag).data}, status=status.HTTP_200_OK)

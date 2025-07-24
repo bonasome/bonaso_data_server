@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect
 from django.http import JsonResponse
 from django.db.models import Q
+from django.shortcuts import get_object_or_404
 from rest_framework import filters
 from rest_framework import status
 from dateutil.parser import parse as parse_date
@@ -36,7 +37,7 @@ today = date.today().isoformat()
 from projects.models import Task, ProjectOrganization
 from projects.utils import get_valid_orgs
 from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType, RespondentAttributeType, InteractionFlag, RespondentFlag
-from respondents.serializers import RespondentSerializer, RespondentListSerializer, InteractionSerializer
+from respondents.serializers import RespondentSerializer, RespondentListSerializer, InteractionSerializer, RespondentFlagSerializer
 from indicators.models import IndicatorSubcategory
 from respondents.utils import topological_sort
 
@@ -146,12 +147,12 @@ class RespondentViewSet(RoleRestrictedViewSet):
         if not reason:
             return Response({"detail": "You must provide a reason for creating a flag."}, status=status.HTTP_400_BAD_REQUEST)
 
-        RespondentFlag.objects.create(
+        flag = RespondentFlag.objects.create(
             respondent=respondent,
             created_by=user,
             reason=reason,
         )
-        return Response({"detail": "Respondent flagged."}, status=status.HTTP_200_OK)
+        return Response({"detail": "Respondent flagged.", "flag": RespondentFlagSerializer(flag).data}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['patch'], url_path='resolve-flag/(?P<respondentflag_id>[^/.]+)')
     def resolve_flag(self, request, pk=None, respondentflag_id=None):
@@ -176,7 +177,7 @@ class RespondentViewSet(RoleRestrictedViewSet):
         respondent_flag.resolved_at = now()
         respondent_flag.save()
 
-        return Response({"detail": "Flag resolved."}, status=status.HTTP_200_OK)
+        return Response({"detail": "Flag resolved.", "flag": RespondentFlagSerializer(respondent_flag).data}, status=status.HTTP_200_OK)
     
     @action(detail=False, methods=['post'], url_path='bulk')
     def bulk_upload(self, request):
@@ -208,17 +209,6 @@ class RespondentViewSet(RoleRestrictedViewSet):
                     )
                 respondent_serializer.is_valid(raise_exception=True)
                 respondent = respondent_serializer.save(created_by=request.user)
-
-                # Save sensitive info if provided
-                if sensitive_data:
-                    sensitive_serializer = SensitiveInfoSerializer(
-                        instance=respondent,
-                        data=sensitive_data,
-                        partial=True,
-                        context={'request': request}
-                    )
-                    sensitive_serializer.is_valid(raise_exception=True)
-                    sensitive_serializer.save(updated_by=request.user)
 
                 # Save interactions
                 with transaction.atomic():

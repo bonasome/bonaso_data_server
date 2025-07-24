@@ -79,7 +79,7 @@ class RespondentFlagSerializer(serializers.ModelSerializer):
         ]
     
 class RespondentSerializer(serializers.ModelSerializer):
-    id_no = serializers.CharField(write_only=True, required=False, allow_blank=True, allow_null=True)
+    #id_no = serializers.CharField(write_only=True, required=False, allow_blank=True, allow_null=True)
     dob = serializers.DateField(required=False, allow_null=True)
     created_by = serializers.SerializerMethodField()
     updated_by = serializers.SerializerMethodField()

@@ -1,6 +1,56 @@
 from django.utils.timezone import now
 from datetime import date, datetime, timedelta
-from respondents.models import InteractionFlag
+from respondents.models import InteractionFlag, RespondentFlag
+
+def _maybe_create_flag(flags_qs, respondent, reason):
+    if not flags_qs.filter(reason=reason).exists():
+        create_id_flag(respondent, reason)
+
+def create_id_flag(respondent, reason):
+    RespondentFlag.objects.create(
+        respondent=respondent,
+        reason=reason,
+        auto_flagged=True
+    )
+def resolve_flag(flags_qs, reason):
+    to_resolve = flags_qs.filter(reason=reason, resolved=False).first()
+    if to_resolve:
+        to_resolve.resolved = True
+        to_resolve.auto_resolved = True
+        to_resolve.resolved_at = now()
+        to_resolve.save()
+
+def id_flags(respondent):
+    flags = RespondentFlag.objects.filter(respondent=respondent, auto_flagged=True)
+    id_no = str(respondent.id_no)
+
+    # Rule 1: Length check
+    length_reason = 'ID Number (Omang) for Batswana must be 9 digits.'
+    if len(id_no) != 9:
+        _maybe_create_flag(flags, respondent, length_reason)
+    else:
+        resolve_flag(flags, length_reason)
+
+    # Rule 2: Fifth digit must be '1' or '2'
+    fifth_digit_reason = 'Invalid ID Number (Omang) (fifth digit must be a "1" or "2").'
+    sex_reason = 'Fifth Digit of ID Number (Omang) does not match with respondent sex'
+    if len(id_no) >= 5:
+        fifth = id_no[4]
+        if fifth not in ['1', '2']:
+            _maybe_create_flag(flags, respondent, fifth_digit_reason)
+        else:
+            resolve_flag(flags, fifth_digit_reason)
+
+        # Rule 3: Fifth digit must match declared sex
+        if (respondent.sex == 'M' and fifth != '1') or (respondent.sex == 'F' and fifth != '2'):
+            _maybe_create_flag(flags, respondent, sex_reason)
+        else:
+            resolve_flag(flags, sex_reason)
+    else:
+        # If ID is too short, mark both digit-based flags
+        _maybe_create_flag(flags, respondent, fifth_digit_reason)
+        _maybe_create_flag(flags, respondent, sex_reason)
+        
 
 def create_flag(interaction, reason):
     InteractionFlag.objects.create(

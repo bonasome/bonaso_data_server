@@ -14,4 +14,5 @@ urlpatterns = [
     path('api/analysis/', include('analysis.urls')),
     path('api/messages/', include('messaging.urls')),
     path('api/uploads/', include('uploads.urls')),
+    path('api/social/', include('social.urls')),
 ]

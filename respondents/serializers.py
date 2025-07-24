@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType, InteractionSubcategory, RespondentAttribute, RespondentAttributeType, KeyPopulationStatus, DisabilityStatus, InteractionFlag
+from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType, InteractionSubcategory, RespondentAttribute, RespondentAttributeType, KeyPopulationStatus, DisabilityStatus, InteractionFlag, RespondentFlag
 from respondents.exceptions import DuplicateExists
 from projects.models import Task, Target
 from projects.serializers import TaskSerializer
@@ -11,8 +11,8 @@ from django.db.models.functions import Abs
 from django.db.models import Q, F, ExpressionWrapper, IntegerField
 from rest_framework.exceptions import PermissionDenied
 from django.contrib.auth import get_user_model
-from respondents.utils import update_m2m_status, auto_flag_logic
-
+from respondents.utils import update_m2m_status, auto_flag_logic, id_flags
+from django.utils.timezone import now
 
 User = get_user_model()
 
@@ -41,13 +41,43 @@ class PregnancySerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(required=False, allow_null=True)
     class Meta:
         model = Pregnancy
-        fields = ['id', 'term_began', 'term_ended']
+        fields = ['id', 'term_began', 'term_ended', 'created_by', 'created_at', 'updated_by', 'updated_at']
 
 class HIVStatusSerializer(serializers.ModelSerializer):
     class Meta:
         model = HIVStatus
-        fields = ['id', 'hiv_positive', 'date_positive']
+        fields = ['id', 'hiv_positive', 'date_positive', 'created_by', 'created_at', 'updated_by', 'updated_at']
 
+class RespondentFlagSerializer(serializers.ModelSerializer):
+    created_by = serializers.SerializerMethodField()
+    resolved_by = serializers.SerializerMethodField()
+
+    def get_created_by(self, obj):
+        if obj.created_by:
+            return {
+                "id": obj.created_by.id,
+                "username": obj.created_by.username,
+                "first_name": obj.created_by.first_name,
+                "last_name": obj.created_by.last_name,
+            }
+        return None
+    def get_resolved_by(self, obj):
+        if obj.resolved_by:
+            return {
+                "id": obj.resolved_by.id,
+                "username": obj.resolved_by.username,
+                "first_name": obj.resolved_by.first_name,
+                "last_name": obj.resolved_by.last_name,
+            }
+        return None
+    
+    class Meta:
+        model=RespondentFlag
+        fields = [
+            'id', 'reason', 'auto_flagged', 'created_by', 'created_at', 'resolved', 'auto_resolved',
+            'resolved_reason', 'resolved_by', 'resolved_at'
+        ]
+    
 class RespondentSerializer(serializers.ModelSerializer):
     id_no = serializers.CharField(write_only=True, required=False, allow_blank=True, allow_null=True)
     dob = serializers.DateField(required=False, allow_null=True)
@@ -68,6 +98,9 @@ class RespondentSerializer(serializers.ModelSerializer):
     
     disability_status = DisabilitySerializer(read_only=True, many=True)
     disability_status_names = serializers.ListField(child=serializers.CharField(), write_only=True, required=False)
+    
+    flags = RespondentFlagSerializer(read_only=True, many=True)
+
     def get_created_by(self, obj):
         if obj.created_by:
             return {
@@ -85,7 +118,7 @@ class RespondentSerializer(serializers.ModelSerializer):
                 "first_name": obj.updated_by.first_name,
                 "last_name": obj.updated_by.last_name,
             }
-        
+
     class Meta:
         model=Respondent
         fields = [
@@ -93,7 +126,7 @@ class RespondentSerializer(serializers.ModelSerializer):
             'village', 'district', 'citizenship', 'comments', 'email', 'phone_number', 'dob',
             'age_range', 'created_by', 'updated_by', 'created_at', 'updated_at', 'special_attribute', 
             'special_attribute_names', 'pregnancies', 'pregnancy_data', 'hiv_status', 'kp_status', 'kp_status_names', 'disability_status',
-            'disability_status_names', 'hiv_status_data'
+            'disability_status_names', 'hiv_status_data', 'flags'
         ]
 
     def validate(self, attrs):
@@ -191,6 +224,8 @@ class RespondentSerializer(serializers.ModelSerializer):
         return cleaned
     
     def create(self, validated_data):
+        user = self.context['request'].user
+
         special_attribute_names = validated_data.pop('special_attribute_names', [])
         kp_status_names = validated_data.pop('kp_status_names', [])
         disability_status_names = validated_data.pop('disability_status_names', [])
@@ -199,6 +234,10 @@ class RespondentSerializer(serializers.ModelSerializer):
         
         respondent = Respondent.objects.create(**validated_data)
         
+        if respondent.citizenship == 'Motswana' and not respondent.is_anonymous and respondent.id_no:
+            id_flags(respondent)
+
+
         attrs = []
         for name in special_attribute_names:
             attr_type, _ = RespondentAttributeType.objects.get_or_create(name=name)
@@ -227,7 +266,6 @@ class RespondentSerializer(serializers.ModelSerializer):
         )
         respondent.disability_status.set(disability_instances)
 
-        
         if hiv_status_data:
             hiv_positive = hiv_status_data.get('hiv_positive', None)
             if hiv_positive:
@@ -236,7 +274,12 @@ class RespondentSerializer(serializers.ModelSerializer):
                     date_positive = hiv_status_data.get('date_positive')
                     if not date_positive:
                         date_positive = date.today()
-                    HIVStatus.objects.create(respondent=respondent, hiv_positive=hiv_positive, date_positive=date_positive)
+                    HIVStatus.objects.create(
+                        respondent=respondent, 
+                        hiv_positive=hiv_positive, 
+                        date_positive=date_positive,
+                        create_by=user
+                    )
 
         
         for pregnancy in pregnancies:
@@ -244,16 +287,22 @@ class RespondentSerializer(serializers.ModelSerializer):
             term_ended = pregnancy.get('term_ended', None)
             if term_began:
                 is_pregnant =  term_began and not term_ended
-                Pregnancy.objects.create(respondent=respondent, is_pregnant=is_pregnant, term_began=term_began, term_ended=term_ended)
+                Pregnancy.objects.create(
+                    respondent=respondent, is_pregnant=is_pregnant, term_began=term_began, 
+                    term_ended=term_ended, created_by=user)
 
         return respondent
 
     def update(self, instance, validated_data):
+        user = self.context['request'].user
         kp_status_names = validated_data.pop('kp_status_names', [])
         disability_status_names = validated_data.pop('disability_status_names', [])
         pregnancies = validated_data.pop('pregnancy_data', [])
         hiv_status_data = validated_data.pop('hiv_status_data', None)
         instance = super().update(instance, validated_data)
+
+        if instance.citizenship == 'Motswana' and not instance.is_anonymous:
+            flags = id_flags(instance)
 
         special_attribute_names = validated_data.pop('special_attribute_names', [])
         attrs = [
@@ -302,9 +351,16 @@ class RespondentSerializer(serializers.ModelSerializer):
                 if existing:
                     existing.hiv_positive = hiv_positive
                     existing.date_positive = date_positive if hiv_positive else None
+                    existing.updated_by = user
+                    existing.updated_at = now()
                     existing.save()
                 else:
-                        HIVStatus.objects.create(respondent=instance, hiv_positive=hiv_positive, date_positive=date_positive)
+                        HIVStatus.objects.create(
+                            respondent=instance, 
+                            hiv_positive=hiv_positive, 
+                            date_positive=date_positive,
+                            created_by = user
+                        )
 
         
         for pregnancy in pregnancies:
@@ -322,12 +378,20 @@ class RespondentSerializer(serializers.ModelSerializer):
                     pregnancy.term_began = term_began
                     pregnancy.term_ended = term_ended
                     pregnancy.is_pregnant =  term_began and not term_ended
+                    pregnancy.updated_by = user
+                    pregnancy.updated_at = now()
                     pregnancy.save()
                 except Pregnancy.DoesNotExist:
                     raise serializers.ValidationError(f"Invalid pregnancy ID: {pid}")
             else:
                 if term_began:
-                    Pregnancy.objects.create(respondent=instance, is_pregnant=is_pregnant, term_began=term_began, term_ended=term_ended)
+                    Pregnancy.objects.create(
+                        respondent=instance, 
+                        is_pregnant=is_pregnant, 
+                        term_began=term_began, 
+                        term_ended=term_ended,
+                        created_by = user
+                    )
             
         if instance.is_anonymous:
             instance.first_name = None

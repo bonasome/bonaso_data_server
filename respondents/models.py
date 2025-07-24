@@ -46,7 +46,24 @@ class RespondentAttributeType(models.Model):
     name = models.CharField(max_length=25, choices=Attributes.choices, unique=True)
     def __str__(self):
         return self.name
-      
+
+
+class RespondentFlag(models.Model):
+    respondent = models.ForeignKey("Respondent", on_delete=models.CASCADE, related_name="flags")
+    reason = models.TextField()
+    auto_flagged = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='respondent_flag_created_by')
+    resolved = models.BooleanField(default=False)
+    auto_resolved = models.BooleanField(default=False)
+    resolved_reason = models.TextField(null=True, blank=True)
+    resolved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='respondent_flag_resolved_by')
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f'Flag  for respondent {self.interaction.respondent} for reason {self.reason}.' 
+
+
 class Respondent(models.Model):
     class Sex(models.TextChoices):
         FEMALE = 'F', _('Female')
@@ -66,11 +83,20 @@ class Respondent(models.Model):
         CHOBE = 'Chobe', _('Chobe District')
 
     class AgeRanges(models.TextChoices):
-        U18 = 'under_18', _('Under 18')
-        ET_24 = '18_24', _('18–24')
-        T5_34 = '25_34', _('25–34')
-        T5_44 = '35_44', _('35–44')
-        F5_64 = '45_64', _('45–64')
+        U1 = 'under_1', _('Less Than One Year Old')
+        O_4 = '1_4', _('1-4')
+        F_9 = '5_9', _('5-9')
+        T_14 = '10_14', _('10-14')
+        FT_19 = '15_19', _('15-19')
+        T_24 = '20_24', _('20–24')
+        T4_29 = '25_29', _('25–29')
+        TH_34 = '30_34', _('30–34')
+        T5_39 = '35_39', _('35–39')
+        F0_44 = '40_44', _('40-44')
+        F5_49 = '45_49', _('45–49')
+        FF_55 = '50_54', _('50-54')
+        F4_59 = '55_55', _('55-59')
+        S0_64 = '60_64', _('60-64')
         O65 = '65_plus', _('65+')
         
     uuid =  models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
@@ -133,16 +159,34 @@ class Respondent(models.Model):
             today = date.today()
 
             age = today.year - self.dob.year - ((today.month, today.day) < (self.dob.month, self.dob.day))
-            if age < 18:
-                self.age_range = self.AgeRanges.U18
+            if age < 1:
+                self.age_range = self.AgeRanges.U1
+            elif age <= 4:
+                self.age_range = self.AgeRanges.O_4
+            elif age <= 9:
+                self.age_range = self.AgeRanges.F_9
+            elif age <= 14:
+                self.age_range = self.AgeRanges.T_14
+            elif age <= 19:
+                self.age_range = self.AgeRanges.FT_19
             elif age <= 24:
-                self.age_range = self.AgeRanges.ET_24
+                self.age_range = self.AgeRanges.T_24
+            elif age <= 29:
+                self.age_range = self.AgeRanges.T4_29
             elif age <= 34:
-                self.age_range = self.AgeRanges.T5_34
+                self.age_range = self.AgeRanges.TH_34
+            elif age <= 39:
+                self.age_range = self.AgeRanges.T5_39
             elif age <= 44:
-                self.age_range = self.AgeRanges.T5_44
+                self.age_range = self.AgeRanges.F0_44
+            elif age <= 49:
+                self.age_range = self.AgeRanges.F5_49
+            elif age <= 54:
+                self.age_range = self.AgeRanges.FF_55
+            elif age <= 59:
+                self.age_range = self.AgeRanges.F4_59
             elif age <= 64:
-                self.age_range = self.AgeRanges.F5_64
+                self.age_range = self.AgeRanges.S0_64
             else:
                 self.age_range = self.AgeRanges.O65
         super().save(*args, **kwargs)
@@ -191,10 +235,20 @@ class Pregnancy(models.Model):
     term_began = models.DateField(null=True, blank=True)
     term_ended = models.DateField(null=True, blank=True)
 
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='pregnancy_created_by')
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='pregnancy_updated_by')
+
 class HIVStatus(models.Model):
     respondent = models.OneToOneField(Respondent, on_delete=models.CASCADE)
     hiv_positive = models.BooleanField(null=True, blank=True)
     date_positive = models.DateField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='hiv_status_created_by')
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='hiv_status_updated_by')
 
 class InteractionFlag(models.Model):
     interaction = models.ForeignKey("Interaction", on_delete=models.CASCADE, related_name="flags")

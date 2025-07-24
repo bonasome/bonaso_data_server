@@ -16,6 +16,12 @@ class Event(models.Model):
         TRAINING = 'Training', _('Training') 
         ACTIVITY = 'Activity', _('Activity')
         ENGAGEMENT = 'Engagement', _('Engagement')
+        COMM = 'Commemoration', _('Commemoration')
+        ACTIVATION = 'Activation', _('Activation')
+        WALK = 'Walkathon', _('Walkathon')
+        COU = 'Counselling_Session', _('Counselling Session')
+        OTH = 'Other', _('Other')
+        
     name = models.CharField(max_length=255, verbose_name='Event Name')
     description = models.TextField(verbose_name='Description of Event', blank=True, null=True)
     event_type = models.CharField(max_length=25, choices=EventType.choices, default=EventType.TRAINING, verbose_name='Event Type')
@@ -83,11 +89,20 @@ class DemographicCount(models.Model):
         OTHER = 'OTHER', _('Other Disability')
 
     class AgeRange(models.TextChoices):
-        U18 = 'under_18', _('Under 18')
-        ET_24 = '18_24', _('18–24')
-        T5_34 = '25_34', _('25–34')
-        T5_44 = '35_44', _('35–44')
-        F5_64 = '45_64', _('45–64')
+        U1 = 'under_1', _('Less Than One Year Old')
+        O_4 = '1_4', _('1-4')
+        F_9 = '5_9', _('5-9')
+        T_14 = '10_14', _('10-14')
+        FT_19 = '15_19', _('15-19')
+        T_24 = '20_24', _('20–24')
+        T4_29 = '25_29', _('25–29')
+        TH_34 = '30_34', _('30–34')
+        T5_39 = '35_39', _('35–39')
+        F0_44 = '40_44', _('40-44')
+        F5_49 = '45_49', _('45–49')
+        FF_55 = '50_54', _('50-54')
+        F4_59 = '55_55', _('55-59')
+        S0_64 = '60_64', _('60-64')
         O65 = '65_plus', _('65+')
 
     class Citizenship(models.TextChoices):

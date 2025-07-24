@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'projects.apps.ProjectsConfig',
     'respondents.apps.RespondentsConfig',
     'organizations.apps.OrganizationsConfig',
+    'social.apps.SocialConfig',
     'profiles.apps.ProfilesConfig',
     'analysis.apps.AnalysisConfig',
     'messaging.apps.MessagingConfig',

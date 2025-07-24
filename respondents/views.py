@@ -35,7 +35,7 @@ from datetime import datetime, date
 today = date.today().isoformat()
 from projects.models import Task, ProjectOrganization
 from projects.utils import get_valid_orgs
-from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType, RespondentAttributeType, InteractionFlag
+from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType, RespondentAttributeType, InteractionFlag, RespondentFlag
 from respondents.serializers import RespondentSerializer, RespondentListSerializer, InteractionSerializer
 from indicators.models import IndicatorSubcategory
 from respondents.utils import topological_sort
@@ -133,7 +133,51 @@ class RespondentViewSet(RoleRestrictedViewSet):
             'special_attributes': special_attributes,
             'special_attribute_labels': special_attribute_labels
         })
-        
+    
+    @action(detail=True, methods=['patch'], url_path='raise-flag')
+    def raise_flag(self, request, pk=None):
+        user = request.user
+        respondent = self.get_object()
+
+        if user.role not in ['admin', 'meofficer', 'manager']:
+            raise PermissionDenied('You do not have permission to raise a flag.')
+
+        reason = request.data.get('reason')
+        if not reason:
+            return Response({"detail": "You must provide a reason for creating a flag."}, status=status.HTTP_400_BAD_REQUEST)
+
+        RespondentFlag.objects.create(
+            respondent=respondent,
+            created_by=user,
+            reason=reason,
+        )
+        return Response({"detail": "Respondent flagged."}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['patch'], url_path='resolve-flag/(?P<respondentflag_id>[^/.]+)')
+    def resolve_flag(self, request, pk=None, respondentflag_id=None):
+        user = request.user
+        respondent = self.get_object()
+
+        if user.role not in ['admin', 'meofficer', 'manager']:
+            return Response({"detail": "You do not have permission to resolve a flag for this post."}, status=status.HTTP_403_FORBIDDEN)
+
+        respondent_flag = get_object_or_404(RespondentFlag, id=respondentflag_id, respondent=respondent)
+
+        if respondent_flag.resolved:
+            return Response({"detail": "This flag is already resolved."}, status=status.HTTP_400_BAD_REQUEST)
+
+        resolved_reason = request.data.get('resolved_reason')
+        if not resolved_reason:
+            return Response({"detail": "You must provide a reason for resolving a flag."}, status=status.HTTP_400_BAD_REQUEST)
+
+        respondent_flag.resolved = True
+        respondent_flag.resolved_by = user
+        respondent_flag.resolved_reason = resolved_reason
+        respondent_flag.resolved_at = now()
+        respondent_flag.save()
+
+        return Response({"detail": "Flag resolved."}, status=status.HTTP_200_OK)
+    
     @action(detail=False, methods=['post'], url_path='bulk')
     def bulk_upload(self, request):
         if request.user.role == 'client':
@@ -301,9 +345,9 @@ class InteractionViewSet(RoleRestrictedViewSet):
         interaction = self.get_object()
         if user.role not in ['admin', 'meofficer', 'manager']:
             raise PermissionDenied('You do not have permission to raise a flag.')
-        if user.role in ['meoficer', 'manager'] and not (
+        if user.role in ['meofficer', 'manager'] and not (
             interaction.task.organization == user.organization or 
-            ProjectOrganization.objects.filter(organization=interaction.task.organization, parent_organization=user.organization).exists()):
+            ProjectOrganization.objects.filter(organization=interaction.task.organization, project=interaction.task.project, parent_organization=user.organization).exists()):
             raise PermissionDenied('You do not have permission to raise a flag for this interaction.')
         reason = request.data.get('reason', None)
         if not reason:
@@ -323,9 +367,9 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
         if user.role not in ['admin', 'meofficer', 'manager']:
             return Response({"detail": f"You do not have permissiont to resolve a flag for this interaction."}, status=status.HTTP_403_FORBIDDEN)
-        if user.role in ['meoficer', 'manager'] and not (
+        if user.role in ['meofficer', 'manager'] and not (
         interaction.task.organization == user.organization or 
-         ProjectOrganization.objects.filter(organization=interaction.task.organization, parent_organization=user.organization).exists()):
+         ProjectOrganization.objects.filter(organization=interaction.task.organization, project=interaction.task.project, parent_organization=user.organization).exists()):
             return Response({"detail": f"You do not have permissiont to resolve a flag for this interaction."}, status=status.HTTP_403_FORBIDDEN)
 
         if not interaction_flag:

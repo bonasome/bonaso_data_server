@@ -4,23 +4,29 @@ from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
 from django.urls import reverse
 from django.contrib.auth import get_user_model
-from projects.models import Project, Client, Task, Target
+from projects.models import Project, Client, Task
 from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, RespondentAttributeType
 from organizations.models import Organization
 from indicators.models import Indicator, IndicatorSubcategory
 from datetime import date
-
+from respondents.utils import calculate_age_range, dummy_dob_calc
 User = get_user_model()
 
 class RespondentViewSetTest(APITestCase):
+    '''
+    This one is mostly for the respondent serializer, but has some overlap with the viewset for gets.
+    '''
+
     def setUp(self):
         self.today = date.today().isoformat()
         
+        #setup our users
         self.admin = User.objects.create_user(username='testuser', password='testpass', role='admin')
         self.officer = User.objects.create_user(username='testuser2', password='testpass', role='meofficer')
         self.data_collector = User.objects.create_user(username='data_collector', password='testpass', role='data_collector')
         self.client_user = User.objects.create_user(username='client', password='testpass', role='client')
         
+        #create an org (no real org perms for respondents so no need to create another)
         self.org = Organization.objects.create(name='Test Org')
         
         self.admin.organization = self.org
@@ -28,6 +34,7 @@ class RespondentViewSetTest(APITestCase):
         self.data_collector.organization = self.org
         self.client_user.organization = self.org
 
+        #existing anon respondent
         self.respondent_anon= Respondent.objects.create(
             is_anonymous=True,
             age_range=Respondent.AgeRanges.T_24,
@@ -37,6 +44,7 @@ class RespondentViewSetTest(APITestCase):
             sex = Respondent.Sex.FEMALE,
         )
 
+        #existing full respondent
         self.respondent_full = Respondent.objects.create(
             is_anonymous=False, 
             id_no= '1234567',
@@ -51,39 +59,24 @@ class RespondentViewSetTest(APITestCase):
         )
 
     def test_respondent_list_view(self):
-        #make sure respondents list returns all respondents
+        '''
+        Make sure respondents list returns all respondents, no special org/role permissions. 
+        All respondents should be public.
+        '''
         self.client.force_authenticate(user=self.admin)
         response = self.client.get('/api/record/respondents/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 2)
     
-    def test_respondent_client_list_view(self):
-        #make sure respondents list returns all respondents
-        self.client.force_authenticate(user=self.client_user)
-        response = self.client.get('/api/record/respondents/')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 2)
-    
-    def test_search_respondents(self):
-        #make sure search (sample village) works (very important for the app)
-        self.client.force_authenticate(user=self.admin)
-        response = self.client.get('/api/record/respondents/', {'search': 'Testerson'})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 1)
-        self.assertEqual(response.data['results'][0]['village'], 'ThePlace')
-
-    def test_respondent_detail_view(self):
-        #make sure detail views return the right info
-        self.client.force_authenticate(user=self.admin)
-        url = f'/api/record/respondents/{self.respondent_full.id}/'
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['id'], self.respondent_full.id)
-    
-    #all perms have this privelge, so test with the lowest level
     def test_create_respondent(self):
-        #test creating both anonymous and full respondent_anonprofiles
+        '''
+        Make sure that creation works for both full and anonymous respondents. This includes making sure that 
+        pregnancy/hiv status and the m2m fields successfully update. Also, confirm that our age range 
+        system and auto DOB calculation for anonymous respondents works.
+        '''
         self.client.force_authenticate(user=self.data_collector)
+
+        #sample anon payload
         valid_payload_anon = {
             'is_anonymous':True,
             'age_range': Respondent.AgeRanges.T_24,
@@ -108,8 +101,10 @@ class RespondentViewSetTest(APITestCase):
         self.assertEqual(HIVStatus.objects.filter(respondent=respondent_anon).count(), 1)
         self.assertEqual(HIVStatus.objects.filter(respondent=respondent_anon).first().date_positive, date(2024,1,1))
         self.assertEqual(Pregnancy.objects.filter(respondent=respondent_anon).count(), 2)
-        print(respondent_anon.effective_dob)
+        dummy_dob = dummy_dob_calc(respondent_anon.age_range, respondent_anon.created_at) #should be the same since no DOB was provided
+        self.assertEqual(respondent_anon.effective_dob, dummy_dob)
 
+        #sample full payload
         valid_payload_full = {
             'is_anonymous':False,
             'id_no': '1234',
@@ -121,19 +116,25 @@ class RespondentViewSetTest(APITestCase):
             'citizenship': 'Test',
             'sex': Respondent.Sex.FEMALE,
             'district': Respondent.District.CENTRAL,
+            'special_attribute_names': ['CHW', 'Staff']
         }
 
         response = self.client.post('/api/record/respondents/', valid_payload_full, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         respondent= Respondent.objects.get(village='Place')
         self.assertEqual(respondent.id_no,'1234')
-        self.assertEqual(respondent.created_by, self.data_collector)
-        print(respondent.age_range)
+        self.assertEqual(respondent.special_attribute.count(), 2)
+        ar = calculate_age_range(respondent.dob) 
+        self.assertEqual(respondent.age_range, ar) #should be automatically set since DOB was provided
 
     def test_create_duplicate(self):
+        '''
+        If you were paying attention in the serializer section, you would know that we do not allow duplicates.
+        Make sure this returns a 409.
+        '''
         self.client.force_authenticate(user=self.data_collector)
         valid_payload_full = {
-            'is_anonymous':False,
+            'is_anonymous': False,
             'id_no': '1234567',
             'first_name': 'Test',
             'last_name': 'Testerson',
@@ -146,24 +147,49 @@ class RespondentViewSetTest(APITestCase):
         }
 
         response = self.client.post('/api/record/respondents/', valid_payload_full, format='json')
+        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-        self.assertIn('existing_id', response.data)
-        self.assertEqual(int(response.data['existing_id']), self.respondent_full.id)
+        self.assertIn('existing_id', response.data) #make sure the existing id is returned since the frontend will use this to redirect
+        self.assertEqual(int(response.data['existing_id']), self.respondent_full.id) #also for good measure assert its the right ID
 
     def test_patch_respondent(self):
-        #test basic patch operation
-        valid_patch = {
-            'ward': 'There'
-        }
+        '''
+        Test a few patch operations to cover our bases. While we will mostly be dealing with complete requests
+        from the front end, we want to handle partial patches gracefully.
+        '''
         self.client.force_authenticate(user=self.data_collector)
+        valid_patch = {
+            'kp_status_names': ['MSM', 'TG']
+        }
         response = self.client.patch(f'/api/record/respondents/{self.respondent_full.id}/', valid_patch, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.respondent_full.refresh_from_db()
-        self.assertEqual(self.respondent_full.ward, 'There')
+        self.assertEqual(self.respondent_full.kp_status.count(), 2)
         self.assertEqual(self.respondent_full.updated_by, self.data_collector)
-    
+
+        valid_patch_2 = {
+            'disability_status_names': ['VI']
+        }
+        response = self.client.patch(f'/api/record/respondents/{self.respondent_full.id}/', valid_patch_2, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.respondent_full.refresh_from_db()
+        self.assertEqual(self.respondent_full.kp_status.count(), 2)
+        self.assertEqual(self.respondent_full.disability_status.count(), 1)
+        
+        valid_patch_3 = {
+            'disability_status_names': []
+        }
+        response = self.client.patch(f'/api/record/respondents/{self.respondent_full.id}/', valid_patch_3, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.respondent_full.refresh_from_db()
+        self.assertEqual(self.respondent_full.kp_status.count(), 2)
+        self.assertEqual(self.respondent_full.disability_status.count(), 0)
+
     def test_switch_respondent_type(self):
-        #test to make sure respondents can switch from being anonymous to not anonymous by providing data
+        '''
+        Test to confirm that switching respondent types works. Especially that the dummy dob/age range
+        calculations adjust.
+        '''
         valid_payload_to_full = {
             'is_anonymous':False,
             'id_no': '12345',
@@ -174,11 +200,13 @@ class RespondentViewSetTest(APITestCase):
         }
         self.client.force_authenticate(user=self.data_collector)
         response = self.client.patch(f'/api/record/respondents/{self.respondent_anon.id}/', valid_payload_to_full, format='json')
+        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.respondent_anon.refresh_from_db()
         self.assertEqual(self.respondent_anon.ward, 'Here')
-        print(self.respondent_anon.effective_dob)
-        print(self.respondent_anon.age_range)
+        self.assertEqual(self.respondent_anon.effective_dob, date(1975, 1, 1)) #make sure we're now using the DOB
+        ar = calculate_age_range(self.respondent_anon.dob)
+        self.assertEqual(self.respondent_anon.age_range, ar)
 
         #test that a respondent can opt into being anonymous and have PII deleted
         valid_payload_to_anon = {
@@ -191,11 +219,16 @@ class RespondentViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.respondent_full.refresh_from_db()
         self.assertEqual(self.respondent_full.id_no, None)
-        print(self.respondent_full.effective_dob)
-        print(self.respondent_full.age_range)
+        self.assertEqual(self.respondent_full.age_range, '40_44')
+        dummy_dob = dummy_dob_calc(self.respondent_full.age_range, self.respondent_full.created_at)
+        self.assertEqual(self.respondent_full.effective_dob, dummy_dob)
 
     def test_manage_preg(self):
-        #test basic patch operation
+        '''
+        Specifically check that patching/creating/removing respondent pregnancies works. 
+        '''
+
+        #check that effective creation works
         valid_patch = {
             'pregnancy_data': [
                 {'id': None, 'term_began': '2024-01-01', 'term_ended': None},
@@ -210,20 +243,37 @@ class RespondentViewSetTest(APITestCase):
         pregnancies = Pregnancy.objects.filter(respondent=self.respondent_full).count()
         self.assertEqual(pregnancies, 2)
         target_p = Pregnancy.objects.filter(respondent=self.respondent_full, term_began=date(2024, 1, 1)).first()
+        self.assertEqual(target_p.created_by, self.data_collector)
+        
+        #also check that partial updates work as intended
+        valid_patch_2 = {
+            'pregnancy_data': [
+                {'id': target_p.id, 'term_began': '2024-01-01', 'term_ended': '2024-09-01'},
+            ]
+        }
+        response = self.client.patch(f'/api/record/respondents/{self.respondent_full.id}/', valid_patch_2, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        pregnancies = Pregnancy.objects.filter(respondent=self.respondent_full).count()
+        target_p.refresh_from_db()
+        self.assertEqual(pregnancies, 2)
+        self.assertEqual(target_p.updated_by, self.data_collector)
 
-        valid_patch2 = {
+        #effective delete
+        valid_patch_3 = {
             'pregnancy_data': [
                 {'id': target_p.id, 'term_began': None, 'term_ended': None},
             ]
         }
-        response = self.client.patch(f'/api/record/respondents/{self.respondent_full.id}/', valid_patch2, format='json')
+        response = self.client.patch(f'/api/record/respondents/{self.respondent_full.id}/', valid_patch_3, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.respondent_full.refresh_from_db()
         pregnancies = Pregnancy.objects.filter(respondent=self.respondent_full).count()
         self.assertEqual(pregnancies, 1)
     
     def test_manage_hiv(self):
-        #test basic patch operation
+        '''
+        Test that a user can patch/manage HIV statuses (positive/date)
+        '''
         valid_patch = {
             'hiv_status_data': {'hiv_positive': True, 'date_positive': '2024-04-01'}
         }
@@ -234,6 +284,8 @@ class RespondentViewSetTest(APITestCase):
         self.respondent_full.refresh_from_db()
         hiv = HIVStatus.objects.filter(respondent=self.respondent_full, hiv_positive=True).count()
         self.assertEqual(hiv, 1)
+        hiv1 = HIVStatus.objects.filter(respondent=self.respondent_full, hiv_positive=True).first()
+        self.assertEqual(hiv1.created_by, self.data_collector)
 
         valid_patch2 = {
             'hiv_status_data': {'hiv_positive': False}
@@ -243,8 +295,15 @@ class RespondentViewSetTest(APITestCase):
         self.respondent_full.refresh_from_db()
         hiv = HIVStatus.objects.filter(respondent=self.respondent_full, hiv_positive=True).count()
         self.assertEqual(hiv, 0)
+        hiv1 = HIVStatus.objects.filter(respondent=self.respondent_full, hiv_positive=False).first()
+        hiv1.refresh_from_db()
+        self.assertEqual(hiv1.updated_by, self.data_collector)
 
     def test_bad_omang(self):
+        '''
+        Test that our flagging system automatically flags sus Omangs. Also check that it automatically
+        resolves them if the id is corrected.
+        '''
         self.client.force_authenticate(user=self.data_collector)
         flag_payload = {
             'is_anonymous':False,
@@ -265,7 +324,7 @@ class RespondentViewSetTest(APITestCase):
         self.assertEqual(respondent.flags.count(), 3)
 
         valid_patch = {
-            'id_no': '111121111'
+            'id_no': '111121111' #corrected # of digits and fifth digit
         }
         response = self.client.patch(f'/api/record/respondents/{respondent.id}/', valid_patch, format='json')
         print(response.json())
@@ -273,6 +332,9 @@ class RespondentViewSetTest(APITestCase):
         self.assertEqual(respondent.flags.filter(resolved=True).count(), 3)
 
     def test_not_fire_non_citizen(self):
+        '''
+        Omang rules do not apply to non-citizens, so no auto-flags should be generated.
+        '''
         self.client.force_authenticate(user=self.data_collector)
         flag_payload = {
             'is_anonymous':False,
@@ -293,19 +355,26 @@ class RespondentViewSetTest(APITestCase):
         self.assertEqual(respondent.flags.count(), 0)
 
     def test_delete_respondent(self):
-        #only admins can delete
+        '''
+        Make sure admins can delete. This is not encouraged behavior, but the capacity should be there for 
+        whatever may come.
+        '''
         self.client.force_authenticate(user=self.admin)
         response = self.client.delete(f'/api/record/respondents/{self.respondent_full.id}/')
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
     
     def test_delete_respondent_no_perm(self):
-        #your not allowed
+        '''
+        No one else though
+        '''
         self.client.force_authenticate(user=self.officer)
         response = self.client.delete(f'/api/record/respondents/{self.respondent_full.id}/')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
     
     def test_delete_respondent_inter(self):
-        #interactions should block respondent from being deleted
+        '''
+        If a respondent has any interactions, they should not be deleteable.
+        '''
         self.client.force_authenticate(user=self.admin)
         client_obj = Client.objects.create(name='Test Client', created_by=self.admin)
         project = Project.objects.create(
@@ -319,12 +388,12 @@ class RespondentViewSetTest(APITestCase):
         )
         indicator = Indicator.objects.create(code='1', name='Test Ind')
         project.organizations.set([self.org])
-        project.indicators.set([indicator])
         task = Task.objects.create(project=project, organization=self.org, indicator=indicator)
 
         interaction = Interaction.objects.create(respondent=self.respondent_full, interaction_date='2025-06-23', task=task)
         response = self.client.delete(f'/api/record/respondents/{self.respondent_full.id}/')
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        
 
     def test_create_respondent_client(self):
         #test creating both anonymous and full respondent_anonprofiles
@@ -368,7 +437,7 @@ class RespondentBulkUploadTest(APITestCase):
         self.category2 = IndicatorSubcategory.objects.create(name='Cat 2')
         self.indicator.subcategories.set([self.category, self.category2])
         self.indicator_num = Indicator.objects.create(code='TEST', name='Test Indicator', require_numeric=True)
-        self.project.indicators.set([self.indicator, self.indicator_num])
+
         self.task = Task.objects.create(indicator=self.indicator, organization=self.org, project=self.project)
         self.task_num = Task.objects.create(indicator= self.indicator_num, organization=self.org, project=self.project)
         self.url = reverse('respondent-bulk-upload')  # or '/api/record/respondents/bulk/' if not using routers

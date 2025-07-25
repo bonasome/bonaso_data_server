@@ -539,6 +539,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
 
             def get_choice_key_from_label(choices, label):
+                if not label:
+                    return None
                 for key, value in choices:
                     if value.lower().replace(' ', '') == label.lower().replace(' ', ''):
                         return key
@@ -771,7 +773,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     'kp_status_names': [kp.name for kp in respondent.kp_status.all()],
                     'disability_status_names': [d.name for d in respondent.disability_status.all()],
                     'special_attribute_names': [attr.name for attr in respondent.special_attribute.all()],
-                    'hiv_status_data': {'hiv_positive': ex_stat.hiv_positive, 'date_positive': ex_stat.date_positive},
+                    'hiv_status_data': {'hiv_positive': ex_stat.hiv_positive if ex_stat else None, 'date_positive': ex_stat.date_positive if ex_stat else None},
                 }
                 existing.append({'id': respondent.id, 'upload': upload, 'in_database': in_db})
 

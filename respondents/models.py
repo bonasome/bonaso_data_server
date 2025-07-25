@@ -114,7 +114,7 @@ class Respondent(models.Model):
         
     uuid =  models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
     is_anonymous = models.BooleanField(default=False, verbose_name='Is Anonymous')
-    id_no = models.CharField(max_length=255, unique=True, verbose_name='ID/Passport Number', blank=True, null=True)
+    id_no = models.CharField(max_length=255, verbose_name='ID/Passport Number', blank=True, null=True)
     first_name = models.CharField(max_length=255, verbose_name='First Name', blank=True, null=True)
     last_name = models.CharField(max_length=255, verbose_name='Last Name', blank=True, null=True)
     age_range = models.CharField(max_length=10, choices=AgeRanges.choices, blank=True, null=True, verbose_name='Age Range')

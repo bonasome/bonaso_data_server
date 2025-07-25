@@ -6,11 +6,17 @@ from datetime import date, timedelta, datetime
 from openpyxl.utils.datetime import from_excel
 
 def excel_columns():
+        '''
+        Helper the manage values in excel columns.
+        '''
         for size in range(1, 3):  # A to ZZ
             for letters in product(string.ascii_uppercase, repeat=size):
                 yield ''.join(letters)
 
 def valid_excel_date(value):
+    '''
+    Helper to validate the myriad of dates from excel.
+    '''
     if value is None:
         return None
     # Already a Python date or datetime
@@ -55,6 +61,9 @@ def valid_excel_date(value):
         pass
     return None
 
+'''
+Few helpers the verify data types
+'''
 def is_email(value):
     pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
     return bool(re.match(pattern, value))

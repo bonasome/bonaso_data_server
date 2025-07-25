@@ -1,8 +1,10 @@
 from django.contrib import admin
 from respondents.models import Respondent, Interaction, RespondentAttribute, KeyPopulationStatus, DisabilityStatus, HIVStatus, Pregnancy, InteractionSubcategory
 
-#admin page is mostly used for debugging/dev, as the production admin page does not support our JWT auth system
-#admin features are handled in site
+'''
+Admin doesn't support JWT natively and I don't feel like adding it so we're really only using this for dev.
+Plus we ideally want to keep everything in one place.
+'''
 
 @admin.register(RespondentAttribute)
 class RespondentAttributeAdmin(admin.ModelAdmin):

@@ -130,6 +130,23 @@ def interaction_flag_check(interaction, user, downstream=False):
                     else:
                         resolve_flag(outstanding_flags, reason)
 
+    #Rule 3: Check for a required attribute
+    required_attributes = interaction.task.indicator.required_attribute.all() 
+    if required_attributes.exists():
+        respondent_attrs = set(interaction.respondent.special_attribute.values_list('id', flat=True))
+        
+        for attribute in required_attributes:
+            reason = (
+                f'Task "{interaction.task.indicator.name}" requires the respondent to have the special attribute "{attribute.name}". '
+                'This interaction will be flagged so long as the respondent does not have the selected attribute.'
+            )
+            
+            if attribute.id not in respondent_attrs:
+                if not outstanding_flags.filter(reason=reason).exists():
+                    create_flag(interaction, reason, user)
+            else:
+                resolve_flag(outstanding_flags, reason)
+                
 
 
 def update_m2m_status(model, through_model, respondent, name_list, related_field='attribute'):
@@ -227,7 +244,7 @@ def dummy_dob_calc(age_range, created_at):
         return dummy_dob
     return None
 
-def calculate_age_range(self, dob):
+def calculate_age_range(dob):
         '''
         Helper function to convert sort a given age within our beheamoth age ranges. Seriously, how many do we
         need?
@@ -241,11 +258,11 @@ def calculate_age_range(self, dob):
         elif isinstance(dob, tuple) and len(dob) == 3:
             dob = date(*dob)
         # Optionally, handle datetime objects
-        elif isinstance(self.dob, datetime):
+        elif isinstance(dob, datetime):
             dob = dob.date()
         today = date.today()
 
-        age = today.year - self.dob.year - ((today.month, today.day) < (self.dob.month, self.dob.day))
+        age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
         
         if age < 1:
             age_range = Respondent.AgeRanges.U1

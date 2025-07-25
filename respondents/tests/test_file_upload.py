@@ -62,8 +62,6 @@ class UploadViewSetTest(APITestCase):
         self.indicator = Indicator.objects.create(code='TEST1', name='Parent Indicator')
         self.child_indicator = Indicator.objects.create(code='TEST2', name='Child Indicator')
         self.child_indicator.prerequisites.set([self.indicator])
-        
-        self.project.indicators.set([self.indicator, self.child_indicator])
 
         self.task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.indicator)
         self.prereq_task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.child_indicator)
@@ -72,10 +70,26 @@ class UploadViewSetTest(APITestCase):
 
         interaction = Interaction.objects.create(respondent=self.respondent_full, task=self.task, interaction_date='2024-05-01')
 
+        self.headers = ["Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
+            "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
+            "Email Address", "Phone Number", "Key Population Status",
+            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnancy Began (Date)",
+            "Pregnancy Ended (Date)", "Date of Interaction", "Interaction Location", ]
 
-
+        self.resp_headers = ["FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
+            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
+            "Hearing Impaired, Visually Impaired", "Community Health Worker, Community Leader", 
+            "Yes", date(2023,2,1), "", "", date(2024, 5, 1), "Mochudi",]
+        
+        self.resp_headers_2 = ["FALSE", "T2", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
+            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
+            "Hearing Impaired, Visually Impaired", "Community Health Worker, Community Leader", 
+            "Yes", date(2023,2,1), "", "", date(2024, 5, 1), "Mochudi",]
 
     def create_workbook(self, b1=None, b2=None, include_metadata=True, include_data=True):
+        '''
+        Helper function that creates a sample workbook.
+        '''
         wb = Workbook()
         if include_metadata:
             ws = wb.active
@@ -87,12 +101,18 @@ class UploadViewSetTest(APITestCase):
         return wb
 
     def test_no_file_uploaded(self):
+        '''
+        Test that an error is thrown if nothing is uploaded.
+        '''
         self.client.force_authenticate(user=self.officer)
         response = self.client.post('/api/record/interactions/upload/', {})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('No file was uploaded', str(response.data))
 
     def test_invalid_file_type(self):
+        '''
+        Test that an error is thrown if the wrong file type is uploaded.
+        '''
         self.client.force_authenticate(user=self.officer)
         dummy_file = BytesIO(b"not excel")
         dummy_file.name = 'data.csv'
@@ -101,6 +121,9 @@ class UploadViewSetTest(APITestCase):
         self.assertIn('must be an .xlsx', str(response.data))
 
     def test_missing_metadata_sheet(self):
+        '''
+        Test that an error is thrown if the metadata sheet is missing.
+        '''
         self.client.force_authenticate(user=self.officer)
         wb = Workbook()
         ws = wb.active
@@ -115,6 +138,9 @@ class UploadViewSetTest(APITestCase):
         self.assertIn("Unable to read 'Metadata'", str(response.data))
 
     def test_permission_denied_to_dc(self):
+        '''
+        Test that a dc cannot access templates.
+        '''
         self.client.force_authenticate(user=self.data_collector)
         wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True) 
         file_obj = BytesIO()
@@ -126,6 +152,9 @@ class UploadViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_permission_denied_other_org(self):
+        '''
+        Test that you cannot access another orgs tempalte.
+        '''
         self.client.force_authenticate(user=self.officer)
         wb = self.create_workbook(self.project.id, 99, include_data=True) 
         file_obj = BytesIO()
@@ -137,6 +166,9 @@ class UploadViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
     
     def test_missing_required_column(self):
+        '''
+        Test that an error is thrown if a respondent information column is thrown.
+        '''
         self.client.force_authenticate(user=self.officer)
 
         # Step 1: Create workbook with some but not all required headers
@@ -166,6 +198,10 @@ class UploadViewSetTest(APITestCase):
 
 
     def test_upload_respondents(self):
+        '''
+        Test that the file upload can successfuly create a respondent, including m2m fields, pregnancy,
+        and HIV status.
+        '''
         self.client.force_authenticate(user=self.officer)
         wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
         ws = wb['Data']
@@ -197,7 +233,7 @@ class UploadViewSetTest(APITestCase):
         ws.append(row2)
         #test anon
         row3 = [
-            "TRUE", "", "", "", "Under 18", "", "Female", "", "Testington",
+            "TRUE", "", "", "", "20–24", "", "Female", "", "Testington",
             "Central District", "Motswana", "", "", "", 
             "", "", "", "", date(2023, 1, 1), date(2023, 9, 1), date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
@@ -237,22 +273,15 @@ class UploadViewSetTest(APITestCase):
 
         
     def test_upload_respondents_child(self):
+        '''
+        Test that an M&E officer can upload a template for a child org.
+        '''
         self.client.force_authenticate(user=self.officer)
         wb = self.create_workbook(self.project.id, self.child_org.id, include_data=True)  
         ws = wb['Data']
-        headers = [
-            "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
-            "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
-            "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
-            "Date of Interaction", "Interaction Location", "TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"
-        ]
+        headers = self.headers +  ["TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"]
         ws.append(headers)
-        row = [
-            "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
-        ]
+        row = self.resp_headers + ["Yes", "Yes", ""]
         ws.append(row)
         file_obj = BytesIO()
         wb.save(file_obj)
@@ -267,24 +296,19 @@ class UploadViewSetTest(APITestCase):
 
 
     def test_missing_bad_values(self):
-        #all of these should fail
+        '''
+        Test that bad values are caught.
+        '''
         self.client.force_authenticate(user=self.officer)
         wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
         ws = wb['Data']
-        headers = [
-            "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
-            "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
-            "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
-            "Date of Interaction", "Interaction Location", 
-            "TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"
-        ]
+        headers = self.headers + ["TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"]
         ws.append(headers)
         #invalid options selected
         row = [
             "TRUE", "", "", "", "somewhere around 30, id say", "", "a guy", "Wardplace", "Testington",
             "you know that place, right?", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row)
 
@@ -292,7 +316,7 @@ class UploadViewSetTest(APITestCase):
         row2 = [
             "FALSE","T2", "Test", "", "", 'yesterday', "", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
+            "Hearing Impaired, Visually Impaired", "", "", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row2)  
 
@@ -300,7 +324,7 @@ class UploadViewSetTest(APITestCase):
         row3 = [
             "FALSE", "T2", "Test", "Testerson", "Under 18", "", "male", "Wardplace", "Testington",
             "Central District", "Motswana", "", "", "transgender, Intersex", 
-            "hearing   Impaired; Visually Impaired", "", "", "", "", '45447', "Mochudi" "Yes", "Yes", ""
+            "hearing   Impaired; Visually Impaired", "", "", "", "", "", '45447', "Mochudi" "Yes", "Yes", ""
         ]
         ws.append(row3) 
 
@@ -320,22 +344,19 @@ class UploadViewSetTest(APITestCase):
 
 
     def test_bad_date(self):
+        '''
+        Test date validations.
+        '''
         self.client.force_authenticate(user=self.officer)
         wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
         ws = wb['Data']
-        headers = [
-           "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
-            "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
-            "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
-            "Date of Interaction", "Interaction Location", "TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"
-        ]
+        headers = self.headers + ["TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"]
         ws.append(headers)
         #future dates should block
         row = [
             "FALSE", "T1", "Test", "Testerson", "", date(2028, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
+            "Hearing Impaired, Visually Impaired", "","", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row)
 
@@ -343,7 +364,7 @@ class UploadViewSetTest(APITestCase):
         row2 = [
             "FALSE","T2", "Test", "Testerson", "", 'yesterday', "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
+            "Hearing Impaired, Visually Impaired", "","", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row2)  
 
@@ -361,23 +382,20 @@ class UploadViewSetTest(APITestCase):
         self.assertEqual(len(response.data['results']), 1)
     
     def test_bad_interaction_date(self):
-        #respondent should save, but not interactions
+        '''
+        Test that an interaction date outside the project scope is caught. 
+        Also, Respondent should save, but not interactions.
+        '''
         self.client.force_authenticate(user=self.officer)
         wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
         ws = wb['Data']
-        headers = [
-            "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
-            "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
-            "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
-            "Date of Interaction", "Interaction Location", "TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"
-        ]
+        headers = self.headers + ["TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"]
         ws.append(headers)
         #this date is outside of the project range
         row = [
             "FALSE", "T1", "Test", "Testerson", "", date(2000, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2000, 5, 1), "Mochudi", "Yes", "Yes", ""
+            "Hearing Impaired, Visually Impaired", "", "","", "", "", date(2000, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row)
 
@@ -398,25 +416,20 @@ class UploadViewSetTest(APITestCase):
         self.assertEqual(interactions, 0)
     
     def test_upload_same_respondent(self):
-        #same respondents (same id number) should not be double recorded and should not throw a serious error
-        #currently, we don't have override logic, server always wins
+        '''
+        Test that the same respondent is caught and not recreated. The frontend will give a display for this.
+        '''
         self.client.force_authenticate(user=self.officer)
         wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
         ws = wb['Data']
         # Missing 'First Name' on purpose
-        headers = [
-            "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
-            "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
-            "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
-            "Date of Interaction", "Interaction Location", "TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"
-        ]
+        headers = self.headers + ["TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"]
         ws.append(headers)
         #if respondent already exists/has interactions, these should be edited but not duplicated. 
         row = [
             "FALSE", "1234567", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
+            "Hearing Impaired, Visually Impaired", "","", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row)
 
@@ -427,8 +440,9 @@ class UploadViewSetTest(APITestCase):
 
         #both of these should fail 
         response = self.client.post('/api/record/interactions/upload/', {'file': file_obj}, format='multipart')
+        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
+        self.assertEqual(len(response.conflicts), 1)
         response = self.client.get('/api/record/respondents/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 1)
@@ -438,8 +452,9 @@ class UploadViewSetTest(APITestCase):
     
 
     def test_upload_same_respondent_update(self):
-        #same respondents (same id number) should not be double recorded and should not throw a serious error
-        #currently, we don't have override logic, server always wins
+        '''
+        Test that interactions can be updated via file uploads.
+        '''
         numeric_ind = Indicator.objects.create(code ='NUM', name='Number', require_numeric=True)
 
         category1 = IndicatorSubcategory.objects.create(name='Cat 1', slug='cat1')
@@ -447,7 +462,6 @@ class UploadViewSetTest(APITestCase):
         subcat_ind = Indicator.objects.create(code ='SC', name='Subcat')
       
         subcat_ind.subcategories.set([category1, category2])
-        self.project.indicators.set([subcat_ind, numeric_ind])
 
         numeric_task = Task.objects.create(organization=self.parent_org, indicator=numeric_ind, project=self.project)
         subcat_task = Task.objects.create(organization=self.parent_org, indicator=subcat_ind, project=self.project)
@@ -460,19 +474,13 @@ class UploadViewSetTest(APITestCase):
         wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
         ws = wb['Data']
         # Missing 'First Name' on purpose
-        headers = [
-            "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
-            "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
-            "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
-            "Date of Interaction", "Interaction Location", "NUM: Number (Requires a Number)", "SC: Subcat", "Comments"
-        ]
+        headers = self.headers + ["NUM: Number (Requires a Number)", "SC: Subcat", "Comments"]
         ws.append(headers)
         #if respondent already exists/has interactions, these should be edited but not duplicated. 
         row = [
             "FALSE", "1234567", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "10", "Cat 1, Cat 2", ""
+            "Hearing Impaired, Visually Impaired", "","", "", "", "", date(2024, 5, 1), "Mochudi", "10", "Cat 1, Cat 2", ""
         ]
         ws.append(row)
 
@@ -497,32 +505,18 @@ class UploadViewSetTest(APITestCase):
         self.assertEqual(int_detail.subcategories.count(), 2)
     
     def test_upload_interactions(self):
-        #same respondents (same id number) should not be double recorded and should not throw a serious error
-        #currently, we don't have override logic, server always wins
+        '''
+        Check that file upload system successfuly creates interactions.
+        '''
         self.client.force_authenticate(user=self.officer)
         wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
         ws = wb['Data']
-        # Missing 'First Name' on purpose
-        headers = [
-            "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
-            "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
-            "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
-            "Date of Interaction", "Interaction Location", "TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"
-        ]
+        headers = self.headers + ["TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"]
         ws.append(headers)
-        row = [
-            "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "", ""
-        ]
+        row = self.resp_headers + ["Yes", "", ""]
         ws.append(row)
 
-        row2 = [
-            "FALSE", "T2", "Test2", "Testerson II", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
-        ]
+        row2 = self.resp_headers_2 + ["Mochudi", "Yes", "Yes", ""]
         ws.append(row2)
 
         file_obj = BytesIO()
@@ -545,69 +539,22 @@ class UploadViewSetTest(APITestCase):
         interactions2 = Interaction.objects.filter(respondent=respondent2).count()
         self.assertEqual(interactions2, 2)
     
-
-    def test_upload_interactions_no_prereq(self):
-        #same respondents (same id number) should not be double recorded and should not throw a serious error
-        #currently, we don't have override logic, server always wins
-        self.client.force_authenticate(user=self.officer)
-        wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
-        ws = wb['Data']
-        #these interactions should fail since the parent indicator TEST1 has no interaction
-        headers = [
-            "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
-            "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
-            "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
-            "Date of Interaction", "Interaction Location", "TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"
-        ]
-        ws.append(headers)
-        row = [
-            "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "No", "Yes", ""
-        ]
-        ws.append(row)
-
-        file_obj = BytesIO()
-        wb.save(file_obj)
-        file_obj.name = 'template.xlsx'
-        file_obj.seek(0)
-
-        #both of these should fail 
-        response = self.client.post('/api/record/interactions/upload/', {'file': file_obj}, format='multipart')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
-        response = self.client.get('/api/record/respondents/')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 2)
-        respondent = Respondent.objects.get(id_no='T1')
-        interactions = Interaction.objects.filter(respondent=respondent).count()
-        self.assertEqual(interactions, 0)
-    
     def test_numeric(self):
+        '''
+        Test that numeric indicators get their number.
+        '''
         self.client.force_authenticate(user=self.officer)
         numeric_ind = Indicator.objects.create(code ='NUM', name='Number', require_numeric=True)
 
-        self.project.indicators.set([numeric_ind])
         numeric_task = Task.objects.create(organization=self.parent_org, indicator=numeric_ind, project=self.project)
 
         wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
         ws = wb['Data']
         #these interactions should fail since the parent indicator TEST1 has no interaction
-        headers = [
-            "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
-            "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
-            "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
-            "Date of Interaction", "Interaction Location", "NUM: Number (Requires a Number)", "Comments"
-        ]
+        headers = self.headers + ["NUM: Number (Requires a Number)", "Comments"]
         ws.append(headers)
         #this is fine
-        row = [
-            "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "6", ""
-        ]
+        row = self.resp_headers + [ "6", ""]
         ws.append(row)
 
         file_obj = BytesIO()
@@ -630,39 +577,27 @@ class UploadViewSetTest(APITestCase):
 
 
     def test_subcats_valid(self):
+        '''
+        Test that the file system can take subcategories
+        '''
         self.client.force_authenticate(user=self.officer)
         category1 = IndicatorSubcategory.objects.create(name='Cat 1', slug='cat1')
         category2 = IndicatorSubcategory.objects.create(name='Cat 2', slug='cat2')
         parent_ind = Indicator.objects.create(code ='SC', name='Subcat')
       
         parent_ind.subcategories.set([category1, category2])
-        self.project.indicators.set([parent_ind])
         parent_task = Task.objects.create(organization=self.parent_org, indicator=parent_ind, project=self.project)
 
         wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
         ws = wb['Data']
-        #these interactions should fail since the parent indicator TEST1 has no interaction
-        headers = [
-            "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
-            "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
-            "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
-            "Date of Interaction", "Interaction Location", "SC: Subcat", "Comments"
-        ]
+
+        headers = self.headers + ["SC: Subcat", "Comments"]
         ws.append(headers)
         #this is fine
-        row = [
-            "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Cat 1", ""
-        ]
+        row = self.resp_headers + ["Cat 1", ""]
         ws.append(row)
-        #should also work
-        row2 = [
-            "FALSE", "T2", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "cat2,Cat1  ", ""
-        ]
+        #should also work, since its case/space insenstive, but this is bout as far as you can push it
+        row2 = self.resp_headers_2 + ["cat2,Cat1  ", ""]
         ws.append(row2)
 
         file_obj = BytesIO()
@@ -690,39 +625,27 @@ class UploadViewSetTest(APITestCase):
         self.assertEqual(int_detail.subcategories.count(), 2)
 
     def test_subcats_valid_numeric(self):
+        '''
+        Now lets see if you can combine them (format "Cat: num, Cat: num")
+        '''
         self.client.force_authenticate(user=self.officer)
         category1 = IndicatorSubcategory.objects.create(name='Cat 1', slug='cat1')
         category2 = IndicatorSubcategory.objects.create(name='Cat 2', slug='cat2')
         parent_ind = Indicator.objects.create(code ='SC', name='Subcat', require_numeric=True)
       
         parent_ind.subcategories.set([category1, category2])
-        self.project.indicators.set([parent_ind])
         parent_task = Task.objects.create(organization=self.parent_org, indicator=parent_ind, project=self.project)
 
         wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
         ws = wb['Data']
         #these interactions should fail since the parent indicator TEST1 has no interaction
-        headers = [
-            "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
-            "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
-            "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status","Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
-            "Date of Interaction", "Interaction Location", "SC: Subcat (Requires a Number)", "Comments"
-        ]
+        headers = self.headers + ["SC: Subcat (Requires a Number)", "Comments"]
         ws.append(headers)
         #this is fine
-        row = [
-            "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Cat 1: 12", ""
-        ]
+        row = self.resp_headers + ["Cat 1: 12", ""]
         ws.append(row)
-        #should also work
-        row2 = [
-            "FALSE", "T2", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "cat2:3,Cat1:5  ", ""
-        ]
+        #should also work, but this is about as far is it can be pushed
+        row2 = self.resp_headers_2 + ["cat2:3,Cat1:5  ", ""]
         ws.append(row2)
 
         file_obj = BytesIO()
@@ -755,32 +678,24 @@ class UploadViewSetTest(APITestCase):
         self.assertEqual(irsc2.numeric_component, 3)
 
     def test_subcats_invalid_numeric(self):
+        '''
+        Non-number where a number should be should cause an interaction to be not recorded
+        '''
         self.client.force_authenticate(user=self.officer)
         category1 = IndicatorSubcategory.objects.create(name='Cat 1', slug='cat1')
         category2 = IndicatorSubcategory.objects.create(name='Cat 2', slug='cat2')
         parent_ind = Indicator.objects.create(code ='SC', name='Subcat', require_numeric=True)
       
         parent_ind.subcategories.set([category1, category2])
-        self.project.indicators.set([parent_ind])
         parent_task = Task.objects.create(organization=self.parent_org, indicator=parent_ind, project=self.project)
 
         wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
         ws = wb['Data']
-        #these interactions should fail since the parent indicator TEST1 has no interaction
-        headers = [
-            "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
-            "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
-            "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status","Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
-            "Date of Interaction", "Interaction Location", "SC: Subcat (Requires a Number)", "Comments"
-        ]
+
+        headers = self.headers + ["SC: Subcat (Requires a Number)", "Comments"]
         ws.append(headers)
         #this is fine
-        row = [
-            "FALSE", "T2", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Cat 1: p", ""
-        ]
+        row = self.resp_headers + ["Cat 1: p", ""]
         ws.append(row)
 
         file_obj = BytesIO()
@@ -790,37 +705,29 @@ class UploadViewSetTest(APITestCase):
 
         response = self.client.post('/api/record/interactions/upload/', {'file': file_obj}, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        respondent = Respondent.objects.get(id_no='T2')
+        respondent = Respondent.objects.get(id_no='T1')
         interactions = Interaction.objects.filter(respondent=respondent).count()
         self.assertEqual(interactions, 0)
 
     def test_subcats_missing_numeric(self):
+        '''
+        Forgetting a number should also trigger an error.
+        '''
         self.client.force_authenticate(user=self.officer)
         category1 = IndicatorSubcategory.objects.create(name='Cat 1', slug='cat1')
         category2 = IndicatorSubcategory.objects.create(name='Cat 2', slug='cat2')
         parent_ind = Indicator.objects.create(code ='SC', name='Subcat', require_numeric=True)
       
         parent_ind.subcategories.set([category1, category2])
-        self.project.indicators.set([parent_ind])
         parent_task = Task.objects.create(organization=self.parent_org, indicator=parent_ind, project=self.project)
 
         wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
         ws = wb['Data']
         #these interactions should fail since the parent indicator TEST1 has no interaction
-        headers = [
-            "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
-            "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
-            "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status","Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
-            "Date of Interaction", "Interaction Location", "SC: Subcat (Requires a Number)", "Comments"
-        ]
+        headers = self.headers +  ["SC: Subcat (Requires a Number)", "Comments"]
         ws.append(headers)
         #this is fine
-        row = [
-            "FALSE", "T2", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Cat 1", ""
-        ]
+        row = self.resp_headers +  ["Cat 1", ""]
         ws.append(row)
 
         file_obj = BytesIO()
@@ -835,39 +742,27 @@ class UploadViewSetTest(APITestCase):
         self.assertEqual(interactions, 0)
 
     def test_subcats_invalid_missing(self):
+        '''
+        Missing or invalid subcats should prevent interaction from being saved.
+        '''
         self.client.force_authenticate(user=self.officer)
         category1 = IndicatorSubcategory.objects.create(name='Cat 1', slug='cat1')
         category2 = IndicatorSubcategory.objects.create(name='Cat 2', slug='cat2')
         parent_ind = Indicator.objects.create(code ='SC', name='Subcat')
       
         parent_ind.subcategories.set([category1, category2])
-        self.project.indicators.set([parent_ind])
         parent_task = Task.objects.create(organization=self.parent_org, indicator=parent_ind, project=self.project)
 
         wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
         ws = wb['Data']
         #neither of these should log an interaction
-        headers = [
-            "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
-            "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
-            "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
-            "Date of Interaction", "Interaction Location", "SC: Subcat", "Comments"
-        ]
+        headers = self.headers +  ["SC: Subcat", "Comments"]
         ws.append(headers)
         #blank will not log
-        row = [
-            "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "", ""
-        ]
+        row = self.resp_headers ["", ""]
         ws.append(row)
         #forgot the comma
-        row2 = [
-            "FALSE", "T2", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "cat1Cat1  ", ""
-        ]
+        row2 = self.resp_headers_2 + ["cat1Cat1  ", ""]
         ws.append(row2)
 
         file_obj = BytesIO()
@@ -893,34 +788,26 @@ class UploadViewSetTest(APITestCase):
     
 
     def test_upload_mismatched_subcat(self):
+        '''
+        Sanity check to make sure that this system still creates flags
+        '''
         self.client.force_authenticate(user=self.officer)
         category1 = IndicatorSubcategory.objects.create(name='Cat 1', slug='cat1')
         category2 = IndicatorSubcategory.objects.create(name='Cat 2', slug='cat2')
         parent_ind = Indicator.objects.create(code ='PSC', name='Subcat Parent')
-        child_ind = Indicator.objects.create(code ='CSC', name='Subcat Child', prerequisite=parent_ind)
-      
+        child_ind = Indicator.objects.create(code ='CSC', name='Subcat Child', match_subcategories_to=parent_ind)
+        child_ind.prerequisites.set([parent_ind])
         parent_ind.subcategories.set([category1, category2])
         child_ind.subcategories.set([category1, category2])
-        self.project.indicators.set([parent_ind, child_ind])
         parent_task = Task.objects.create(organization=self.parent_org, indicator=parent_ind, project=self.project)
         child_task = Task.objects.create(organization=self.parent_org, indicator=child_ind, project=self.project)
 
         wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
         ws = wb['Data']
-        #these interactions should fail since the parent indicator TEST1 has no interaction
-        headers = [
-            "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
-            "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
-            "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status","Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
-            "Date of Interaction", "Interaction Location", "PSC: Subcat Parent", "CSC: Subcat Child", "Comments"
-        ]
+        #these interactions should flag since child has more subcats than 1 and they're matched.
+        headers = self.headers + ["PSC: Subcat Parent", "CSC: Subcat Child", "Comments"]
         ws.append(headers)
-        row = [
-            "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Cat 1", "Cat 1, Cat 2", ""
-        ]
+        row = self.resp_headers + ["Cat 1", "Cat 1, Cat 2", ""]
         ws.append(row)
 
         file_obj = BytesIO()
@@ -928,62 +815,12 @@ class UploadViewSetTest(APITestCase):
         file_obj.name = 'template.xlsx'
         file_obj.seek(0)
 
-        #both of these should fail 
         response = self.client.post('/api/record/interactions/upload/', {'file': file_obj}, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         
         response = self.client.get('/api/record/respondents/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 2)
         respondent = Respondent.objects.get(id_no='T1')
-        print(Interaction.objects.filter(respondent=respondent))
-        interactions = Interaction.objects.filter(respondent=respondent).count()
-        self.assertEqual(interactions, 1)
+        interactions = Interaction.objects.filter(respondent=respondent, task=child_task).first()
+        self.assertEqual(interactions.flags.count(), 2)
     
-    def test_upload_matched_subcat(self):
-        self.client.force_authenticate(user=self.officer)
-        category1 = IndicatorSubcategory.objects.create(name='Cat 1', slug='cat1')
-        category2 = IndicatorSubcategory.objects.create(name='Cat 2', slug='cat2')
-        parent_ind = Indicator.objects.create(code ='PSC', name='Subcat Parent')
-        child_ind = Indicator.objects.create(code ='CSC', name='Subcat Child', prerequisite=parent_ind)
-      
-        parent_ind.subcategories.set([category1, category2])
-        child_ind.subcategories.set([category1, category2])
-        self.project.indicators.set([parent_ind, child_ind])
-        parent_task = Task.objects.create(organization=self.parent_org, indicator=parent_ind, project=self.project)
-        child_task = Task.objects.create(organization=self.parent_org, indicator=child_ind, project=self.project)
-
-        wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
-        ws = wb['Data']
-        #these interactions should fail since the parent indicator TEST1 has no interaction
-        headers = [
-            "Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
-            "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
-            "Email Address", "Phone Number", "Key Population Status",
-            "Disability Status", "Special Respondent Attributes", "HIV Status", "Date Positive", "Pregnant",
-            "Date of Interaction", "Interaction Location", "PSC: Subcat Parent", "CSC: Subcat Child", "Comments"
-        ]
-        ws.append(headers)
-        row = [
-            "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "", "", "", "", date(2024, 5, 1), "Mochudi", "Cat 1", "Cat 1", ""
-        ]
-        ws.append(row)
-
-        file_obj = BytesIO()
-        wb.save(file_obj)
-        file_obj.name = 'template.xlsx'
-        file_obj.seek(0)
-
-        #both of these should fail 
-        response = self.client.post('/api/record/interactions/upload/', {'file': file_obj}, format='multipart')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
-        response = self.client.get('/api/record/respondents/')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 2)
-        respondent = Respondent.objects.get(id_no='T1')
-        print(Interaction.objects.filter(respondent=respondent))
-        interactions = Interaction.objects.filter(respondent=respondent).count()
-        self.assertEqual(interactions, 2)

@@ -96,6 +96,18 @@ class RespondentSerializer(serializers.ModelSerializer):
             'disability_status_names', 'hiv_status_data', 'flags', 'current_age_range'
         ]
 
+    def validate_id_no(self, value):
+        #confirm this is not a duplicate (check id_no)
+        if self.instance:
+            existing = Respondent.objects.filter(id_no=value).exclude(id=self.instance.id)
+        else:
+            existing = Respondent.objects.filter(id_no=value)
+        if existing.exists():
+            raise DuplicateExists(
+                detail="This respondent already exists.",
+                existing_id=existing.first().id
+            )
+        return value
     def validate(self, attrs):
         user = self.context['request'].user
         role = getattr(user, 'role', None)
@@ -106,26 +118,13 @@ class RespondentSerializer(serializers.ModelSerializer):
         #make sure that no sensitive fields are sent with anonymous respondents
         if 'is_anonymous' in attrs:
             if attrs['is_anonymous']:
-                for field in ['first_name', 'last_name', 'email', 'phone_number', 'id_no', 'dob']:
+                for field in ['first_name', 'last_name', 'email', 'phone_number', 'dob']:
                     if attrs.get(field):
                         raise serializers.ValidationError(f"{field} must not be set when is_anonymous is True.")
             else:
-                for field in ['first_name', 'last_name', 'id_no', 'dob']:
+                for field in ['first_name', 'last_name', 'dob']:
                     if not attrs.get(field) and not getattr(self.instance, field, None):
                         raise serializers.ValidationError(f"{field} is required when respondent is not anonymous.")
-
-        #confirm this is not a duplicate (check id_no)
-        id_no = attrs.get('id_no')
-        if id_no:
-            if self.instance:
-                existing = Respondent.objects.filter(id_no=id_no).exclude(id=self.instance.id)
-            else:
-                existing = Respondent.objects.filter(id_no=id_no)
-            if existing.exists():
-                raise DuplicateExists(
-                    detail="This respondent already exists.",
-                    existing_id=existing.first().id
-                )
         
         #verify DOB is not in the future
         dob = attrs.get('dob')
@@ -225,7 +224,7 @@ class RespondentSerializer(serializers.ModelSerializer):
         #if the respondent is anonymous, create a dummy date of birth that we can use to at least
         #somewhat accurately track data over time
         if respondent.is_anonymous and respondent.age_range:
-            respondent.dummy_dob = dummy_dob_calc(respondent.age_range)
+            respondent.dummy_dob = dummy_dob_calc(respondent.age_range, respondent.created_at)
         
         if respondent.dob:
             respondent.age_range = calculate_age_range(respondent.dob)
@@ -299,16 +298,16 @@ class RespondentSerializer(serializers.ModelSerializer):
         special_attribute_names = validated_data.pop('special_attribute_names', None)
         kp_status_names = validated_data.pop('kp_status_names', None)
         disability_status_names = validated_data.pop('disability_status_names', None)
-        pregnancies = validated_data.pop('pregnancy_data', [])
+        pregnancies = validated_data.pop('pregnancy_data', None)
         hiv_status_data = validated_data.pop('hiv_status_data', None)
         
         instance = super().update(instance, validated_data)
-
+        instance.updated_by = user
         #the model's default save function may override the user provided age_range, so use the validated data version
         if instance.is_anonymous and validated_data.get('age_range'):
-            instance.dummy_dob = dummy_dob_calc(validated_data.get('age_range'))
+            instance.dummy_dob = dummy_dob_calc(validated_data.get('age_range'), instance.created_at)
 
-        if instance.dob:
+        if instance.dob and not instance.is_anonymous:
             instance.age_range = calculate_age_range(instance.dob)
 
         #run flag checks (for creating new flags and resolving old ones) --> more detail at respondents.utils.respondent_flag_check
@@ -316,7 +315,7 @@ class RespondentSerializer(serializers.ModelSerializer):
             respondent_flag_check(instance, user)
         
         #set m2m fields if provided
-        if special_attribute_names:
+        if special_attribute_names is not None:
             attrs = [
                 RespondentAttributeType.objects.get_or_create(name=name)[0]
                 for name in special_attribute_names
@@ -330,7 +329,7 @@ class RespondentSerializer(serializers.ModelSerializer):
             attrs += list(auto_gen) 
             instance.special_attribute.set(attrs) 
 
-        if kp_status_names:
+        if kp_status_names is not None:
             kp_instances = update_m2m_status(
                 model=KeyPopulation,
                 through_model=KeyPopulationStatus,
@@ -339,7 +338,7 @@ class RespondentSerializer(serializers.ModelSerializer):
                 related_field='key_population'
             )
             instance.kp_status.set(kp_instances)
-        if disability_status_names:
+        if disability_status_names is not None:
             disability_instances = update_m2m_status(
                 model=DisabilityType,
                 through_model=DisabilityStatus,
@@ -350,7 +349,7 @@ class RespondentSerializer(serializers.ModelSerializer):
             instance.disability_status.set(disability_instances)
 
         #set HIV status
-        if hiv_status_data:
+        if hiv_status_data is not None:
             hiv_positive = hiv_status_data.get('hiv_positive', None)
             if hiv_positive is not None:
                 hiv_positive = True if hiv_positive in ['true', 'True', True, '1'] else False
@@ -374,7 +373,7 @@ class RespondentSerializer(serializers.ModelSerializer):
                         )
 
         #set pregnancy data
-        if pregnancies:
+        if pregnancies is not None:
             for pregnancy in pregnancies:
                 pid = pregnancy.get('id')
                 term_began = pregnancy.get('term_began')
@@ -414,8 +413,8 @@ class RespondentSerializer(serializers.ModelSerializer):
             instance.id_no = None
             instance.email = None
             instance.phone_number = None
-            instance.save()
-        instance.updated_by = user
+        instance.save()
+
         return instance
 
 
@@ -425,24 +424,34 @@ class SimpleInteractionSerializer(serializers.ModelSerializer):
         model=Interaction
         fields = ['id', 'interaction_date']
 
-class InteractionSubcategorySerializer(serializers.ModelSerializer):
-    id = serializers.IntegerField(source='subcategory.id')
-    name = serializers.CharField(source='subcategory.name')
-
-    class Meta:
-        model = InteractionSubcategory
-        fields = ['id', 'name', 'numeric_component']
+class InteractionSubcategoryInputSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    numeric_component = serializers.IntegerField(required=False, allow_null=True)
 
 class InteractionSerializer(serializers.ModelSerializer):
     respondent = serializers.PrimaryKeyRelatedField(queryset=Respondent.objects.all())
     task = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True)
     task_detail = TaskSerializer(source='task', read_only=True)
-    subcategories = InteractionSubcategorySerializer(many=True, read_only=True)
-    subcategories_data = InteractionSubcategorySerializer(many=True, write_only=True)
+    subcategories = serializers.SerializerMethodField()
+    subcategories_data = InteractionSubcategoryInputSerializer(many=True, write_only=True, required=False)
     flags = FlagSerializer(read_only=True, many=True)
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
 
+    def get_subcategories(self, obj):
+        subcats = InteractionSubcategory.objects.filter(interaction=obj)
+        data = []
+        for subcat in subcats:
+            data.append({
+                'id': subcat.id,
+                'subcategory': {
+                    'id': subcat.subcategory.id,
+                    'name': subcat.subcategory.name
+                },
+                'numeric_component': subcat.numeric_component
+            })
+        return data
     
     class Meta:
         model=Interaction
@@ -542,17 +551,7 @@ class InteractionSerializer(serializers.ModelSerializer):
         else:
             if not subcategories or subcategories in [None, '', []]:
                 data['subcategories_data'] = []
-
-        #check required attributes and throw an error if not met
-        required_attributes = task.indicator.required_attribute.all()
-        
-        if required_attributes.exists():
-            respondent_attrs = set(respondent.special_attribute.values_list('id', flat=True))
-            for attribute in required_attributes:
-                if attribute.id not in respondent_attrs:
-                    raise serializers.ValidationError(
-                        f"This task requires that the respondent be a {attribute.name}."
-                    )
+    
         return data
     
     def create(self, validated_data):
@@ -567,7 +566,7 @@ class InteractionSerializer(serializers.ModelSerializer):
             **validated_data
         )
         for subcat in subcategories:
-            subcat_id = subcat['id']
+            subcat_id = subcat.get('id')
             numeric_value = subcat.get('numeric_component')
 
             try:

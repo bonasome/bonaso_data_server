@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.contrib.auth import get_user_model
 
 from projects.models import Project, Client, Task, Target
-from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, InteractionSubcategory, RespondentAttributeType, InteractionFlag
+from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, InteractionSubcategory, RespondentAttributeType
 from organizations.models import Organization
 from indicators.models import Indicator, IndicatorSubcategory
 from datetime import date, timedelta
@@ -73,8 +73,6 @@ class InteractionViewSetTest(APITestCase):
 
         self.attr_indicator = Indicator.objects.create(code='5001', name='I NEED AN ATTRIBUTE')
         self.attr_indicator.required_attribute.set([self.req1, self.req2])
-        
-        self.project.indicators.set([self.indicator, self.child_indicator, self.attr_indicator])
 
         self.task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.indicator)
         self.prereq_task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.child_indicator)
@@ -86,7 +84,7 @@ class InteractionViewSetTest(APITestCase):
 
         self.respondent= Respondent.objects.create(
             is_anonymous=True,
-            age_range=Respondent.AgeRanges.ET_24,
+            age_range=Respondent.AgeRanges.T_24,
             village='Testingplace',
             district= Respondent.District.CENTRAL,
             citizenship='test',
@@ -94,7 +92,7 @@ class InteractionViewSetTest(APITestCase):
         )
         self.respondent2= Respondent.objects.create(
             is_anonymous=True,
-            age_range=Respondent.AgeRanges.ET_24,
+            age_range=Respondent.AgeRanges.T_24,
             village='Testingplace',
             district= Respondent.District.CENTRAL,
             citizenship='test',
@@ -102,7 +100,7 @@ class InteractionViewSetTest(APITestCase):
         )
         self.respondent3= Respondent.objects.create(
             is_anonymous=True,
-            age_range=Respondent.AgeRanges.ET_24,
+            age_range=Respondent.AgeRanges.T_24,
             village='Testingplace',
             district= Respondent.District.CENTRAL,
             citizenship='test',
@@ -310,9 +308,8 @@ class InteractionViewSetTest(APITestCase):
         response = self.client.post('/api/record/interactions/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         ir = Interaction.objects.filter(task=self.prereq_task, respondent=self.respondent3).first()
-        flags = InteractionFlag.objects.filter(interaction=ir, resolved=False)
-        self.assertEqual(flags.count(), 1)
-        flag = flags.first()
+        self.assertEqual(ir.flags.count(), 1)
+        flag = ir.flags.first()
         self.assertIn('to have a valid interaction with this respondent within the past year', flag.reason)
 
         #upload prereq and it should be fine now
@@ -324,10 +321,10 @@ class InteractionViewSetTest(APITestCase):
         response = self.client.post('/api/record/interactions/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         ir = Interaction.objects.filter(task=self.prereq_task, respondent=self.respondent3).first()
-        os_flags = InteractionFlag.objects.filter(interaction=ir, resolved=False)
+        os_flags = ir.flags.filter(resolved=False)
         self.assertEqual(os_flags.count(), 0)
 
-        res_flags = InteractionFlag.objects.filter(interaction=ir, resolved=True)
+        res_flags = ir.flags.filter(resolved=True)
         self.assertEqual(res_flags.count(), 1)
         flag = res_flags.first()
         self.assertEqual(flag.auto_resolved, True)
@@ -352,9 +349,8 @@ class InteractionViewSetTest(APITestCase):
         response = self.client.post('/api/record/interactions/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         ir = Interaction.objects.filter(task=self.prereq_task, respondent=self.respondent3).first()
-        flags = InteractionFlag.objects.filter(interaction=ir, resolved=False)
-        self.assertEqual(flags.count(), 1)
-        flag = flags.first()
+        self.assertEqual(ir.flags.count(), 1)
+        flag = ir.flags.first()
         self.assertIn('Make sure the prerequisite interaction is not in the future.', flag.reason)
 
         #update with proper date
@@ -365,10 +361,10 @@ class InteractionViewSetTest(APITestCase):
         response = self.client.patch(f'/api/record/interactions/{ir.id}/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        os_flags = InteractionFlag.objects.filter(interaction=ir, resolved=False)
+        os_flags =ir.flags.filter(resolved=False)
         self.assertEqual(os_flags.count(), 0)
 
-        res_flags = InteractionFlag.objects.filter(interaction=ir, resolved=True)
+        res_flags = ir.flags.filter(resolved=True)
         self.assertEqual(res_flags.count(), 1)
         flag = res_flags.first()
         self.assertEqual(flag.auto_resolved, True)
@@ -429,7 +425,7 @@ class InteractionViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         ir = Interaction.objects.filter(task=task_child, respondent=self.respondent).first()
-        flags = InteractionFlag.objects.filter(interaction=ir, resolved=False)
+        flags = ir.flags.filter(resolved=False)
         self.assertEqual(flags.count(), 1)
         flag = flags.first()
         self.assertIn('This interaction will be flagged until the subcategories match.', flag.reason)
@@ -440,10 +436,10 @@ class InteractionViewSetTest(APITestCase):
         }, format='json')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        os_flags = InteractionFlag.objects.filter(interaction=ir, resolved=False)
+        os_flags = ir.flags.filter(resolved=False)
         self.assertEqual(os_flags.count(), 0)
 
-        res_flags = InteractionFlag.objects.filter(interaction=ir, resolved=True)
+        res_flags = ir.flags.filter(resolved=True)
         self.assertEqual(res_flags.count(), 1)
         flag = res_flags.first()
         self.assertEqual(flag.auto_resolved, True)
@@ -520,57 +516,9 @@ class InteractionViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         ir = Interaction.objects.get(interaction_date=date(2025, 6, 7), task=self.task, respondent=self.respondent3)
-        flags = InteractionFlag.objects.filter(interaction=ir, resolved=False)
-        self.assertEqual(flags.count(), 1)
-        flag = flags.first()
+        self.assertEqual(ir.flags.count(), 1)
+        flag = ir.flags.first()
         self.assertIn('within 30 days of this interaction', flag.reason)
-
-    def test_manual_flag(self):
-        self.client.force_authenticate(user=self.admin)
-        valid_payload = {
-            'reason': 'Bro this is trash.'
-        }
-        response = self.client.patch(f'/api/record/interactions/{self.interaction.id}/raise-flag/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        flags = InteractionFlag.objects.filter(interaction=self.interaction, resolved=False)
-        self.assertEqual(flags.count(), 1)
-        flag = flags.first()
-        self.assertIn('Bro this is trash', flag.reason)
-        self.assertEqual(flag.created_by, self.admin)
-    
-    def test_manual_resolve(self):
-        self.client.force_authenticate(user=self.manager)
-        flag_payload = {
-            'task': self.prereq_task.id,
-            'interaction_date': '2025-06-15',
-            'respondent': self.respondent3.id,
-        }
-        response = self.client.post(f'/api/record/interactions/', flag_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        ir = Interaction.objects.get(task=self.prereq_task, respondent=self.respondent3.id)
-        flags = InteractionFlag.objects.filter(interaction=ir, resolved=False)
-        self.assertEqual(flags.count(), 1)
-        flag = flags.first()
-        
-        valid_payload = {
-            'resolved_reason': 'That meme with the whiteboard, basically that.'
-        }
-        response = self.client.patch(f'/api/record/interactions/{self.interaction.id}/resolve-flag/{flag.id}/', valid_payload, format='json')
-        print(response.json())
-        flag.refresh_from_db()
-        self.assertEqual(flag.resolved, True)
-        self.assertEqual(flag.resolved_reason, 'That meme with the whiteboard, basically that.')
-        self.assertEqual(flag.resolved_by, self.manager)
-
-        #also test that a random edit doesn't reopen the same flag
-        valid_payload = {
-            'interaction_date': '2025-06-15'
-        }
-        response = self.client.patch(f'/api/record/interactions/{ir.id}/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        flags = InteractionFlag.objects.filter(interaction=ir, resolved=False)
-        self.assertEqual(flags.count(), 0)
 
     def test_bulk_create(self):
         self.client.force_authenticate(user=self.data_collector)

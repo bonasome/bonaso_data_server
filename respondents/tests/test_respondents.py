@@ -4,12 +4,12 @@ from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
 from django.urls import reverse
 from django.contrib.auth import get_user_model
-from datetime import datetime
 from projects.models import Project, Client, Task, Target
 from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, RespondentAttributeType
 from organizations.models import Organization
 from indicators.models import Indicator, IndicatorSubcategory
 from datetime import date
+
 User = get_user_model()
 
 class RespondentViewSetTest(APITestCase):
@@ -30,7 +30,7 @@ class RespondentViewSetTest(APITestCase):
 
         self.respondent_anon= Respondent.objects.create(
             is_anonymous=True,
-            age_range=Respondent.AgeRanges.ET_24,
+            age_range=Respondent.AgeRanges.T_24,
             village='Testingplace',
             district= Respondent.District.CENTRAL,
             citizenship='test',
@@ -86,7 +86,7 @@ class RespondentViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.data_collector)
         valid_payload_anon = {
             'is_anonymous':True,
-            'age_range': Respondent.AgeRanges.ET_24,
+            'age_range': Respondent.AgeRanges.T_24,
             'village': 'Here', 
             'citizenship': 'Test',
             'sex': Respondent.Sex.FEMALE,
@@ -108,6 +108,7 @@ class RespondentViewSetTest(APITestCase):
         self.assertEqual(HIVStatus.objects.filter(respondent=respondent_anon).count(), 1)
         self.assertEqual(HIVStatus.objects.filter(respondent=respondent_anon).first().date_positive, date(2024,1,1))
         self.assertEqual(Pregnancy.objects.filter(respondent=respondent_anon).count(), 2)
+        print(respondent_anon.effective_dob)
 
         valid_payload_full = {
             'is_anonymous':False,
@@ -127,7 +128,7 @@ class RespondentViewSetTest(APITestCase):
         respondent= Respondent.objects.get(village='Place')
         self.assertEqual(respondent.id_no,'1234')
         self.assertEqual(respondent.created_by, self.data_collector)
-
+        print(respondent.age_range)
 
     def test_create_duplicate(self):
         self.client.force_authenticate(user=self.data_collector)
@@ -168,7 +169,7 @@ class RespondentViewSetTest(APITestCase):
             'id_no': '12345',
             'first_name': 'Test',
             'last_name': 'Testerson',
-            'dob': '2000-01-01',
+            'dob': '1975-01-01',
             'ward': 'Here',
         }
         self.client.force_authenticate(user=self.data_collector)
@@ -176,17 +177,22 @@ class RespondentViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.respondent_anon.refresh_from_db()
         self.assertEqual(self.respondent_anon.ward, 'Here')
+        print(self.respondent_anon.effective_dob)
+        print(self.respondent_anon.age_range)
 
         #test that a respondent can opt into being anonymous and have PII deleted
         valid_payload_to_anon = {
             'is_anonymous':True,
-            'age_range': Respondent.AgeRanges.ET_24,
+            'age_range': '40_44',
         }
         self.client.force_authenticate(user=self.data_collector)
         response = self.client.patch(f'/api/record/respondents/{self.respondent_full.id}/', valid_payload_to_anon, format='json')
+        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.respondent_full.refresh_from_db()
         self.assertEqual(self.respondent_full.id_no, None)
+        print(self.respondent_full.effective_dob)
+        print(self.respondent_full.age_range)
 
     def test_manage_preg(self):
         #test basic patch operation
@@ -238,8 +244,54 @@ class RespondentViewSetTest(APITestCase):
         hiv = HIVStatus.objects.filter(respondent=self.respondent_full, hiv_positive=True).count()
         self.assertEqual(hiv, 0)
 
+    def test_bad_omang(self):
+        self.client.force_authenticate(user=self.data_collector)
+        flag_payload = {
+            'is_anonymous':False,
+            'id_no': '000000', #wrong number of digits
+            'first_name': 'Test',
+            'last_name': 'Testerson',
+            'dob': '2000-01-01',
+            'ward': 'Here',
+            'village': 'Place', 
+            'citizenship': 'Motswana', #this should only work for citizens
+            'sex': Respondent.Sex.FEMALE,
+            'district': Respondent.District.CENTRAL,
+        }
 
-    
+        response = self.client.post('/api/record/respondents/', flag_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        respondent = Respondent.objects.filter(id_no = '000000').first()
+        self.assertEqual(respondent.flags.count(), 3)
+
+        valid_patch = {
+            'id_no': '111121111'
+        }
+        response = self.client.patch(f'/api/record/respondents/{respondent.id}/', valid_patch, format='json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(respondent.flags.filter(resolved=True).count(), 3)
+
+    def test_not_fire_non_citizen(self):
+        self.client.force_authenticate(user=self.data_collector)
+        flag_payload = {
+            'is_anonymous':False,
+            'id_no': '000000', #wrong number of digits
+            'first_name': 'Test',
+            'last_name': 'Testerson',
+            'dob': '2000-01-01',
+            'ward': 'Here',
+            'village': 'Place', 
+            'citizenship': 'American', #this should only work for citizens
+            'sex': Respondent.Sex.FEMALE,
+            'district': Respondent.District.CENTRAL,
+        }
+
+        response = self.client.post('/api/record/respondents/', flag_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        respondent = Respondent.objects.filter(id_no = '000000').first()
+        self.assertEqual(respondent.flags.count(), 0)
+
     def test_delete_respondent(self):
         #only admins can delete
         self.client.force_authenticate(user=self.admin)
@@ -279,7 +331,7 @@ class RespondentViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.client_user)
         valid_payload_anon = {
             'is_anonymous':True,
-            'age_range': Respondent.AgeRanges.ET_24,
+            'age_range': Respondent.AgeRanges.T_24,
             'village': 'Here', 
             'citizenship': 'Test',
             'sex': Respondent.Sex.FEMALE,

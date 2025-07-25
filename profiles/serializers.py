@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from profiles.models import FavoriteProject, FavoriteRespondent, FavoriteEvent
 
-from respondents.serializers import RespondentSerializer
+
 from respondents.models import Respondent
 
 from projects.serializers import ProjectListSerializer, ClientSerializer
@@ -15,7 +15,7 @@ User = get_user_model()
 from organizations.serializers import OrganizationListSerializer
 from organizations.models import Organization
 
-class ProfileListSerailizer(serializers.ModelSerializer):
+class ProfileListSerializer(serializers.ModelSerializer):
     organization = OrganizationListSerializer(read_only=True)
     class Meta:
         model=User
@@ -60,10 +60,12 @@ class FavoriteProjectSerializer(serializers.ModelSerializer):
         fields = ['id', 'project', 'project_id']
 
 class FavoriteRespondentSerializer(serializers.ModelSerializer):
-    respondent = RespondentSerializer(read_only=True)
+    respondent = serializers.SerializerMethodField()
     respondent_id = serializers.PrimaryKeyRelatedField(
         queryset=Respondent.objects.all(), write_only=True, source='respondent'
     )
+    def get_respondent(self, obj):
+        return "screw off django"
     class Meta:
         model = FavoriteRespondent
         fields = ['id', 'respondent', 'respondent_id']

@@ -18,7 +18,7 @@ from datetime import datetime, date
 
 from projects.models import Project
 from projects.utils import get_valid_orgs, is_child_of
-from profiles.serializers import ProfileListSerailizer
+from profiles.serializers import ProfileListSerializer
 from messaging.models import Message, Announcement, MessageRecipient, Alert, AlertRecipient
 from messaging.serializers import MessageSerializer, AnnouncementSerializer, AlertSerializer
 from django.contrib.auth import get_user_model
@@ -49,7 +49,7 @@ class MessageViewSet(RoleRestrictedViewSet):
             queryset = queryset.filter(Q(organization_id__in=valid_orgs) | Q(role='admin'))
         elif user.role in ['data_collector', 'client']:
             queryset = queryset.filter(Q(organization=user.organization)|Q(role='admin'))
-        serializer = ProfileListSerailizer(queryset, many=True)
+        serializer = ProfileListSerializer(queryset, many=True)
         return Response(serializer.data)
     
     @action(detail=True, methods=['patch'], url_path='read')

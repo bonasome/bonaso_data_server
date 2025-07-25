@@ -1,7 +1,7 @@
 from django.db.models import Q
-from respondents.models import Interaction, InteractionFlag, HIVStatus, Pregnancy, InteractionSubcategory
+from respondents.models import Interaction, HIVStatus, Pregnancy, InteractionSubcategory
 from projects.models import Target, ProjectOrganization
-from events.models import DemographicCount, CountFlag
+from events.models import DemographicCount
 from itertools import product
 from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
@@ -110,8 +110,9 @@ def get_interactions_from_indicator(user, indicator, project, organization, star
                     queryset = queryset.filter(**{field_name: values})
 
     interaction_ids = queryset.values_list('id', flat=True)
-    flags = InteractionFlag.objects.filter(interaction__id__in=interaction_ids)
-    flagged_ids = flags.values_list('interaction_id', flat=True)
+    #flags = InteractionFlag.objects.filter(interaction__id__in=interaction_ids)
+    #flagged_ids = flags.values_list('interaction_id', flat=True)
+    flagged_ids = []
     return [obj for obj in queryset if obj.id not in flagged_ids]
 
 def get_interaction_subcats(interactions):
@@ -149,8 +150,9 @@ def get_event_counts_from_indicator(user, indicator, params, project, organizati
             else:
                 queryset = queryset.filter(**{field: values})
     count_ids = queryset.values_list('id', flat=True)
-    flags = CountFlag.objects.filter(count__id__in=count_ids)
-    flagged_ids = flags.values_list('count_id', flat=True)
+    #flags = CountFlag.objects.filter(count__id__in=count_ids)
+    #flagged_ids = flags.values_list('count_id', flat=True)
+    flagged_ids = []
     queryset  = [obj for obj in queryset if obj.id not in flagged_ids]
     #pre_exclude any count that does not match the requested breakdowns
     return queryset

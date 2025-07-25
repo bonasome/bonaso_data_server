@@ -1,7 +1,9 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
-from respondents.views import RespondentViewSet, InteractionViewSet
+from respondents.views.respondent_viewset import RespondentViewSet
+from respondents.views.interaction_viewset import InteractionViewSet
+
 
 router = DefaultRouter()
 router.register(r'respondents', RespondentViewSet, basename='respondent')

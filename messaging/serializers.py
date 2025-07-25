@@ -4,7 +4,7 @@ from projects.serializers import ProjectListSerializer
 from projects.models import Project
 from organizations.models import Organization
 from organizations.serializers import OrganizationListSerializer
-from profiles.serializers import ProfileListSerailizer
+from profiles.serializers import ProfileListSerializer
 from rest_framework.exceptions import PermissionDenied
 from django.utils.timezone import now
 from django.contrib.auth import get_user_model
@@ -62,21 +62,21 @@ class AnnouncementSerializer(serializers.ModelSerializer):
 
 
 class MessageRecipientSerializer(serializers.ModelSerializer):
-    recipient = ProfileListSerailizer(read_only=True)
+    recipient = ProfileListSerializer(read_only=True)
     class Meta:
         model=MessageRecipient
         fields = [
             'id', 'message', 'recipient', 'read', 'actionable', 'completed', 'deleted_by_recipient'
         ]
 class ReplySerializer(serializers.ModelSerializer):
-    sender = ProfileListSerailizer(read_only=True)
+    sender = ProfileListSerializer(read_only=True)
     recipients = MessageRecipientSerializer(read_only=True, many=True, source='recipient_links')
     class Meta:
         model=Message
         fields = ['id', 'subject', 'body', 'sender', 'recipients']
 
 class MessageSerializer(serializers.ModelSerializer):
-    sender = ProfileListSerailizer(read_only=True)
+    sender = ProfileListSerializer(read_only=True)
     recipients = MessageRecipientSerializer(source='recipient_links', many=True, read_only=True)
     recipient_data = serializers.ListField(
         child=serializers.DictField(),

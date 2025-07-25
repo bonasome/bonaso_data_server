@@ -1,16 +1,18 @@
 from django.db import models
-from django.db.models import Q
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 from users.models import User
-from indicators.models import Indicator, IndicatorSubcategory
-from projects.models import Project, Task
-from datetime import datetime, date
+from indicators.models import IndicatorSubcategory
+from projects.models import Task
+from datetime import date
 import uuid
-from django.utils.timezone import now
-from datetime import timedelta
+from django.contrib.contenttypes.fields import GenericRelation
+
 
 class DisabilityType(models.Model):
+    '''
+    Helper model to keep track of multi-select disability statuses.
+    '''
     class DisabilityTypes(models.TextChoices):
         VI = 'VI', _('Visually Impaired')
         PD = 'PD', _('Physical Disability')
@@ -23,6 +25,9 @@ class DisabilityType(models.Model):
     name = models.CharField(max_length=10, choices=DisabilityTypes.choices, unique=True)
 
 class KeyPopulation(models.Model):
+    '''
+    Helper model to keep track of multi-select key-population statuses.
+    '''
     class KeyPopulations(models.TextChoices):
         FSW = 'FSW', _('Female Sex Workers')
         MSM = 'MSM', _('Men Who Have Sex With Men')
@@ -35,6 +40,12 @@ class KeyPopulation(models.Model):
     name = models.CharField(max_length=10, choices=KeyPopulations.choices, unique=True)
 
 class RespondentAttributeType(models.Model):
+    '''
+    Respondent Attributes are kind of a catch all that is used to track certain information centrally and run easier checks.
+    This way, we can do things like set an indicator to see if a person is HIV positive or a KP and run the 
+    check in a centralized location. Since respondents can have mutliple attributes, this is a helper model to 
+    manage that.
+    '''
     class Attributes(models.TextChoices):
         PLWHIV = 'PLWHIV', _('Person Living with HIV')
         PWD = 'PWD', _('Person Living with a Disability')
@@ -48,23 +59,25 @@ class RespondentAttributeType(models.Model):
         return self.name
 
 
-class RespondentFlag(models.Model):
-    respondent = models.ForeignKey("Respondent", on_delete=models.CASCADE, related_name="flags")
-    reason = models.TextField()
-    auto_flagged = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='respondent_flag_created_by')
-    resolved = models.BooleanField(default=False)
-    auto_resolved = models.BooleanField(default=False)
-    resolved_reason = models.TextField(null=True, blank=True)
-    resolved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='respondent_flag_resolved_by')
-    resolved_at = models.DateTimeField(null=True, blank=True)
-
-    def __str__(self):
-        return f'Flag  for respondent {self.interaction.respondent} for reason {self.reason}.' 
-
-
 class Respondent(models.Model):
+    '''
+    Model that's basically used to centrally store demographic information attached to interactions
+    and help us better organize how that data is viewed/analyzed. Ideally, almost all indicators
+    are tied directly to respondent.
+
+    Respondents can be anonymous, in which case we require:
+        1) Age Range
+        2) Sex
+        3) Village (or town or whatever)
+        4)District
+        5) Citizenship
+            - We will automatically wipe any dob/id/email/phones in the serialization process.
+            - We also track a uuid, which is kind of a reference for anonymous respondents.
+    Otherwise, all fields are required except for Email and Phone Number (optional), and Age Range (which 
+    we can calcualte from DOB).
+
+
+    '''
     class Sex(models.TextChoices):
         FEMALE = 'F', _('Female')
         MALE = 'M', _('Male')
@@ -95,7 +108,7 @@ class Respondent(models.Model):
         F0_44 = '40_44', _('40-44')
         F5_49 = '45_49', _('45–49')
         FF_55 = '50_54', _('50-54')
-        F4_59 = '55_55', _('55-59')
+        F4_59 = '55_59', _('55-59')
         S0_64 = '60_64', _('60-64')
         O65 = '65_plus', _('65+')
         
@@ -106,6 +119,7 @@ class Respondent(models.Model):
     last_name = models.CharField(max_length=255, verbose_name='Last Name', blank=True, null=True)
     age_range = models.CharField(max_length=10, choices=AgeRanges.choices, blank=True, null=True, verbose_name='Age Range')
     dob = models.DateField(verbose_name='Date of Birth', blank=True, null=True)
+    dummy_dob = models.DateField(verbose_name='Estimated DOB from Age Range', blank=True, null=True)
     sex = models.CharField(max_length=2, choices=Sex.choices, verbose_name='Sex')
     ward = models.CharField(max_length=255, verbose_name='Ward', blank=True, null=True)
     village = models.CharField(max_length=255, verbose_name='Village')
@@ -117,13 +131,20 @@ class Respondent(models.Model):
     email = models.EmailField(verbose_name='Email Address', null=True, blank=True)
     phone_number = models.CharField(max_length=255, verbose_name='Phone Number', null=True, blank=True)
     comments = models.TextField(blank=True, null=True, verbose_name='Comments')
+    
+    flags = GenericRelation('flags.Flag', related_query_name='flags')
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='respondent_created_by')
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='respondent_updated_by')
 
+    
+
     def clean(self):
+        '''
+        Quick verification to make sure no fields are missing or present based on the is_anonymous field.
+        '''
         if self.is_anonymous:
             if self.first_name or self.last_name or self.email or self.phone_number or self.id_no or self.dob:
                 raise ValidationError('This respondent was marked as anonymous, but personal information was provided. Please either remove this information or get permission from the respondent to collect their personal information.')
@@ -145,63 +166,38 @@ class Respondent(models.Model):
             if missing:
                 raise ValidationError({field: "This field is required If the respondent does not wish to provide any of this information, please mark them as anonymous." for field in missing})
 
-    def save(self, *args, **kwargs):
-        if self.dob:
-            # If dob is a string, convert it
-            if isinstance(self.dob, str):
-                self.dob = date.fromisoformat(self.dob)
-            # If dob is a tuple, assume (year, month, day)
-            elif isinstance(self.dob, tuple) and len(self.dob) == 3:
-                self.dob = date(*self.dob)
-            # Optionally, handle datetime objects
-            elif isinstance(self.dob, datetime):
-                self.dob = self.dob.date()
-            today = date.today()
 
-            age = today.year - self.dob.year - ((today.month, today.day) < (self.dob.month, self.dob.day))
-            if age < 1:
-                self.age_range = self.AgeRanges.U1
-            elif age <= 4:
-                self.age_range = self.AgeRanges.O_4
-            elif age <= 9:
-                self.age_range = self.AgeRanges.F_9
-            elif age <= 14:
-                self.age_range = self.AgeRanges.T_14
-            elif age <= 19:
-                self.age_range = self.AgeRanges.FT_19
-            elif age <= 24:
-                self.age_range = self.AgeRanges.T_24
-            elif age <= 29:
-                self.age_range = self.AgeRanges.T4_29
-            elif age <= 34:
-                self.age_range = self.AgeRanges.TH_34
-            elif age <= 39:
-                self.age_range = self.AgeRanges.T5_39
-            elif age <= 44:
-                self.age_range = self.AgeRanges.F0_44
-            elif age <= 49:
-                self.age_range = self.AgeRanges.F5_49
-            elif age <= 54:
-                self.age_range = self.AgeRanges.FF_55
-            elif age <= 59:
-                self.age_range = self.AgeRanges.F4_59
-            elif age <= 64:
-                self.age_range = self.AgeRanges.S0_64
-            else:
-                self.age_range = self.AgeRanges.O65
-        super().save(*args, **kwargs)
+    @property
+    def effective_dob(self):
+        '''
+        Get the DOB (preferable), or if not provided, the dummy calculated from the midpoint of the provided
+        age range. Not an exact science, but its better than data becoming completely obselete every few years.
+        '''
+        return self.dob or self.dummy_dob
 
+    @property
+    def current_age_range(self):
+        '''
+        Get age range based on either DOB or effective DOB. This is used in the front end to display age ranges.
+        '''
+        dob = self.effective_dob
+        if not dob:
+            return None
+        today = date.today()
+        age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+        return self.calculate_age_range(age)
+    
+            
     def get_full_name(self):
         return f'{self.first_name} {self.last_name}'
-    
-    def get_age(self):
-        today = datetime.today()
-        return today.year - self.dob.year - ((today.month, today.day) < (self.dob.month, self.dob.day))
 
     def __str__(self):
         return self.get_full_name() if not self.is_anonymous else f'Anonymous Respondent ({self.uuid})'
 
 class RespondentAttribute(models.Model):
+    '''
+    Through table for respondent attributes.
+    '''
     respondent = models.ForeignKey(Respondent, on_delete=models.CASCADE, blank=True, null=True)
     attribute = models.ForeignKey(RespondentAttributeType, on_delete=models.CASCADE, blank=True, null=True)
     auto_assigned = models.BooleanField(default=False)
@@ -212,6 +208,9 @@ class RespondentAttribute(models.Model):
         return f'{self.respondent} - {self.attribute}'
 
 class KeyPopulationStatus(models.Model):
+    '''
+    Through table for KP statuses.
+    '''
     respondent = models.ForeignKey(Respondent, on_delete=models.CASCADE, blank=True, null=True)
     key_population = models.ForeignKey(KeyPopulation, on_delete=models.CASCADE, blank=True, null=True)
     class Meta:
@@ -221,6 +220,9 @@ class KeyPopulationStatus(models.Model):
         return f'{self.respondent} - {self.key_population}'
 
 class DisabilityStatus(models.Model):
+    '''
+    Through table for disability statuses.
+    '''
     respondent = models.ForeignKey(Respondent, on_delete=models.CASCADE, blank=True, null=True)
     disability = models.ForeignKey(DisabilityType, on_delete=models.CASCADE, blank=True, null=True)
     class Meta:
@@ -230,6 +232,11 @@ class DisabilityStatus(models.Model):
         return f'{self.respondent} - {self.disability}'
 
 class Pregnancy(models.Model):
+    '''
+    Since we can have multiple pregnancies per respondent, we need to track this seperately. We don't really
+    do much with this currently, just return a bool if an interaction date is between term began and term ended.
+    '''
+
     respondent = models.ForeignKey(Respondent, on_delete=models.CASCADE)
     is_pregnant = models.BooleanField(null=True, blank=True)
     term_began = models.DateField(null=True, blank=True)
@@ -241,6 +248,12 @@ class Pregnancy(models.Model):
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='pregnancy_updated_by')
 
 class HIVStatus(models.Model):
+    '''
+    This could have been a direct field on the respondent model, but splitting it allows for us to also track
+    who created/updated HIV statuses when and where. 
+
+    Because you know, that's kind of our thing. If you weren't aware. 
+    '''
     respondent = models.OneToOneField(Respondent, on_delete=models.CASCADE)
     hiv_positive = models.BooleanField(null=True, blank=True)
     date_positive = models.DateField(null=True, blank=True)
@@ -250,22 +263,13 @@ class HIVStatus(models.Model):
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='hiv_status_created_by')
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='hiv_status_updated_by')
 
-class InteractionFlag(models.Model):
-    interaction = models.ForeignKey("Interaction", on_delete=models.CASCADE, related_name="flags")
-    reason = models.TextField()
-    auto_flagged = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='flag_created_by')
-    resolved = models.BooleanField(default=False)
-    auto_resolved = models.BooleanField(default=False)
-    resolved_reason = models.TextField(null=True, blank=True)
-    resolved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='flag_resolved_by')
-    resolved_at = models.DateTimeField(null=True, blank=True)
-
-    def __str__(self):
-        return f'Flag  for interaction {self.interaction.task.indicator.name} for respondent {self.interaction.respondent} for reason {self.reason}.'
-
 class Interaction(models.Model):
+    '''
+    The interaction is the model that links an indicator to a respondent (via tasks). 
+    It includes with it the date, location and also possibly additional information (subcategory, numbers) 
+    as is required by the indicator. Via the task model, it also tells us the project/organization that 
+    completed it.
+    '''
     respondent = models.ForeignKey(Respondent, on_delete=models.PROTECT)
     task = models.ForeignKey(Task, on_delete=models.PROTECT)
     interaction_date = models.DateField()
@@ -273,9 +277,11 @@ class Interaction(models.Model):
     subcategories = models.ManyToManyField(IndicatorSubcategory, through='InteractionSubcategory', blank=True)
     comments = models.TextField(verbose_name='Comments', null=True, blank=True, default=None)
     numeric_component = models.IntegerField(null=True, blank=True, default=None)
+
+    flags = GenericRelation('flags.Flag', related_query_name='flags')
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='interaction_created_by')
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='interaction_updated_by')
     
@@ -283,8 +289,11 @@ class Interaction(models.Model):
         return f'Interaction with {self.respondent} on {self.interaction_date} for {self.task.indicator.code}'
 
 
-
 class InteractionSubcategory(models.Model):
+    '''
+    Mostly a through table to link interactions to an interaction subcategory, but we can also store numeric 
+    information within it (i.e., male/female condoms).
+    '''
     interaction = models.ForeignKey(Interaction, on_delete=models.CASCADE)
     numeric_component = models.IntegerField(null=True, blank=True, default=None)
     subcategory = models.ForeignKey(IndicatorSubcategory, on_delete=models.CASCADE)

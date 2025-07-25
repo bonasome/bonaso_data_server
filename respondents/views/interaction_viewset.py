@@ -1,287 +1,42 @@
 from django.shortcuts import render, redirect
-from django.http import JsonResponse
+from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
-from rest_framework import filters
-from rest_framework import status
-from dateutil.parser import parse as parse_date
+from django.conf import settings
+from django.http import HttpResponse
+
+from rest_framework import filters, status
 from rest_framework.response import Response
-from users.restrictviewset import RoleRestrictedViewSet
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.exceptions import PermissionDenied
-from dateutil.parser import parse as parse_date
-from datetime import date, timedelta
-from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.filters import OrderingFilter
 from rest_framework import serializers
 from rest_framework.filters import SearchFilter
-from openpyxl.utils.datetime import from_excel
+from rest_framework.decorators import action
+
+from dateutil.parser import parse as parse_date
+from datetime import date, timedelta, datetime
 from django.utils.timezone import now
+
 from openpyxl import Workbook
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.protection import SheetProtection
 from openpyxl import load_workbook
 from io import BytesIO
-from django.http import HttpResponse
 import os
 import re
-from django.conf import settings
-import string
-from itertools import product
-from django.db import transaction
-import traceback
 
-from datetime import datetime, date
-today = date.today().isoformat()
-from projects.models import Task, ProjectOrganization
-from projects.utils import get_valid_orgs
-from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType, RespondentAttributeType, InteractionFlag, RespondentFlag
-from respondents.serializers import RespondentSerializer, RespondentListSerializer, InteractionSerializer, RespondentFlagSerializer
+from users.restrictviewset import RoleRestrictedViewSet
+
+from projects.models import Task, Project, ProjectOrganization
+from respondents.models import Respondent, Interaction, HIVStatus, KeyPopulation, DisabilityType, RespondentAttributeType
+from respondents.serializers import RespondentSerializer, InteractionSerializer
+from respondents.utils_file_upload import excel_columns, valid_excel_date, is_email, is_phone_number, is_truthy
 from indicators.models import IndicatorSubcategory
-from respondents.utils import topological_sort
 
 
-class RespondentViewSet(RoleRestrictedViewSet):
-    permission_classes = [IsAuthenticated]
-    filter_backends = [filters.SearchFilter, OrderingFilter]
-    ordering_fields = ['last_name', 'first_name', 'village', 'district']
-    search_fields = ['first_name', 'last_name', 'uuid', 'comments', 'village'] 
-    filterset_fields = ['sex', 'age_range', 'district']
-    queryset = Respondent.objects.all()
-    serializer_class = RespondentSerializer
-    def get_queryset(self):
-        queryset = Respondent.objects.all()
-        sex = self.request.query_params.get('sex')
-        district = self.request.query_params.get('district')
-        age_range = self.request.query_params.get('age_range')
-
-        if sex:
-            queryset = queryset.filter(sex=sex)
-        if district:
-            queryset = queryset.filter(district=district)
-        if age_range:
-            queryset = queryset.filter(age_range=age_range)
-
-        return queryset
-    
-    def get_serializer_class(self):
-        if self.action == 'list':
-            return RespondentListSerializer
-        else:
-            return RespondentSerializer
-    
-    def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
-
-    def perform_update(self, serializer):
-        serializer.save(updated_by=self.request.user)
-
-    def destroy(self, request, *args, **kwargs):
-        user = request.user
-        instance = self.get_object()
-
-        # Prevent deletion if respondent has interactions
-        if Interaction.objects.filter(respondent_id=instance.id).exists():
-            return Response(
-                {
-                    "detail": (
-                        "You cannot delete a respondent that has interactions associated with them. "
-                        "If this respondent has requested data removal, consider marking them as anonymous."
-                    )
-                },
-                status=status.HTTP_409_CONFLICT
-            )
-
-        # Permission check: only admin can delete
-        if user.role != 'admin':
-            return Response(
-                {"detail": "You do not have permission to delete this respondent."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        # Perform deletion
-        self.perform_destroy(instance)
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-    @action(detail=False, methods=['get'], url_path='meta')
-    def filter_options(self, request):
-        districts = [district for district, _ in Respondent.District.choices]
-        district_labels = [d.label for d in Respondent.District]
-        sexs = [sex for sex, _ in Respondent.Sex.choices]
-        sex_labels = [choice.label for choice in Respondent.Sex]
-        age_ranges = [ar for ar, _ in Respondent.AgeRanges.choices]
-        age_range_labels = [choice.label for choice in Respondent.AgeRanges]
-        kp_types = [kp for kp, _ in KeyPopulation.KeyPopulations.choices]
-        kp_type_labels = [choice.label for choice in KeyPopulation.KeyPopulations]
-        dis_types = [dis for dis, _ in DisabilityType.DisabilityTypes.choices]
-        dis_labels = [dis.label for dis in DisabilityType.DisabilityTypes]
-        auto_attr = [RespondentAttributeType.Attributes.PLWHIV, RespondentAttributeType.Attributes.KP, RespondentAttributeType.Attributes.PWD]
-        special_attributes = [attr for attr, _ in RespondentAttributeType.Attributes.choices if attr not in auto_attr]
-        special_attribute_labels = [attr.label for attr in RespondentAttributeType.Attributes if attr not in auto_attr]
-        return Response({
-            'districts': districts,
-            'district_labels': district_labels,
-            'sexs': sexs,
-            'sex_labels': sex_labels,
-            'age_ranges': age_ranges,
-            'age_range_labels': age_range_labels,
-            'kp_types': kp_types,
-            'kp_type_labels': kp_type_labels,
-            'disability_types': dis_types,
-            'disability_type_labels': dis_labels,
-            'special_attributes': special_attributes,
-            'special_attribute_labels': special_attribute_labels
-        })
-    
-    @action(detail=True, methods=['patch'], url_path='raise-flag')
-    def raise_flag(self, request, pk=None):
-        user = request.user
-        respondent = self.get_object()
-
-        if user.role not in ['admin', 'meofficer', 'manager']:
-            raise PermissionDenied('You do not have permission to raise a flag.')
-
-        reason = request.data.get('reason')
-        if not reason:
-            return Response({"detail": "You must provide a reason for creating a flag."}, status=status.HTTP_400_BAD_REQUEST)
-
-        flag = RespondentFlag.objects.create(
-            respondent=respondent,
-            created_by=user,
-            reason=reason,
-        )
-        return Response({"detail": "Respondent flagged.", "flag": RespondentFlagSerializer(flag).data}, status=status.HTTP_200_OK)
-
-    @action(detail=True, methods=['patch'], url_path='resolve-flag/(?P<respondentflag_id>[^/.]+)')
-    def resolve_flag(self, request, pk=None, respondentflag_id=None):
-        user = request.user
-        respondent = self.get_object()
-
-        if user.role not in ['admin', 'meofficer', 'manager']:
-            return Response({"detail": "You do not have permission to resolve a flag for this post."}, status=status.HTTP_403_FORBIDDEN)
-
-        respondent_flag = get_object_or_404(RespondentFlag, id=respondentflag_id, respondent=respondent)
-
-        if respondent_flag.resolved:
-            return Response({"detail": "This flag is already resolved."}, status=status.HTTP_400_BAD_REQUEST)
-
-        resolved_reason = request.data.get('resolved_reason')
-        if not resolved_reason:
-            return Response({"detail": "You must provide a reason for resolving a flag."}, status=status.HTTP_400_BAD_REQUEST)
-
-        respondent_flag.resolved = True
-        respondent_flag.resolved_by = user
-        respondent_flag.resolved_reason = resolved_reason
-        respondent_flag.resolved_at = now()
-        respondent_flag.save()
-
-        return Response({"detail": "Flag resolved.", "flag": RespondentFlagSerializer(respondent_flag).data}, status=status.HTTP_200_OK)
-    
-    @action(detail=False, methods=['post'], url_path='bulk')
-    def bulk_upload(self, request):
-        if request.user.role == 'client':
-                raise PermissionDenied('You do not have permission to perform this action.')
-        data = request.data
-        if not isinstance(data, list):
-            return Response({"detail": "Expected a list of respondents."}, status=400)
-
-        created_ids = []
-        local_ids = []
-        errors = []
-        for i, item in enumerate(data):
-            try:
-                sensitive_data = item.pop("sensitive_info", {})
-                interactions = item.pop("interactions", [])
-
-                id_no = item.get('id_no')
-                existing = None
-                if id_no is not None:
-                    existing = Respondent.objects.filter(id_no=id_no).first()
-                if existing:
-                    respondent_serializer = RespondentSerializer(
-                        existing, data=item, context={'request': request}, partial=True
-                    )
-                else:
-                    respondent_serializer = RespondentSerializer(
-                        data=item, context={'request': request}
-                    )
-                respondent_serializer.is_valid(raise_exception=True)
-                respondent = respondent_serializer.save(created_by=request.user)
-
-                # Save interactions
-                with transaction.atomic():
-                    for interaction in interactions:
-                        try:
-                            interaction_date = interaction.get('interaction_date')
-                            if not interaction_date:
-                                raise ValidationError({'interaction_date': 'Interaction date is required'})
-                            interaction_location = interaction.get('interaction_location') or None
-                            subcats = interaction.get("subcategories_data", [])
-                            task_id = interaction.get("task")
-                            numeric_component = interaction.get('numeric_component')
-                            try:
-                                task_instance = Task.objects.get(id=task_id)
-                            except Task.DoesNotExist:
-                                raise ValidationError({"task": f"Task with ID {task_id} not found"})
-                            lookup_fields = {
-                                'respondent': respondent,
-                                'interaction_date': interaction_date,
-                                'task': task_id,
-                            }
-                            # Try to fetch the existing interaction
-                            instance = Interaction.objects.filter(**lookup_fields).first()
-
-                            # Pass instance to serializer if it exists (update), otherwise it will create
-                            serializer = InteractionSerializer(
-                                instance=instance,
-                                data={
-                                    'respondent': respondent.id,
-                                    'interaction_date': interaction_date,
-                                    'interaction_location': interaction_location,
-                                    'task': task_id,
-                                    'numeric_component': numeric_component,
-                                    'subcategories_data': subcats,
-                                    'comments': '',
-                                },
-                                context={'request': request, 'respondent': respondent}
-                            )
-                            serializer.is_valid(raise_exception=True)
-                            serializer.save()
-                        except Exception as inter_err:
-                            errors.append({
-                                'respondent': respondent.id,
-                                'interaction_error': str(inter_err),
-                                'interaction_traceback': traceback.format_exc(),
-                                'interaction_data': interaction
-                            })
-            
-                local_ids.append(item.get('local_id'))
-                created_ids.append(respondent.id)
-
-            except ValidationError as ve:
-                errors.append({
-                    'index': i,
-                    'error': 'Validation error',
-                    'details': ve.detail,
-                    'data': item
-                })
-            except Exception as e:
-                errors.append({
-                    'index': i,
-                    'error': str(e),
-                    'data': item
-                })
-        return Response({
-            "created_ids": created_ids,
-            "local_ids": local_ids,
-            "errors": errors
-        }, status=status.HTTP_207_MULTI_STATUS if errors else status.HTTP_201_CREATED)
-  
 class InteractionViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
-    queryset = Interaction.objects.all()
     serializer_class = InteractionSerializer
     ordering_fields = ['-interaction_date']
     filter_backends = [SearchFilter]
@@ -289,11 +44,9 @@ class InteractionViewSet(RoleRestrictedViewSet):
     search_fields = ['respondent__uuid', 'respondent__first_name', 'respondent__last_name', 
                      'task__indicator__code', 'task__indicator__name', 'task__organization__name'] 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        queryset = Interaction.objects.all()
         respondent = self.request.query_params.get('respondent')
         user = self.request.user
-        role = getattr(user, 'role', None)
-        org = getattr(user, 'organization', None)
 
         if respondent:
             queryset = queryset.filter(respondent__id=respondent)
@@ -305,12 +58,12 @@ class InteractionViewSet(RoleRestrictedViewSet):
         if end:
             queryset = queryset.filter(interaction_date__lte=end)
         return queryset
-
     
     def destroy(self, request, *args, **kwargs):
         user = request.user  # consistent access
         instance = self.get_object()
 
+        #only admins can delete
         if user.role != 'admin':
             return Response(
                 {
@@ -318,6 +71,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 },
                 status=status.HTTP_403_FORBIDDEN 
             )
+        #also prevent deletion if this indicator is upstream from another indicator
         if Interaction.objects.filter(respondent=instance.respondent, task__indicator__prerequisites=instance.task.indicator).exists():
             return Response(
                 {
@@ -329,157 +83,36 @@ class InteractionViewSet(RoleRestrictedViewSet):
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)
     
-    @action(detail=True, methods=['patch'], url_path='raise-flag')
-    def raise_flag(self, request, pk=None):
-        user = request.user
-        interaction = self.get_object()
-        if user.role not in ['admin', 'meofficer', 'manager']:
-            raise PermissionDenied('You do not have permission to raise a flag.')
-        if user.role in ['meofficer', 'manager'] and not (
-            interaction.task.organization == user.organization or 
-            ProjectOrganization.objects.filter(organization=interaction.task.organization, project=interaction.task.project, parent_organization=user.organization).exists()):
-            raise PermissionDenied('You do not have permission to raise a flag for this interaction.')
-        reason = request.data.get('reason', None)
-        if not reason:
-            return Response({"detail": f"You must provide a reason for creating a flag."}, status=status.HTTP_400_BAD_REQUEST)
-        InteractionFlag.objects.create(
-            interaction=interaction,
-            created_by = user,
-            reason=reason,
-        )
-        return Response({"detail": f"Interaction flagged."}, status=status.HTTP_200_OK)
-    
-    @action(detail=True, methods=['patch'], url_path='resolve-flag/(?P<interactionflag_id>[^/.]+)')
-    def resolve_flag(self, request, pk=None, interactionflag_id=None):
-        user = request.user
-        interaction = self.get_object()
-        interaction_flag = InteractionFlag.objects.filter(id=interactionflag_id).first()
-
-        if user.role not in ['admin', 'meofficer', 'manager']:
-            return Response({"detail": f"You do not have permissiont to resolve a flag for this interaction."}, status=status.HTTP_403_FORBIDDEN)
-        if user.role in ['meofficer', 'manager'] and not (
-        interaction.task.organization == user.organization or 
-         ProjectOrganization.objects.filter(organization=interaction.task.organization, project=interaction.task.project, parent_organization=user.organization).exists()):
-            return Response({"detail": f"You do not have permissiont to resolve a flag for this interaction."}, status=status.HTTP_403_FORBIDDEN)
-
-        if not interaction_flag:
-            return Response({"detail": f"Flag not found."}, status=status.HTTP_400_BAD_REQUEST)
-        
-        resolved_reason = request.data.get('resolved_reason', None)
-        if not resolved_reason:
-            return Response({"detail": f"You must provide a reason for resolving a flag."}, status=status.HTTP_400_BAD_REQUEST)
-        
-        interaction_flag.resolved = True
-        interaction_flag.resolved_by = user
-        interaction_flag.resolved_reason=resolved_reason
-        interaction_flag.resolved_at=now()
-        interaction_flag.save()
-        print(interaction_flag.resolved)
-        return Response({"detail": f"Flag resolved."}, status=status.HTTP_200_OK)
-
-
-    @action(detail=False, methods=['get'], url_path='flagged')
-    def get_flagged(self, request):
-        user = request.user
-        role = user.role
-        org = user.organization
-
-        # Start with flagged interactions
-        flags = InteractionFlag.objects.all()
-        related_ids = [flag.interaction.id for flag in flags.all()]
-        queryset = Interaction.objects.filter(id__in=related_ids)
-
-        # Role-based filtering
-        if role == 'client':
-            raise PermissionDenied('You do not have permission to view this page.')
-        elif role in ['meofficer', 'manager']:
-            child_orgs = ProjectOrganization.objects.filter(
-                parent_organization=user.organization
-            ).values_list('organization', flat=True)
-
-            queryset = queryset.filter(
-                Q(task__organization=user.organization) | Q(task__organization__in=child_orgs)
-            )
-        elif role == 'data_collector':
-            queryset = queryset.filter(created_by=user)
-
-        project_id = request.query_params.get('project')
-        organization_id = request.query_params.get('organization')
-        indicator_id = request.query_params.get('indicator')
-        resolved_param = request.query_params.get('resolved')
-        auto_param = request.query_params.get('auto_flagged')
-        start_param = self.request.query_params.get('start')
-        if start_param:
-            queryset = queryset.filter(interaction_date__gte=start_param)
-
-        end_param = self.request.query_params.get('end')
-        if end_param:
-            queryset = queryset.filter(interaction_date__lte=end_param)
-
-        if project_id:
-            queryset = queryset.filter(task__project__id = project_id)
-        if organization_id:
-            queryset = queryset.filter(task__organization__id = organization_id)
-        if indicator_id:
-            queryset = queryset.filter(task__indicator__id = indicator_id)
-        
-        if resolved_param:
-            queryset = queryset.filter(flags__resolved = resolved_param in ['true', '1']).distinct()
-            print(queryset.count())
-        if auto_param:
-            queryset = queryset.filter(flags__auto_flagged = auto_param in ['true', '1']).distinct()
-            print(queryset.count())
-
-        # Search filter (e.g., by respondent name or ID or comment)
-        search_term = request.query_params.get('search')
-        if search_term:
-            queryset = queryset.filter(
-                Q(respondent__first_name__icontains=search_term) |
-                Q(respondent__last_name__icontains=search_term) |
-                Q(respondent__village__icontains=search_term) |
-                Q(respondent__uuid__icontains=search_term) |
-                Q(comments__icontains=search_term) |
-                Q(task__indicator__name__icontains=search_term) |
-                Q(task__indicator__code__icontains=search_term) |
-                Q(task__organization__name__icontains=search_term) |
-                Q(task__project__name__icontains=search_term) |
-                Q(flags__reason__icontains=search_term)
-            ).distinct()
-
-        # Pagination
-        page = self.paginate_queryset(queryset)
-        if page is not None:
-            serializer = InteractionSerializer(page, many=True, context={'request': request})
-            return self.get_paginated_response(serializer.data)
-
-        # No pagination fallback
-        serializer = InteractionSerializer(queryset, many=True, context={'request': request})
-        return Response(serializer.data)
-    
     @action(detail=False, methods=['post', 'patch'], url_path='batch')
     def batch_create(self, request):
+        '''
+        For the frontend, it makes sense to allow for the creation of mutliple interactions in one batch,
+        since oftentimes users meet with one respondent and perform different interactions with the same 
+        respondent on the same date and at the same location.
+        '''
         if request.user.role == 'client':
                 raise PermissionDenied('You do not have permission to perform this action.')
+        
         respondent_id = request.data.get('respondent')
         tasks = request.data.get('tasks', [])
+
+        #the mobile app may send this information at the task level, so use either from the top of the dict or the task level
         top_level_date = request.data.get('interaction_date')
         top_level_location = request.data.get('interaction_location')
+        
         if not respondent_id or not tasks:
             return Response({'error': 'Missing respondent or tasks'}, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            respondent = Respondent.objects.get(id=respondent_id)
-
-        except Respondent.DoesNotExist:
-            return Response({'error': 'Respondent not found'}, status=status.HTTP_404_NOT_FOUND)
+        respondent = get_object_or_404(Respondent, id=respondent_id)
 
         created = []
         for i, task in enumerate(tasks):
-            task_date = task.get('interaction_date') or top_level_date
+            task_date = task.get('interaction_date') or top_level_date #again, use either
             task_location = task.get('interaction_location') or top_level_location
-            if not task_date:
+            if not task_date: #but if there is neither, throw an error
                 return Response({'error': f'Missing interaction_date for task index {i}'}, status=status.HTTP_400_BAD_REQUEST)
-
+            if not task_location: #but if there is neither, throw an error
+                return Response({'error': f'Missing interaction_location for task index {i}'}, status=status.HTTP_400_BAD_REQUEST)
             if not all(k in task for k in ['task']):
                 return Response({'error': f'Missing required task fields at index {i}'}, status=status.HTTP_400_BAD_REQUEST)
         
@@ -501,16 +134,14 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
 
 
-    @staticmethod
-    def excel_columns():
-        for size in range(1, 3):  # A to ZZ
-            for letters in product(string.ascii_uppercase, repeat=size):
-                yield ''.join(letters)
-
+    ###=== FILE UPLOAD VIEWS ===###
     @action(detail=False, methods=['get'], url_path='template')
     def get_template(self, request):
-        from projects.models import Task
-        from organizations.models import Organization
+        '''
+        Action to generate an excel tempalte that a user can input data into and upload for bulk
+        uploading.
+        '''
+        #Check perms to make sure the user should have access to tempaltes
         user=request.user
         if not user.role in ['meofficer', 'manager', 'admin']:
             raise PermissionDenied('You do not have permission to access templates.')
@@ -519,9 +150,11 @@ class InteractionViewSet(RoleRestrictedViewSet):
         if not project_id or not org_id:
             raise serializers.ValidationError('Template requires a project and organization.')
         if user.role != 'admin':
-            if org_id != user.organization.id and org_id not in [co.organization.id for co in ProjectOrganization.objects.filter(parent_organization=user.organization, project__id=project_id)]:
+            #non admins should only have access to their org and child orgs
+            if org_id != user.organization.id and not ProjectOrganization.objects.filter(parent_organization=user.organization, project__id=project_id, organization__id=org_id).exists():
                 raise PermissionDenied('You do not have permission to access this template.')
         
+        #pull user-friendly labels that users can view
         district_labels = [choice.label for choice in Respondent.District]
         sex_labels = [choice.label for choice in Respondent.Sex]
         age_range_labels = [choice.label for choice in Respondent.AgeRanges]
@@ -531,11 +164,14 @@ class InteractionViewSet(RoleRestrictedViewSet):
         auto_attr = [RespondentAttributeType.Attributes.PLWHIV, RespondentAttributeType.Attributes.KP, RespondentAttributeType.Attributes.PWD]
         special_attribute_labels = [attr.label for attr in RespondentAttributeType.Attributes if attr not in auto_attr]
 
-        headers = []
+
+        headers = [] #tracks what should go in the header
+
+        #include all respondent information, except for a few meta_fields
         for field in Respondent._meta.get_fields():
             if field.auto_created:
                 continue
-            if field.name in ['uuid', 'created_by', 'created_at', 'updated_at', 'updated_by']:
+            if field.name in ['uuid', 'created_by', 'created_at', 'updated_at', 'updated_by', 'flags']:
                 continue
             if hasattr(field, 'verbose_name'):
                 verbose = field.verbose_name
@@ -566,18 +202,24 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 field_info['options'] = []
             headers.append(field_info)
         
+        #push related columns for HIV status and pregnancy (these do not live in the respondent model, so we need to manually create these)
         headers.append({'header': 'HIV Status', 'options': ['HIV Positive', 'HIV Negative'], 'multiple': False})
         headers.append({'header': 'Date Positive', 'options': [], 'multiple': False})
         headers.append({'header': 'Pregnancy Began (Date)', 'options': [], 'multiple': False})
         headers.append({'header': 'Pregnancy Ended (Date)', 'options': [], 'multiple': False})
 
+        #add cols for date of interaction and location
         headers.append({'header': 'Date of Interaction', 'options': [], 'multiple': False})
         headers.append({'header': 'Interaction Location', 'options': [], 'multiple': False})
+        
+        #pull tasks related to the project
         tasks = Task.objects.filter(organization__id=org_id, project__id=project_id, indicator__indicator_type='Respondent').order_by('indicator__code')
         if not tasks:
             raise serializers.ValidationError('There are no tasks associated with this project for your organization.')
         
         project_name = tasks[0].project.name.replace(' ', '').replace('/', '-')[:25]
+
+        #create a header for each task
         for task in tasks:
             header = task.indicator.code + ': ' + task.indicator.name
             if task.indicator.require_numeric:
@@ -591,11 +233,14 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 categories = ['Yes', 'No']
             headers.append({'header': header, 'options': categories, 'multiple': True})
         
+
         template_path = os.path.join(settings.BASE_DIR, 'respondents', 'static', 'respondents', 'upload-template.xlsx')
         wb = load_workbook(template_path)
-        ws = wb.create_sheet('Data') #add a protection to this name or something
+        ws = wb.create_sheet('Data')
         options_sheet = wb.create_sheet('DropdownOptions')
-        cols = list(self.excel_columns())
+        cols = list(excel_columns())
+
+        #create the dropdown options sheet and hide it by default
         for c, header in enumerate(headers, 1):
             header_text = header['header']
             ws.cell(row=1, column=c, value=header_text)
@@ -610,6 +255,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 continue
         options_sheet.sheet_state = 'hidden'
 
+        #set metadata so the user doesn't have to specify the project/org again
         metadata_sheet = wb.create_sheet("Metadata")
         metadata_sheet["A1"] = "project_id"
         metadata_sheet["B1"] = project_id
@@ -630,21 +276,27 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
     @action(detail=False, methods=['POST'], url_path='upload')
     def post_template(self, request):
-        from projects.models import Task, Project
-        from organizations.models import Organization
+        '''
+        Method for uploading the afforementioned template and converting it the data the system can use.
+        '''
+
+        user = request.user
+        #custom errors/warnings
         errors = []
         warnings = []
-        user = request.user
         
+        #check user has adequate role
         if user.role not in ['admin', 'meofficer', 'manager']:
             raise PermissionDenied('You do not have permission to access templates.')
 
+        #pull the file and throw an error if its the wrong file type
         uploaded_file = request.FILES.get('file')
         if not uploaded_file:
             return Response({"detail": "No file was uploaded."}, status=status.HTTP_400_BAD_REQUEST)
         if not uploaded_file.name.endswith('.xlsx'):
             return Response({"detail": "Uploaded file must be an .xlsx Excel file."}, status=status.HTTP_400_BAD_REQUEST)
         
+        #read metadata sheet that has project/organization info and throw an error if its missing or wrong
         try:
             wb = load_workbook(filename=uploaded_file)
             ws = wb['Metadata']
@@ -658,10 +310,9 @@ class InteractionViewSet(RoleRestrictedViewSet):
             raise serializers.ValidationError("Project ID and Organization ID must be numeric.")
         if not project_id or not org_id:
             raise serializers.ValidationError("Template requires both a valid project and organization ID.")
-
         project = Project.objects.filter(id=project_id).first()
-        # 4. Organization permission check
-    
+
+        # Check that this user has permission to upload for this organization (admin or org is their org or a child org)
         if user.role != 'admin':
             if org_id != user.organization.id and org_id not in [co.organization.id for co in ProjectOrganization.objects.filter(parent_organization=user.organization, project__id=project_id)]:
                 raise PermissionDenied('You do not have permission to access this template.')
@@ -678,6 +329,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                         'multiple': False
                     }
 
+        #pull the labels used for the dropdown options (the same ones used to create the tempalte)
         #for simplicity/verification, we're treating everything as lowercase no spaces
         district_labels = [choice.label.lower().replace(' ', '') for choice in Respondent.District]
         sex_labels = [choice.label.lower().replace(' ', '') for choice in Respondent.Sex]
@@ -699,6 +351,9 @@ class InteractionViewSet(RoleRestrictedViewSet):
             else:
                 errors.append(f"Template is missing {verbose} column.")
         
+        # make sure that all the required columns are present. If its missing one, the template was tampered with
+        # and is not valid
+
         expect_column('id_no')
         expect_column('first_name')
         expect_column('last_name')
@@ -728,11 +383,13 @@ class InteractionViewSet(RoleRestrictedViewSet):
         if not 'Pregnancy Ended (Date)' in headers:
             errors.append('Template is missing Pregnant Ended column.')
         
+        #get associated tasks
         tasks = Task.objects.filter(organization__id=org_id, project__id=project_id).order_by('indicator__code')
         if not tasks:
            errors.append('No tasks associted with project.')
            return Response({'errors': errors, 'warnings': warnings,  }, status=status.HTTP_400_BAD_REQUEST)
         
+        #tasks aren't strictly required to match exactly, but throw a warning since the template may be out of date
         for task in tasks:
             header = task.indicator.code + ': ' + task.indicator.name
             if task.indicator.require_numeric:
@@ -746,7 +403,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 headers[header]['multiple'] = True
             else:
                 warnings.append(f'Task {header} is missing from this template. It may be invalid or out of date.')
-
+        
+        #few helper functions to get us through the next step
         def get_cell_value(row, field_name):
             header = headers.get(get_verbose(field_name))
             if header:
@@ -782,86 +440,30 @@ class InteractionViewSet(RoleRestrictedViewSet):
             if header:
                 return header['options']
             return []
-
-        
-        def valid_excel_date(value):
-            if value is None:
-                return None
-            # Already a Python date or datetime
-            if isinstance(value, datetime):
-                value = value.date()
-            if isinstance(value, date):
-                if value > date.today():
-                    return None
-                return value
-            # Try ISO string
-            try:
-                parsed = date.fromisoformat(value)
-                if parsed > date.today():
-                    return None
-                return parsed
-            except (ValueError, TypeError):
-                pass
-            # Try Excel serial number (e.g., 45000 or '45000')
-            try:
-                numeric_value = float(value)
-                converted = from_excel(numeric_value)
-                if isinstance(converted, datetime):
-                    converted = converted.date()
-                if converted > date.today():
-                    return None
-                return converted
-            except (ValueError, TypeError):
-                pass
-            try:
-                parsed = parse_date(value, dayfirst=True).date()
-                if parsed > date.today():
-                    return None
-                return parsed
-            except (ValueError, TypeError):
-                pass
-            try:
-                parsed = parse_date(value, dayfirst=False).date()
-                if parsed > date.today():
-                    return None
-                return parsed
-            except (ValueError, TypeError):
-                pass
-            return None
-
-        def is_email(value):
-            pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
-            return bool(re.match(pattern, value))
-
-        def is_phone_number(value):
-            pattern = r'^\+?[\d\s\-\(\)]{7,20}$'
-            return bool(re.fullmatch(pattern, value))
         
         if len(errors) > 0:
             return Response({'errors': errors, 'warnings': warnings,  }, status=status.HTTP_400_BAD_REQUEST)
         
-        def is_truthy(value):
-            if isinstance(value, bool):
-                return value
-            if isinstance(value, (int, float)):
-                return value == 1
-            if isinstance(value, str):
-                return value.strip().lower() in ['true', 'yes', '1']
-            return False
-        
+        #track both new and existing respondents as we're going through each row
         created = []
         existing = []
+
+        #loop through each row and collect/validate the data
         for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
             respondent = None
+
+            #set unique array for tracking row errors/warnings
             row_errors = []
             row_warnings = []
+
             anon = is_truthy(get_cell_value(row, 'is_anonymous'))
+
+            #check if this respondent already exists (mathcing id_no)
             id_no = get_cell_value(row, 'id_no') or None
             if id_no and not anon:
                 respondent = Respondent.objects.filter(id_no=id_no).first()
-                if respondent:
-                    row_warnings.append(f"Respondent {respondent} at column: {get_column('id_no')}, row: {i} already exists.")
-            
+
+            #make sure first_name/last_name are present if respondent is not anonymous
             first_name = get_cell_value(row, 'first_name') or None
             last_name = get_cell_value(row, 'last_name') or None
 
@@ -870,6 +472,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
             if not anon and not last_name:
                 row_errors.append(f"Respondent at column: {get_column('last_name')}, row: {i} requires a last name.")
 
+            #check that dob is present for non-anons and is a valid date
             dob = get_cell_value(row, 'dob') or None
             if anon:
                 dob = None
@@ -882,6 +485,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 else:
                     row_errors.append(f"Date of birth at column: {get_column('dob')}, row: {i} is required for non-anonymous respondents.")
             
+            #check that sex is  a valid value
             sex = get_cell_value(row, 'sex')
             if sex:
                 sex=sex.lower().replace(' ', '')
@@ -889,7 +493,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     row_errors.append(f"Sex at column: {get_column('sex')}, row: {i} is not a valid choice.")
             else:
                 row_errors.append(f"Sex at column: {get_column('sex')}, row: {i} is required.")
-
+            
+            #check that age range is present for anons (ignore for non-anons since we alread have the DOB)
             age_range = get_cell_value(row, 'age_range')
             if anon:
                 if age_range:
@@ -898,8 +503,11 @@ class InteractionViewSet(RoleRestrictedViewSet):
                         row_errors.append(f"Age Range value at column: {get_column('age_range')}, row: {i} is not a valid choice.")
                 else:
                     row_errors.append(f"Age range at column: {get_column('sex')}, row: {i} is required for anonymous respondents.")
+            
+            #get ward, optional
             ward = get_cell_value(row, 'ward') or None
             
+            #get village and district (required, district must match a value)
             village = get_cell_value(row, 'village') or None
             if not village:
                 row_errors.append(f"Village at column: {get_column('village')}, row: {i} is required for all respondents.")
@@ -912,11 +520,13 @@ class InteractionViewSet(RoleRestrictedViewSet):
             else:
                 row_errors.append(f"District at column: {get_column('district')}, row: {i} is required.")
             
+            #get the citizenship, if left blank, assume they are a citizen but throw a warning to make sure
             citizenship = get_cell_value(row, 'citizenship') or None
             if not citizenship:
                 citizenship = 'Motswana'
-                row_errors.append(f"Citizenship at column: {get_column('citizenship')}, row: {i} is required for all respondents. This value will default to Motswana. If this is incorrect, please check this field again.")
+                row_warnings.append(f"Citizenship at column: {get_column('citizenship')}, row: {i} is required for all respondents. This value will default to Motswana. If this is incorrect, please check this field again.")
             
+            #get/validate email and phone if provided
             email = get_cell_value(row, 'email') or None
             if email and not is_email(email):
                 row_warnings.append(f"Email at column: {get_column('email')}, row: {i} is not a valid choice.")
@@ -926,6 +536,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 row_warnings.append(f"Phone Number at column: {get_column('phone_number')}, row: {i} is not a valid choice.")
                 phone_number = None
             comments = get_cell_value(row, 'comments') or None
+
 
             def get_choice_key_from_label(choices, label):
                 for key, value in choices:
@@ -938,6 +549,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
             if age_range and not dob:
                 age_range = get_choice_key_from_label(Respondent.AgeRanges.choices, age_range)
             
+            #validate our m2m fields
             kp_types = []
             kp_status_names_raw = get_cell_value(row, 'kp_status') or ''
             if kp_status_names_raw:
@@ -955,8 +567,6 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     row_warnings.append(
                         f"Invalid key population statuses at row {i}: {', '.join(invalid_kp)}"
                     )
-
-                
                 for cleaned_name in matched:
                     key = get_choice_key_from_label(KeyPopulation.KeyPopulations.choices, cleaned_name)
                     if not key:
@@ -964,8 +574,6 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     kp, _ = KeyPopulation.objects.get_or_create(name=key)
                     kp_types.append(kp)
 
-                
-            
             disability_types = []
             disability_status_names_raw = get_cell_value(row, 'disability_status') or ''
             if disability_status_names_raw:
@@ -991,10 +599,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     dis, _ = DisabilityType.objects.get_or_create(name=key)
                     disability_types.append(dis)
 
-                
-            
             special_attr_names_raw = get_cell_value(row, 'special_attribute') or ''
-            
             attr_types = []
             if special_attr_names_raw:
                 # Clean and split
@@ -1019,6 +624,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     attr, _ = RespondentAttributeType.objects.get_or_create(name=key)
                     attr_types.append(attr)
 
+            #get/validate HIV Status cols
             hs_col = headers['HIV Status']['column']-1 
             hiv_status = row[hs_col] if len(row) > hs_col else None
             dp_col = headers['Date Positive']['column']-1 
@@ -1044,6 +650,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 hiv_status = None
                 date_positive = None
             
+            #get/validate pregnancy term_began/term_ended cols
             tb_col = headers['Pregnancy Began (Date)']['column']-1 
             term_began = row[tb_col] if len(row) > tb_col else None
             te_col = headers['Pregnancy Ended (Date)']['column']-1 
@@ -1077,12 +684,14 @@ class InteractionViewSet(RoleRestrictedViewSet):
                                 term_ended = parsed
                         else:
                             term_ended = None
+            #if there are any errors up to this point, the user needs to verify the respondent before any any data is recorded
             if len(row_errors) > 0:
                 row_errors.append("This respondent and their interactions will not be saved until these errors are fixed")
                 errors.extend(row_errors)
                 warnings.extend(row_warnings)
                 continue
             
+            #mock a request so the Respondent serializer can take us the rest of the way
             class FakeRequest:
                 def __init__(self, user):
                     self.user = user
@@ -1094,7 +703,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     return respondent, None
                 else:
                     return None, serializer.errors
-                
+            #append the created data to our master list i f new 
             if not respondent:
                 respondent_data = upload = {
                     'id_no': id_no,
@@ -1122,6 +731,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     row_errors.append({"row": i + 1, "errors": err})
                 else:
                     created.append(respondent)
+            #if existing append them to the existing list, we'll use this later in the frontend to compare users
             else:
                 ex_stat = HIVStatus.objects.filter(respondent=respondent).first()
                 upload = {
@@ -1165,7 +775,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 }
                 existing.append({'id': respondent.id, 'upload': upload, 'in_database': in_db})
 
-
+            #get date of interaction and make sure its legit
             doi_col = headers['Date of Interaction']['column']-1 
             interaction_date = row[doi_col] if len(row) > doi_col else None
 
@@ -1185,27 +795,39 @@ class InteractionViewSet(RoleRestrictedViewSet):
                         )
             else:
                 row_errors.append(
-                    f"Date of interaction  at column: {doi_col}, row: {i} is required. "
+                    f"Date of interaction at column: {doi_col}, row: {i} is required. "
                 )
             loc_col = headers['Interaction Location']['column']-1 
+            
+            #make sure a location is provided
             interaction_location = row[loc_col] if len(row) > loc_col else None
-
+            if not interaction_location:
+                row_errors.append(
+                    f"Date of location at column: {doi_col}, row: {i} is required. "
+                )
+            
+            #any errors with date/location, don't record any interactions until its fixed
             if len(row_errors) > 0:
                 row_errors.append(f"This respondent has been saved, but none of their interactions will until this date is fixed.")
                 errors.extend(row_errors)
                 warnings.extend(row_warnings)
                 continue
-
+            
+            #otherwise, loop throught the task columns
             for task in tasks:
                 col = get_task_column(task)
                 val = str(get_task_value(row, task))
                 val = val.lower().replace(' ', '')
+                #check for any values that likely represent that no interaction occured for thsi task
                 if val in ['', 'no', 'none', 'na', 'n/a', 'false', 'unsure', 'maybe']:
                     continue
 
                 if isinstance(val, str):
                     val = val.lower().replace(' ', '')
-
+                
+                #get the actual value from the cell if needed (subcategory, number)
+                    #subcat normal (Cat 1, Cat 2) --> seperated by a comma (case/space insensitive)
+                    #subcate number (Cat 1: 0, Cat 2: 0) --> cats seperated by a comma, number signified by a colon
                 valid_subcats = []
                 numeric_component = None
                 if task.indicator.subcategories.exists():
@@ -1243,7 +865,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     except (ValueError, TypeError):
                         row_warnings.append(f'Number at column: {col}, row: {i} is not a valid number.')
                         continue
-                    
+
+                #if no errors, check if the interaction already exists
                 if val:
                     lookup_fields = {
                         'respondent': respondent,
@@ -1254,7 +877,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     # Try to fetch the existing interaction
                     instance = Interaction.objects.filter(**lookup_fields).first()
 
-                    # Pass instance to serializer if it exists (update), otherwise it will create
+                    # Pass instance to serializer if it exists (update), otherwise it will create, let it take us the rest of the way
                     serializer = self.get_serializer(
                         instance=instance,
                         data={
@@ -1281,8 +904,10 @@ class InteractionViewSet(RoleRestrictedViewSet):
                                     row_errors.append(f"Row {i}, Column {col}, Field '{field}': {msg}")
                             else:
                                 errors.append(f"Row {i}, Column {col}, Field '{field}': {msgs}")
+            #push our row errors to the main append
             errors.extend(row_errors)
             warnings.extend(row_warnings)
         print('warnings', warnings)
         print('errors', errors)
+        #wow, you made it. Congrats!
         return Response({'errors': errors, 'warnings': warnings, 'created': len(created), 'conflicts': existing }, status=status.HTTP_200_OK)

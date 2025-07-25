@@ -1,5 +1,8 @@
 from django.contrib import admin
-from respondents.models import Respondent, Interaction, RespondentAttribute, KeyPopulationStatus, DisabilityStatus, HIVStatus, Pregnancy
+from respondents.models import Respondent, Interaction, RespondentAttribute, KeyPopulationStatus, DisabilityStatus, HIVStatus, Pregnancy, InteractionSubcategory
+
+#admin page is mostly used for debugging/dev, as the production admin page does not support our JWT auth system
+#admin features are handled in site
 
 @admin.register(RespondentAttribute)
 class RespondentAttributeAdmin(admin.ModelAdmin):
@@ -30,6 +33,10 @@ class HIVStatus(admin.ModelAdmin):
     list_display = ['respondent', 'hiv_positive', 'date_positive']
     list_filter = []
     search_fields = ['respondent__first_name', 'respondent__last_name']
+
+@admin.register(InteractionSubcategory)
+class InteractionSubcategory(admin.ModelAdmin):
+    list_display = ['interaction', 'subcategory', 'numeric_component']
 
 admin.site.register(Respondent)
 admin.site.register(Interaction)

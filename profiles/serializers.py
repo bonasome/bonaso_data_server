@@ -4,10 +4,9 @@ from profiles.models import FavoriteProject, FavoriteRespondent, FavoriteEvent
 
 from respondents.models import Respondent
 
-from projects.serializers import ProjectListSerializer, ClientSerializer
-from projects.models import Task, Project, Client
+from projects.serializers import ClientSerializer
+from projects.models import Project
 from events.models import Event
-from events.serializers import EventSerializer
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -42,19 +41,23 @@ class ProfileSerializer(serializers.ModelSerializer):
         return fields
 
 class FavoriteEventSerializer(serializers.ModelSerializer):
-    event = EventSerializer(read_only=True)
+    event = serializers.SerializerMethodField()
     event_id = serializers.PrimaryKeyRelatedField(
         queryset=Event.objects.all(), write_only=True, source='event'
     )
+    def get_event(self, obj):
+        return "screw off django"
     class Meta:
         model = FavoriteEvent
         fields = ['id', 'event', 'event_id']
 
 class FavoriteProjectSerializer(serializers.ModelSerializer):
-    project = ProjectListSerializer(read_only=True)
+    project = serializers.SerializerMethodField()
     project_id = serializers.PrimaryKeyRelatedField(
         queryset=Project.objects.all(), write_only=True, source='project'
     )
+    def get_project(self, obj):
+        return "screw off django"
     class Meta:
         model = FavoriteProject
         fields = ['id', 'project', 'project_id']

@@ -210,3 +210,76 @@ class FlagViewSet(RoleRestrictedViewSet):
         # No pagination fallback
         serializer = InteractionSerializer(queryset, many=True, context={'request': request})
         return Response(serializer.data)
+    
+    
+    @action(detail=True, methods=['patch'], url_path='flag-count/(?P<count_id>[^/.]+)')
+    def flag_count(self, request, pk=None, count_id=None):
+        from events.serializers import CountFlagSerializer
+        event=self.get_object()
+        user=request.user
+        reason = request.data.get('reason', None)
+        if user.role not in ['meofficer', 'admin', 'manager']:
+            return Response(
+                {'detail': 'You do not have permission to flag event counts.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        count = DemographicCount.objects.filter(id=count_id).first()
+        if not count:
+            return Response(
+                {'detail': 'Invalid count id provided.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if user.role != 'admin':
+             if count.task.organization != user.organization and not ProjectOrganization.objects.filter(organization=count.task.organization, parent_organization=user.organization).exists():
+                return Response(
+                    {'detail': 'You do not have permission to flag counts for this event.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        if reason is None:
+            return Response(
+                {'detail': 'Missing flag reason.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        
+        flag = CountFlag.objects.create(count=count, created_by=user, reason=reason)
+        serializer = CountFlagSerializer(flag)
+        return Response({"detail": f"Flagged count {count_id}.", "flag": serializer.data}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['patch'], url_path='resolve-flag/(?P<count_flags_id>[^/.]+)')
+    def resolve_count(self, request, pk=None, count_flags_id=None):
+        from events.serializers import CountFlagSerializer
+        event=self.get_object()
+        user=request.user
+        reason = request.data.get('resolved_reason', None)
+        if user.role not in ['meofficer', 'admin', 'manager']:
+            return Response(
+                {'detail': 'You do not have permission to flag event counts.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        flag = CountFlag.objects.filter(id=count_flags_id).first()
+        if not flag:
+            return Response(
+                {'detail': 'Flag does not exist.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if user.role != 'admin':
+            if flag.count.task.organization != user.organization and not ProjectOrganization.objects.filter(organization=flag.count.task.organization, parent_organization=user.organization).exists():
+                return Response(
+                    {'detail': 'You do not have permission to flag counts for this event.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        if reason is None:
+            return Response(
+                {'detail': 'Missing flag reason.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        flag.resolved = True
+        flag.resolved_at = now()
+        flag.resolved_by = user
+        flag.resolved_reason = reason
+        flag.save()
+        serializer = CountFlagSerializer(flag)
+        return Response({"detail": f"Resolved flag.", "flag": serializer.data}, status=status.HTTP_200_OK)

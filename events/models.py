@@ -81,7 +81,13 @@ class DemographicCount(models.Model):
     '''
     The demographic count is how numeric information (how many people) is attached to an event. For example,
     how many people tested, how many staff trained, etc. We allow dynamic splitting by the following demographic
-    categories. 
+    categories. Each count is linked to one event.
+
+    These categories should match with their corresponding ones from the respondents model.
+
+    Each count must be linked to a task (this is how the system knows what to do with it.)
+    We also have a business logic rule that one task can only have one set of counts (visualize it like a table).
+    There's a nascent idea to allow organizations breakdowns (for training maybe) but right now that field is dormant.
     '''
     class Sex(models.TextChoices):
         FEMALE = 'F', _('Female')

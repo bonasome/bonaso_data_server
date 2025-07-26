@@ -86,7 +86,7 @@ class RespondentViewSet(RoleRestrictedViewSet):
 
 
     @action(detail=False, methods=['get'], url_path='meta')
-    def filter_options(self, request):
+    def get_meta(self, request):
         '''
         Get labels for the front end to assure consistency.
         '''

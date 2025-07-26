@@ -7,7 +7,7 @@ from django.utils.timezone import now
 from django.db.models import Q
 
 from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType, InteractionSubcategory, RespondentAttribute, RespondentAttributeType, KeyPopulationStatus, DisabilityStatus
-from respondents.utils import update_m2m_status, respondent_flag_check, interaction_flag_check, dummy_dob_calc, calculate_age_range
+from respondents.utils import update_m2m_status, respondent_flag_check, interaction_flag_check, dummy_dob_calc, calculate_age_range, check_event_perm
 from respondents.exceptions import DuplicateExists
 
 from projects.models import Task, ProjectOrganization
@@ -17,8 +17,8 @@ from projects.utils import get_valid_orgs
 from indicators.models import IndicatorSubcategory
 from flags.serializers import FlagSerializer
 from profiles.serializers import ProfileListSerializer
-from indicators.serializers import IndicatorSubcategorySerializer
-
+from events.models import Event
+from events.serializers import EventSerializer
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
@@ -438,7 +438,8 @@ class InteractionSerializer(serializers.ModelSerializer):
     flags = FlagSerializer(read_only=True, many=True)
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
-
+    event = EventSerializer(read_only=True)
+    event_id = serializers.PrimaryKeyRelatedField(queryset=Event.objects.all(), write_only=True, source='event', required=False, allow_null=True)
     def get_subcategories(self, obj):
         subcats = InteractionSubcategory.objects.filter(interaction=obj)
         data = []
@@ -458,7 +459,7 @@ class InteractionSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'respondent', 'subcategories', 'subcategories_data', 'task', 'task_detail',
             'interaction_date', 'numeric_component', 'created_by', 'updated_by', 'created_at', 'updated_at',
-            'comments', 'interaction_location', 'flags'
+            'comments', 'interaction_location', 'event','event_id', 'flags'
         ]
     
     def to_internal_value(self, data):
@@ -473,6 +474,7 @@ class InteractionSerializer(serializers.ModelSerializer):
                 raise PermissionDenied('You do not have permission to perform this action.')
         task = data.get('task') or getattr(self.instance, 'task', None)
         respondent = data.get('respondent') or getattr(self.instance, 'respondent', None)
+        event = data.get('event') or getattr(self.instance, 'event', None)
         subcategories = data.get('subcategories_data', [])
         interaction_date = data.get('interaction_date') or getattr(self.instance, 'interaction_date', None)
         interaction_location = data.get('interaction_location') or getattr(self.instance, 'interaction_location', None)
@@ -496,7 +498,12 @@ class InteractionSerializer(serializers.ModelSerializer):
                     raise PermissionDenied(
                         "You may not create or edit interactions not related to your organization."
                     )
-                
+        if event:
+            if not check_event_perm(user, event, task.project.id):
+                raise PermissionDenied(
+                        "You may not attach an interaction to an event you are not a part of."
+                    )
+            
         ###===Check fields===###
         #verify date is present and not in the future or outside of the project
         if not interaction_date:

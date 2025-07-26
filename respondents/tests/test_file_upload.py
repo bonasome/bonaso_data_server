@@ -5,6 +5,7 @@ from rest_framework import status
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 from datetime import datetime
+from events.models import Event
 from projects.models import Project, Client, Task, Target, ProjectOrganization
 from respondents.models import Respondent, Interaction, InteractionSubcategory, HIVStatus, Pregnancy
 from organizations.models import Organization
@@ -70,6 +71,16 @@ class UploadViewSetTest(APITestCase):
 
         interaction = Interaction.objects.create(respondent=self.respondent_full, task=self.task, interaction_date='2024-05-01')
 
+        self.event = Event.objects.create(
+            name='Event',
+            start='2024-07-09',
+            end='2024-07-10',
+            location='here',
+            host=self.parent_org
+        )
+        self.event.tasks.set([self.task, self.child_task])
+        self.event.organizations.set([self.parent_org, self.child_org])
+
         self.headers = ["Is Anonymous","ID/Passport Number","First Name" , "Last Name", "Age Range", "Date of Birth", 
             "Sex", "Ward", "Village", "District", "Citizenship/Nationality", 
             "Email Address", "Phone Number", "Key Population Status",
@@ -86,7 +97,7 @@ class UploadViewSetTest(APITestCase):
             "Hearing Impaired, Visually Impaired", "Community Health Worker, Community Leader", 
             "Yes", date(2023,2,1), "", "", date(2024, 5, 1), "Mochudi",]
 
-    def create_workbook(self, b1=None, b2=None, include_metadata=True, include_data=True):
+    def create_workbook(self, b1=None, b2=None, include_metadata=True, include_data=True, include_event=False):
         '''
         Helper function that creates a sample workbook.
         '''
@@ -96,6 +107,8 @@ class UploadViewSetTest(APITestCase):
             ws.title = 'Metadata'
             ws['B1'] = b1
             ws['B2'] = b2
+            if include_event:
+                ws['C2'] = self.event.id
         if include_data:
             wb.create_sheet(title='Data')
         return wb
@@ -539,6 +552,34 @@ class UploadViewSetTest(APITestCase):
         interactions2 = Interaction.objects.filter(respondent=respondent2).count()
         self.assertEqual(interactions2, 2)
     
+    def test_upload_interactions_attach_event(self):
+        '''
+        Check that file upload can attach events to interactions.
+        '''
+        self.client.force_authenticate(user=self.officer)
+        wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True, include_event=True)  
+        ws = wb['Data']
+        headers = self.headers + ["TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"]
+        ws.append(headers)
+        row = self.resp_headers + ["Yes", "", ""]
+        ws.append(row)
+
+        file_obj = BytesIO()
+        wb.save(file_obj)
+        file_obj.name = 'template.xlsx'
+        file_obj.seek(0)
+
+        #both of these should fail 
+        response = self.client.post('/api/record/interactions/upload/', {'file': file_obj}, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        respondent1 = Respondent.objects.get(id_no='T1')
+        interactions = Interaction.objects.filter(respondent=respondent1)
+        self.assertEqual(interactions.count(), 1)
+        ir = interactions.first()
+        self.assertEqual(ir.event.id, self.event.id)
+
+
     def test_numeric(self):
         '''
         Test that numeric indicators get their number.

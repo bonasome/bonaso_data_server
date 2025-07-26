@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from projects.models import Project, Client, Task, ProjectOrganization
 from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, InteractionSubcategory, RespondentAttributeType
 from organizations.models import Organization
+from events.models import Event
 from indicators.models import Indicator, IndicatorSubcategory
 from datetime import date, timedelta
 User = get_user_model()
@@ -118,7 +119,26 @@ class InteractionViewSetTest(APITestCase):
         self.interaction_child = Interaction.objects.create(interaction_date=self.today, respondent=self.respondent, interaction_location='there',task=self.child_task)
         self.interaction_other = Interaction.objects.create(interaction_date=self.today, respondent=self.respondent, interaction_location='there',task=self.other_task)
 
-    
+        self.event = Event.objects.create(
+            name='Event',
+            start='2024-07-09',
+            end='2024-07-10',
+            location='here',
+            host=self.parent_org
+        )
+        self.event.tasks.set([self.task, self.child_task])
+        self.event.organizations.set([self.parent_org, self.child_org])
+
+        self.other_event = Event.objects.create(
+            name='Event',
+            start='2024-07-09',
+            end='2024-07-10',
+            location='here',
+            host=self.other_org
+        )
+        self.other_event.organizations.set([self.other_org])
+        self.other_event.tasks.set([self.other_task])
+
     def test_interaction_view(self):
         '''
         Interactions are public, and anyone is allowed to view them.
@@ -158,6 +178,58 @@ class InteractionViewSetTest(APITestCase):
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
     
+    def test_attach_event(self):
+        '''
+        A user can attach an interaction to a specific event.
+        '''
+        self.client.force_authenticate(user=self.data_collector)
+        valid_payload = {
+            'task': self.task.id, #task linked to a child organization
+            'interaction_date': '2025-04-15',
+            'interaction_location': 'That place that sells chili',
+            'event_id': self.event.id,
+            'respondent': self.respondent.id,
+        }
+        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        ir = Interaction.objects.filter(task=self.task, interaction_date=date(2025, 4, 15)).first()
+        self.assertEqual(ir.event.id, self.event.id)
+    
+    def test_attach_event_perms_associate(self):
+        '''
+        A user can attach an interaction to an event they are an associate with (i.e., attached child org).
+        '''
+        self.client.force_authenticate(user=self.officer)
+        valid_payload = {
+            'task': self.child_task.id, #task linked to a child organization
+            'interaction_date': '2025-04-15',
+            'interaction_location': 'That place that sells chili',
+            'event_id': self.event.id,
+            'respondent': self.respondent.id,
+        }
+        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        ir = Interaction.objects.filter(task=self.child_task, interaction_date=date(2025, 4, 15)).first()
+        self.assertEqual(ir.event.id, self.event.id)
+
+    def test_attach_event_perms_wrong_event(self):
+        '''
+        A user can attach an interaction to an event they are an associate with (i.e., attached child org).
+        '''
+        self.client.force_authenticate(user=self.manager)
+        valid_payload = {
+            'task': self.task.id, #task linked to a child organization
+            'interaction_date': '2025-04-15',
+            'interaction_location': 'That place that sells chili',
+            'event_id': self.other_event.id,
+            'respondent': self.respondent.id,
+        }
+        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_dc_org_only(self):
         '''
         Lower ranks should only be allowed to create for their own organization.

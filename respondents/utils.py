@@ -3,6 +3,8 @@ from datetime import date, datetime, timedelta
 
 from respondents.models import Interaction, InteractionSubcategory, Respondent
 from flags.utils import create_flag, resolve_flag
+from projects.models import ProjectOrganization
+from events.models import EventOrganization
 
 #helper to manage potentially multiple flags created during id process
 def _maybe_create_flag(flags_qs, respondent, reason, user):
@@ -183,6 +185,36 @@ def get_enum_choices(enum_class, exclude: set = None):
         for choice in enum_class
         if choice.value not in exclude
     ]
+
+def check_event_perm(user, event, project_id):
+        '''
+        Since interactions can be tied to events, this helper determines if a user should have access to this
+        event.
+        '''
+
+        #admins can access everything
+        if user.role == 'admin':
+            return True
+        # Check if the user’s org is the host or their child org is the host
+        valid_host = (
+            user.organization == event.host or
+            ProjectOrganization.objects.filter(
+                parent_organization=user.organization,
+                project__id=project_id,
+                organization=event.host
+            ).exists()
+        )
+
+        # Check if the user’s org is explicitly listed as a participant
+        is_participant = EventOrganization.objects.filter(
+            event=event,
+            organization=user.organization
+        ).exists()
+
+        if valid_host or is_participant:
+            return True
+        return False
+        
 
 def topological_sort(tasks):
     from collections import defaultdict, deque

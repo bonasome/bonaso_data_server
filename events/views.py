@@ -14,7 +14,7 @@ from rest_framework.decorators import action
 from rest_framework import status
 from django.db import transaction
 from users.restrictviewset import RoleRestrictedViewSet
-from events.models import Event, DemographicCount, EventTask, EventOrganization, CountFlag
+from events.models import Event, DemographicCount, EventTask, EventOrganization
 from organizations.models import Organization
 from projects.models import Project, Task, ProjectOrganization
 from projects.utils import get_valid_orgs

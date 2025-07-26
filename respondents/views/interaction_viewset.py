@@ -31,9 +31,10 @@ from users.restrictviewset import RoleRestrictedViewSet
 from projects.models import Task, Project, ProjectOrganization
 from respondents.models import Respondent, Interaction, HIVStatus, KeyPopulation, DisabilityType, RespondentAttributeType
 from respondents.serializers import RespondentSerializer, InteractionSerializer
+from respondents.utils import check_event_perm
 from respondents.utils_file_upload import excel_columns, valid_excel_date, is_email, is_phone_number, is_truthy
 from indicators.models import IndicatorSubcategory
-
+from events.models import Event, EventOrganization
 
 class InteractionViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
@@ -43,6 +44,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
     filterset_fields = ['task', 'respondent', 'interaction_date']
     search_fields = ['respondent__uuid', 'respondent__first_name', 'respondent__last_name', 
                      'task__indicator__code', 'task__indicator__name', 'task__organization__name'] 
+    
     def get_queryset(self):
         queryset = Interaction.objects.all()
         respondent = self.request.query_params.get('respondent')
@@ -99,7 +101,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
         #the mobile app may send this information at the task level, so use either from the top of the dict or the task level
         top_level_date = request.data.get('interaction_date')
         top_level_location = request.data.get('interaction_location')
-        
+        top_level_event = request.data.get('event_id')
         if not respondent_id or not tasks:
             return Response({'error': 'Missing respondent or tasks'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -109,6 +111,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
         for i, task in enumerate(tasks):
             task_date = task.get('interaction_date') or top_level_date #again, use either
             task_location = task.get('interaction_location') or top_level_location
+            event_id = task.get('event_id') or top_level_event
             if not task_date: #but if there is neither, throw an error
                 return Response({'error': f'Missing interaction_date for task index {i}'}, status=status.HTTP_400_BAD_REQUEST)
             if not task_location: #but if there is neither, throw an error
@@ -120,6 +123,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 'respondent': respondent_id,
                 'interaction_date': task_date,
                 'interaction_location': task_location,
+                'event_id': event_id,
                 'task': task['task'],
                 'numeric_component': task.get('numeric_component'),
                 'subcategories_data': task.get('subcategories_data', []),
@@ -147,12 +151,21 @@ class InteractionViewSet(RoleRestrictedViewSet):
             raise PermissionDenied('You do not have permission to access templates.')
         project_id = request.GET.get('project')
         org_id = request.GET.get('organization')
+        event_id = request.GET.get('event') #event is optional
         if not project_id or not org_id:
             raise serializers.ValidationError('Template requires a project and organization.')
         if user.role != 'admin':
+            #non admins cannot access templates from projects they are not a part of
+            if not ProjectOrganization.objects(project__id=project_id, organization=user.organization).exists():
+                raise PermissionDenied('You do not have permission to access this template.')
             #non admins should only have access to their org and child orgs
             if org_id != user.organization.id and not ProjectOrganization.objects.filter(parent_organization=user.organization, project__id=project_id, organization__id=org_id).exists():
                 raise PermissionDenied('You do not have permission to access this template.')
+        
+            if event_id:
+                event = get_object_or_404(Event, id=event_id)
+                if not check_event_perm(user, event, project_id):
+                    raise PermissionDenied('You do not have permission to access this template.')
         
         #pull user-friendly labels that users can view
         district_labels = [choice.label for choice in Respondent.District]
@@ -261,6 +274,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
         metadata_sheet["B1"] = project_id
         metadata_sheet["A2"] = "organization_id"
         metadata_sheet["B2"] = org_id
+        metadata_sheet["C1"] = 'event_id'
+        metadata_sheet["C2"] = event_id
 
         metadata_sheet.sheet_state = 'hidden'
         metadata_sheet.protection.sheet = True
@@ -311,7 +326,18 @@ class InteractionViewSet(RoleRestrictedViewSet):
         if not project_id or not org_id:
             raise serializers.ValidationError("Template requires both a valid project and organization ID.")
         project = Project.objects.filter(id=project_id).first()
-
+        
+        event_id=None
+        try:
+            event_id = int(ws['C2'].value)
+            if event_id:
+                event =Event.objects.filter(id=event_id).first()
+                if event:
+                    if not check_event_perm(user, event, project_id):
+                        raise PermissionDenied('You do not have permission to access this template.')
+        except (ValueError, TypeError):
+            event_id = None #gracefully fail if no event id or a wrong event ID is provided, since this isn't critical
+        
         # Check that this user has permission to upload for this organization (admin or org is their org or a child org)
         if user.role != 'admin':
             if org_id != user.organization.id and org_id not in [co.organization.id for co in ProjectOrganization.objects.filter(parent_organization=user.organization, project__id=project_id)]:
@@ -887,6 +913,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                             'interaction_date': interaction_date,
                             'interaction_location': interaction_location,
                             'task': task.id,
+                            'event_id': event_id,
                             'numeric_component': numeric_component,
                             'subcategories_data': valid_subcats,
                             'comments': '',

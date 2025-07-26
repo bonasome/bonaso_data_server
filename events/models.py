@@ -4,23 +4,46 @@ from django.contrib.auth import get_user_model
 from organizations.models import Organization
 from indicators.models import IndicatorSubcategory
 from projects.models import Task
+from django.contrib.contenttypes.fields import GenericRelation
 
 User = get_user_model()
 
 class Event(models.Model):
+    '''
+    The event model is meant to track be a container to track information around specific activities
+    that occured surrounding a project. This could include trainings, commemorations, activations, or anything.
+
+    Events are primairly designed to track things like staff trainings, where storing respondent infomation 
+    may not be necessary. It can also be used to track certian indicators like (how many counselling sessions
+    were conducted in a month). 
+
+    Events can be tied to any Indicator via a task and information is recorded via counts (see below). 
+
+    KEY FIELDS:
+        Event Type: Mainly used for categorization/filtering
+        Status: Useful tracking tool, but also only completed events contribute towards targets
+        Host: The hosting organization, will default to the users if not an admin, can be left blank by admins (
+        for creating public/multi-org events).
+        Organizations: The organizations that participated in this event. Governs which tasks are available.
+        Tasks: The tasks (or indicators) that this event contributes towards. Depending on the indicator type,
+        these may depend on counts or they may be auto-calced.
+
+    '''
     class EventStatus(models.TextChoices):
-        PLANNED = 'Planned', _('Planned') 
-        COMPLETED = 'Completed', _('Completed')
-        ON_HOLD = 'On_Hold', _('On Hold')
+        PLANNED = 'planned', _('Planned') 
+        COMPLETED = 'completed', _('Completed')
+        IN_PROGRESS = 'in_progress', _('In Progress')
+        ON_HOLD = 'on_hold', _('On Hold')
+
     class EventType(models.TextChoices):
-        TRAINING = 'Training', _('Training') 
-        ACTIVITY = 'Activity', _('Activity')
-        ENGAGEMENT = 'Engagement', _('Engagement')
-        COMM = 'Commemoration', _('Commemoration')
-        ACTIVATION = 'Activation', _('Activation')
-        WALK = 'Walkathon', _('Walkathon')
-        COU = 'Counselling_Session', _('Counselling Session')
-        OTH = 'Other', _('Other')
+        TRAINING = 'training', _('Training') 
+        ACTIVITY = 'activity', _('Activity')
+        ENGAGEMENT = 'engagement', _('Engagement')
+        COMM = 'commemoration', _('Commemoration')
+        ACTIVATION = 'activation', _('Activation')
+        WALK = 'walkathon', _('Walkathon')
+        COU = 'counselling_session', _('Counselling Session')
+        OTH = 'other', _('Other')
         
     name = models.CharField(max_length=255, verbose_name='Event Name')
     description = models.TextField(verbose_name='Description of Event', blank=True, null=True)
@@ -30,44 +53,44 @@ class Event(models.Model):
     organizations = models.ManyToManyField(Organization, through='EventOrganization', blank=True)
     tasks = models.ManyToManyField(Task, through='EventTask', blank=True)
     location = models.CharField(max_length=255, verbose_name='Event Location')
-    event_date = models.DateField()
+    start = models.DateField()
+    end = models.DateField()
+    
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='event_created_by')
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='event_updated_by')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
 class EventOrganization(models.Model):
+    '''
+    Through model for orgs.
+    '''
     event = models.ForeignKey(Event, on_delete=models.CASCADE)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
     added_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True)
 
 class EventTask(models.Model):
+    '''
+    Through model for tasks.
+    '''
     event = models.ForeignKey(Event, on_delete=models.CASCADE)
     task = models.ForeignKey(Task, on_delete=models.CASCADE)
     added_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True)
 
-
-class CountFlag(models.Model):
-    count = models.ForeignKey("DemographicCount", on_delete=models.CASCADE, related_name="count_flags")
-    reason = models.TextField()
-    auto_flagged = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='count_flag_created_by')
-    resolved = models.BooleanField(default=False)
-    auto_resolved = models.BooleanField(default=False)
-    resolved_reason = models.TextField(null=True, blank=True)
-    resolved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='count_flag_resolved_by')
-    resolved_at = models.DateTimeField(null=True, blank=True)
-
 class DemographicCount(models.Model):
+    '''
+    The demographic count is how numeric information (how many people) is attached to an event. For example,
+    how many people tested, how many staff trained, etc. We allow dynamic splitting by the following demographic
+    categories. 
+    '''
     class Sex(models.TextChoices):
         FEMALE = 'F', _('Female')
         MALE = 'M', _('Male')
         NON_BINARY = 'NB', _('Non-Binary')
 
     class Status(models.TextChoices):
-        STAFF = 'Staff', _('Staff')
-        COMMUNITY_LEADER = 'Community_leader', _('Community Leader')
+        STAFF = 'staff', _('Staff')
+        COMMUNITY_LEADER = 'community_leader', _('Community Leader')
         CHW = 'CHW', _('Community Health Worker')
 
     class KeyPopulationType(models.TextChoices):
@@ -110,12 +133,12 @@ class DemographicCount(models.Model):
         NC = 'non_citizen', _('Non-Citizen')
     
     class Pregnancy(models.TextChoices):
-        YES = 'Pregnant', _('Pregnant')
-        NO = 'Not_Pregnant', _('Not Pregnant')
+        YES = 'pregnant', _('Pregnant')
+        NO = 'not_pregnant', _('Not Pregnant')
     
     class HIVStatus(models.TextChoices):
-        YES = 'HIV_Positive', _('HIV Positive')
-        NO = 'HIV_Negative', _('HIV Negative')
+        YES = 'hiv_positive', _('HIV Positive')
+        NO = 'hiv_negative', _('HIV Negative')
 
     event = models.ForeignKey(Event, on_delete=models.CASCADE)
     count = models.PositiveIntegerField()
@@ -130,6 +153,7 @@ class DemographicCount(models.Model):
     organization = models.ForeignKey(Organization, on_delete=models.PROTECT, null=True, blank=True)
     task = models.ForeignKey(Task, on_delete=models.PROTECT, null=True, blank=True)
     subcategory = models.ForeignKey(IndicatorSubcategory, on_delete=models.PROTECT, null=True, blank=True)
+    flags = GenericRelation('flags.Flag', related_query_name='flags')
 
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='count_created_by')
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='count_updated_by')

@@ -5,7 +5,7 @@ from rest_framework import status
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 
-from events.models import Event, EventOrganization, EventTask, DemographicCount, CountFlag
+from events.models import Event, EventOrganization, EventTask, DemographicCount
 from projects.models import Project, Client, Task, ProjectOrganization
 from respondents.models import Respondent, Interaction
 from organizations.models import Organization

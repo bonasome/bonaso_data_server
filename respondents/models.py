@@ -4,6 +4,7 @@ from django.utils.translation import gettext_lazy as _
 from users.models import User
 from indicators.models import IndicatorSubcategory
 from projects.models import Task
+from events.models import Event
 from datetime import date
 import uuid
 from django.contrib.contenttypes.fields import GenericRelation
@@ -50,9 +51,9 @@ class RespondentAttributeType(models.Model):
         PLWHIV = 'PLWHIV', _('Person Living with HIV')
         PWD = 'PWD', _('Person Living with a Disability')
         KP = 'KP', _('Key Population')
-        COMMUNITY_LEADER = 'Community_Leader', _('Community Leader')
+        COMMUNITY_LEADER = 'community_leader', _('Community Leader')
         CHW = 'CHW', _('Community Health Worker')
-        STAFF = 'Staff', _('Organization Staff')
+        STAFF = 'staff', _('Organization Staff')
 
     name = models.CharField(max_length=25, choices=Attributes.choices, unique=True)
     def __str__(self):
@@ -277,7 +278,7 @@ class Interaction(models.Model):
     subcategories = models.ManyToManyField(IndicatorSubcategory, through='InteractionSubcategory', blank=True)
     comments = models.TextField(verbose_name='Comments', null=True, blank=True, default=None)
     numeric_component = models.IntegerField(null=True, blank=True, default=None)
-
+    event = models.ForeignKey(Event, on_delete=models.PROTECT, null=True, blank=True)
     flags = GenericRelation('flags.Flag', related_query_name='flags')
     
     created_at = models.DateTimeField(auto_now_add=True)

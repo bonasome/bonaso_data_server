@@ -4,7 +4,7 @@ from profiles.models import FavoriteProject, FavoriteRespondent, FavoriteEvent
 
 from respondents.models import Respondent
 
-from projects.serializers import ClientSerializer
+
 from projects.models import Project
 from events.models import Event
 from django.contrib.auth import get_user_model
@@ -23,7 +23,6 @@ class ProfileListSerializer(serializers.ModelSerializer):
 class ProfileSerializer(serializers.ModelSerializer):
     organization_detail = OrganizationListSerializer(source='organization', read_only=True)
     organization = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True)
-    client_organization = ClientSerializer(read_only=True)
 
     class Meta:
         model=User

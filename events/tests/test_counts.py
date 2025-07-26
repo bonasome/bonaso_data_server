@@ -15,6 +15,9 @@ from datetime import date, timedelta
 User = get_user_model()
 
 class DemographicCountsTest(APITestCase):
+    '''
+    Primarily a test of the counts viewset.
+    '''
     def setUp(self):
         #set up users for each role
         self.admin = User.objects.create_user(username='admin', password='testpass', role='admin')

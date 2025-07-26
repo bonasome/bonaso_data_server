@@ -1,13 +1,16 @@
 from django.db import models
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
+from django.contrib.contenttypes.fields import GenericRelation
+from datetime import date
+import uuid
+
 from users.models import User
 from indicators.models import IndicatorSubcategory
 from projects.models import Task
 from events.models import Event
-from datetime import date
-import uuid
-from django.contrib.contenttypes.fields import GenericRelation
+
+
 
 
 class DisabilityType(models.Model):

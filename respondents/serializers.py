@@ -12,7 +12,6 @@ from respondents.exceptions import DuplicateExists
 
 from projects.models import Task, ProjectOrganization
 from projects.serializers import TaskSerializer
-from projects.utils import get_valid_orgs
 
 from indicators.models import IndicatorSubcategory
 from flags.serializers import FlagSerializer
@@ -518,7 +517,7 @@ class InteractionSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Interaction location is required.")
         
         #verify that the selected task's indicator is supposed to be linked to a respondent
-        if task.indicator.indicator_type != 'Respondent':
+        if task.indicator.indicator_type != 'respondent':
             raise serializers.ValidationError("This task cannot be assigned to an interaction.")
         
         #check if number is required/present

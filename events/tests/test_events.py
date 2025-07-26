@@ -16,6 +16,9 @@ User = get_user_model()
 
 
 class EventViewSetTest(APITestCase):
+    '''
+    Primarily a test of the events serailizer, testing perms and logic for events.
+    '''
     def setUp(self):
         #set up users for each role
         self.admin = User.objects.create_user(username='admin', password='testpass', role='admin')

@@ -17,7 +17,7 @@ from django.utils.timezone import now
 from datetime import datetime, date
 
 from projects.models import Project
-from projects.utils import get_valid_orgs, is_child_of
+from projects.utils import get_valid_orgs
 from profiles.serializers import ProfileListSerializer
 from messaging.models import Message, Announcement, MessageRecipient, Alert, AlertRecipient
 from messaging.serializers import MessageSerializer, AnnouncementSerializer, AlertSerializer

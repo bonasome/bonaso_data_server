@@ -23,8 +23,6 @@ class AlertSerializer(serializers.ModelSerializer):
         fields = ['id', 'alert_type', 'sent_on', 'subject', 'body', 'content_object', 'object_id']
 
 class AnnouncementSerializer(serializers.ModelSerializer):
-    project = ProjectListSerializer(read_only=True)
-    organization = OrganizationListSerializer(read_only=True)
     project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True, required=False)
     organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, required=False)
 

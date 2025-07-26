@@ -2,17 +2,22 @@ from django.test import TestCase
 
 from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
-from django.urls import reverse
 from django.contrib.auth import get_user_model
-
-from projects.models import Project, Client, ProjectOrganization, ProjectActivity
-from respondents.models import Respondent, Interaction
-from organizations.models import Organization
-from indicators.models import Indicator
-from datetime import date
 User = get_user_model()
 
-class ProjectActivityViewSetTest(APITestCase):
+from projects.models import Project, Client, ProjectOrganization, ProjectActivity, ProjectDeadline, ProjectDeadlineOrganization
+from organizations.models import Organization
+from datetime import date
+
+
+class ProjectRelatedViewSetTest(APITestCase):
+    '''
+    This is a general test for project adjacent things (activities, deadlines) since they mostly 
+    share the same logic/permission classes.
+
+    We're not testing these as rigorously yet since these are nice to have and not critical to the data 
+    collection.Just make sure the basics work.
+    '''
     def setUp(self):
         #set up users for each role
         self.admin = User.objects.create_user(username='admin', password='testpass', role='admin')
@@ -73,7 +78,8 @@ class ProjectActivityViewSetTest(APITestCase):
             start = date(2024,1,12),
             end = date(2024,1,12),
             status = Project.Status.ACTIVE,
-            category = ProjectActivity.Category.GEN
+            category = ProjectActivity.Category.GEN,
+            created_by=self.admin,
         )
         self.activity_parent.organizations.set([self.parent_org, self.other_org])
         
@@ -85,7 +91,8 @@ class ProjectActivityViewSetTest(APITestCase):
             start = date(2024,1,12),
             end = date(2024,1,12),
             status = Project.Status.ACTIVE,
-            category = ProjectActivity.Category.GEN
+            category = ProjectActivity.Category.GEN,
+            created_by=self.admin,
         )
         self.activity_child.organizations.set([self.child_org])
 
@@ -97,7 +104,8 @@ class ProjectActivityViewSetTest(APITestCase):
             start = date(2024,1,12),
             end = date(2024,1,12),
             status = Project.Status.ACTIVE,
-            category = ProjectActivity.Category.GEN
+            category = ProjectActivity.Category.GEN,
+            created_by=self.admin,
         )
         self.activity_other.organizations.set([self.other_org])
 
@@ -109,17 +117,25 @@ class ProjectActivityViewSetTest(APITestCase):
             start = date(2024,1,12),
             end = date(2024,1,12),
             status = Project.Status.PLANNED,
-            category = ProjectActivity.Category.GEN
+            category = ProjectActivity.Category.GEN,
+            created_by=self.admin,
         )
         self.activity_parent.organizations.set([self.parent_org, self.other_org])
-    
+        
+        self.deadline = ProjectDeadline.objects.create(
+            project=self.project,
+            visible_to_all=True,
+            cascade_to_children=False,
+            name='Test Child',
+            deadline_date = date(2024,1,12),
+            created_by=self.admin,
+        )
     def test_activity_admin_view(self):
         #admins should be able to view all targets
         self.client.force_authenticate(user=self.admin)
         response = self.client.get('/api/manage/activities/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 4)
-
     
     def test_activity_parent_view(self):
         #non-admins should only see targets associated with their org/child orgs and with active projects
@@ -171,7 +187,35 @@ class ProjectActivityViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         created = ProjectActivity.objects.filter(name='Test Parent').first()
         self.assertEqual(created.organizations.count(), 2)
+        self.assertEqual(created.created_by, self.admin)
+
+    def test_deadline_create_parent(self):
+        self.client.force_authenticate(user=self.manager)
+        valid_payload = {
+            'project_id': self.project.id,
+            'deadline_date': '2024-07-01',
+            'name': 'bro',
+            'cascade_to_children': True,
+        }
+        response = self.client.post('/api/manage/deadlines/', valid_payload, format='json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created = ProjectDeadline.objects.filter(name='bro').first()
+        self.assertEqual(created.organizations.count(), 2)
+        self.assertEqual(created.created_by, self.manager)
     
+    def test_deadline_resolve(self):
+        self.client.force_authenticate(user=self.manager)
+        valid_payload = {
+            'organization_id': self.parent_org.id,
+        }
+        response = self.client.patch(f'/api/manage/deadlines/{self.deadline.id}/mark-complete/', valid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        dl_link = ProjectDeadlineOrganization.objects.filter(deadline=self.deadline, organization=self.parent_org).first()
+        self.assertEqual(dl_link.completed, True)
+        self.assertEqual(dl_link.updated_by, self.manager)
+
+
     def test_bad_org(self):
         self.client.force_authenticate(user=self.manager)
         valid_payload = {

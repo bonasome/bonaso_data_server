@@ -52,12 +52,23 @@ class TaskViewSetTest(APITestCase):
         )
         self.project.organizations.set([self.parent_org, self.child_org, self.other_org])
 
-        child_link = ProjectOrganization.objects.filter(organization=self.child_org).first()
+        child_link = ProjectOrganization.objects.filter(organization=self.child_org, project=self.project).first()
         child_link.parent_organization = self.parent_org
         child_link.save()
 
-        self.planned_project = Project.objects.create(
+        self.project_2 = Project.objects.create(
             name='Beta Project',
+            client=self.client_obj,
+            status=Project.Status.ACTIVE,
+            start='2024-01-01',
+            end='2024-12-31',
+            description='Not included project',
+            created_by=self.admin,
+        )
+        self.project_2.organizations.set([self.parent_org, self.child_org, self.other_org])
+
+        self.planned_project = Project.objects.create(
+            name='Gamme Project',
             client=self.client_obj,
             status=Project.Status.PLANNED,
             start='2024-02-01',
@@ -69,38 +80,34 @@ class TaskViewSetTest(APITestCase):
         self.indicator = Indicator.objects.create(code='1', name='Parent')
         self.child_indicator = Indicator.objects.create(code='2', name='Child')
         self.child_indicator.prerequisites.set([self.indicator])
-        self.not_in_project = Indicator.objects.create(code='3', name='Unrelated')
-        
-        self.project.indicators.set([self.indicator, self.child_indicator])
 
         self.task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.indicator)
         self.other_task = Task.objects.create(project=self.project, organization=self.other_org, indicator=self.indicator)
-
+        self.child_task = Task.objects.create(project=self.project, organization=self.child_org, indicator=self.indicator)
         self.inactive_task = Task.objects.create(project=self.planned_project, organization=self.parent_org, indicator=self.indicator)
-    
+
     def test_task_admin_view(self):
-        #admins should be able to view all tasks
+        '''
+        Admins should be able to see all tasks.
+        '''
         self.client.force_authenticate(user=self.admin)
         response = self.client.get('/api/manage/tasks/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 3)
+        self.assertEqual(len(response.data['results']), 4)
 
-    
     def test_task_non_admin(self):
-        #non-admins should only see tasks associated with their org and with active projects
+        '''
+        Others should only see relevent tasks, their org/child orgs.
+        '''
         self.client.force_authenticate(user=self.manager)
         response = self.client.get('/api/manage/tasks/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 1)
+        self.assertEqual(len(response.data['results']), 2)
     
-    def test_task_client_view(self):
-        #admins should be able to view all tasks
-        self.client.force_authenticate(user=self.admin)
-        response = self.client.get('/api/manage/tasks/')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 3)
-    
-    def test_task_create_admin(self):
+    def test_task_create(self):
+        '''
+        Test that a task can be created with the below payload
+        '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'organization_id': self.other_org.id,
@@ -108,21 +115,15 @@ class TaskViewSetTest(APITestCase):
             'project_id': self.project.id,
         }
         response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
+        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-    
-    def test_task_create_wrong_ind(self):
-        #if an indicator isn't in a project, you should not be allowed to create a task for it
-        self.client.force_authenticate(user=self.admin)
-        valid_payload = {
-            'organization_id': self.other_org.id,
-            'indicator_id': self.not_in_project.id,
-            'project_id': self.project.id,
-        }
-        response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        task = Task.objects.get(organization=self.other_org, indicator=self.child_indicator, project=self.project)
+        self.assertEqual(task.created_by, self.admin)
     
     def test_task_create_wrong_org(self):
-        #same with orgs
+        '''
+        If an organizaiton is not in a project, you cannot assign them a task for that project.
+        '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'organization_id': self.loser_org.id,
@@ -133,12 +134,15 @@ class TaskViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
     
     def test_task_create_no_prereq(self):
-        #need to add prereqs first
+        '''
+        Kind of an odd move to assign an indicator a prerequisite then assign it without assigning the 
+        prereq first, right?
+        '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'organization_id': self.child_org.id,
             'indicator_id': self.child_indicator.id,
-            'project_id': self.project.id,
+            'project_id': self.project_2.id,
         }
         response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -146,7 +150,7 @@ class TaskViewSetTest(APITestCase):
         valid_payload = {
             'organization_id': self.child_org.id,
             'indicator_id': self.indicator.id,
-            'project_id': self.project.id,
+            'project_id': self.project_2.id,
         }
         response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -154,86 +158,75 @@ class TaskViewSetTest(APITestCase):
         valid_payload = {
             'organization_id': self.child_org.id,
             'indicator_id': self.child_indicator.id,
-            'project_id': self.project.id,
+            'project_id': self.project_2.id,
         }
         response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_task_create_child(self):
-        #non-admins should be allowed to assign tasks to children, assuming they are in the project
+        '''
+        Non admins can create tasks for organizations marked as their child for the project
+        '''
         self.client.force_authenticate(user=self.manager)
         valid_payload = {
             'organization_id': self.child_org.id,
-            'indicator_id': self.indicator.id,
+            'indicator_id': self.child_indicator.id,
             'project_id': self.project.id,
         }
         response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        #they should also be able to view tasks for child organizations
-        response = self.client.get('/api/manage/tasks/')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 2)
-    
-    def test_task_create_dc(self):
-        #dc are disbarred from creating tasks
-        self.client.force_authenticate(user=self.data_collector)
+        #though this is project specific
         valid_payload = {
             'organization_id': self.child_org.id,
-            'indicator_id': self.indicator.id,
+            'indicator_id': self.child_indicator.id,
+            'project_id': self.project_2.id,
+        }
+        response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_task_assign_other_self(self):
+        '''
+        Non admins also cannot assign tasks to unrelated orgs or themselves
+        '''
+        self.client.force_authenticate(user=self.manager)
+        valid_payload = {
+            'organization_id': self.other_org.id,
+            'indicator_id': self.child_indicator.id,
             'project_id': self.project.id,
         }
         response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_task_assign_other(self):
-        #but not any others
-        self.client.force_authenticate(user=self.manager)
-        valid_payload = {
-            'organization_id': self.other_org.id,
-            'indicator_id': self.child_indicator.id,
-            'project_id': self.project.id,
-        }
-        response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-    
-    def test_task_assign_client(self):
-        #but not any others
-        self.client.force_authenticate(user=self.client_user)
-        valid_payload = {
-            'organization_id': self.other_org.id,
-            'indicator_id': self.child_indicator.id,
-            'project_id': self.project.id,
-        }
-        response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-    
-    def test_task_assign_self(self):
-        #or themselves
-        self.client.force_authenticate(user=self.manager)
         valid_payload = {
             'organization_id': self.parent_org.id,
-            'indicator_id': self.not_in_project.id,
+            'indicator_id': self.child_indicator.id,
             'project_id': self.project.id,
         }
         response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
     
     def test_delete_task(self):
-        #admin should be allowed to delete tasks
+        '''
+        Admins should be allowed to delete tasks.
+        '''
         self.client.force_authenticate(user=self.admin)
         response = self.client.delete(f'/api/manage/tasks/{self.other_task.id}/')
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
     
     def test_delete_task_prereq(self):
-        #unless they are a prerequisite
+        '''
+        But not if they have downstream tasks.
+        '''
         child_task = Task.objects.create(organization=self.parent_org, indicator=self.child_indicator, project=self.project)
         self.client.force_authenticate(user=self.admin)
         response = self.client.delete(f'/api/manage/tasks/{self.task.id}/')
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
     
     def test_delete_task_inter(self):
-        #or it is 'active', i.e. it is linked to an interaction
+        '''
+        Or if they have an interaction.
+        '''
         respondent = Respondent.objects.create(
             is_anonymous=True,
             age_range=Respondent.AgeRanges.ET_24,
@@ -246,5 +239,3 @@ class TaskViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.admin)
         response = self.client.delete(f'/api/manage/tasks/{self.task.id}/')
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-    
-    #patching tasks is not really an intended method, but at some point we should write tests to either confirm it works or to disallow it

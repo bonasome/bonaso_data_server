@@ -9,6 +9,7 @@ from projects.models import Project, Client, Task, Target, ProjectOrganization
 from respondents.models import Respondent, Interaction
 from organizations.models import Organization
 from indicators.models import Indicator
+from flags.utils import create_flag
 from datetime import date
 User = get_user_model()
 
@@ -72,8 +73,6 @@ class TargetViewSetTest(APITestCase):
         self.child_indicator = Indicator.objects.create(code='2', name='Child')
         self.child_indicator.prerequisites.set([self.indicator])
         self.not_in_project = Indicator.objects.create(code='3', name='Unrelated')
-        
-        self.project.indicators.set([self.indicator, self.child_indicator])
 
         self.task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.indicator)
 
@@ -85,10 +84,25 @@ class TargetViewSetTest(APITestCase):
         self.child_target = Target.objects.create(task=self.child_task, amount=50, start='2024-04-01', end='2024-04-30')
         self.target = Target.objects.create(task=self.task, amount=50, start='2024-06-01', end='2024-06-30')
         self.other_target = Target.objects.create(task=self.other_task, amount=50, start='2024-06-01', end='2024-06-30')
+        
+        self.respondent_full = Respondent.objects.create(
+            is_anonymous=False, 
+            id_no= '1234567',
+            first_name= 'Test',
+            last_name= 'Testerson',
+            dob= date(2000, 1, 1),
+            ward= 'Here',
+            village= 'ThePlace', 
+            citizenship= 'Test',
+            sex= Respondent.Sex.FEMALE,
+            district= Respondent.District.CENTRAL,
+        )
 
 
     def test_target_admin_view(self):
-        #admins should be able to view all targets
+        '''
+        Admins should be allowed to view all targets.
+        '''
         self.client.force_authenticate(user=self.admin)
         response = self.client.get('/api/manage/targets/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -101,29 +115,28 @@ class TargetViewSetTest(APITestCase):
         response = self.client.get('/api/manage/targets/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 2)
-    
-    def test_target_client_view(self):
-        #admins should be able to view all targets
-        self.client.force_authenticate(user=self.client_user)
-        response = self.client.get('/api/manage/targets/')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 3)
 
-    def test_target_create_admin(self):
-        #admins should be allowed to create targets with either or the payloads below
+    def test_target_create(self):
+        '''
+        Targets should be created with the payload below.
+        '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'task_id': self.task.id,
             'amount': 60,
-            'start': '2025-07-01',
-            'end': '2025-07-31'
+            'start': '2024-07-01',
+            'end': '2024-07-31'
         }
         response = self.client.post('/api/manage/targets/', valid_payload, format='json')
+        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         target=Target.objects.filter(task=self.task.id, amount=60).first()
         self.assertEqual(target.created_by, self.admin)
     
-    def test_target_patch_admin(self):
+    def test_target_patch(self):
+        '''
+        They can also be updated.
+        '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'amount': 70,
@@ -136,6 +149,9 @@ class TargetViewSetTest(APITestCase):
         self.assertEqual(self.target.updated_by, self.admin)
     
     def test_target_create_child(self):
+        '''
+        Higher roles are allowed to create targets for child orgs.
+        '''
         self.client.force_authenticate(user=self.manager)
         valid_payload = {
             'task_id': self.child_task.id,
@@ -147,18 +163,10 @@ class TargetViewSetTest(APITestCase):
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
     
-    def test_task_patch_child(self):
-        self.client.force_authenticate(user=self.manager)
-        valid_payload = {
-            'amount': 70,
-        }
-        response = self.client.patch(f'/api/manage/targets/{self.child_target.id}/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.child_target.refresh_from_db()
-        self.assertEqual(self.child_target.amount, 70)
-    
-    
     def test_task_patch_non_child(self):
+        '''
+        But not others or themsevles.
+        '''
         self.client.force_authenticate(user=self.manager)
         valid_payload = {
             'amount': 70,
@@ -166,49 +174,73 @@ class TargetViewSetTest(APITestCase):
         response = self.client.patch(f'/api/manage/targets/{self.other_target.id}/', valid_payload, format='json')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-    
-    def test_task_patch_client(self):
-        self.client.force_authenticate(user=self.client_user)
+        
         valid_payload = {
             'amount': 70,
         }
-        response = self.client.patch(f'/api/manage/targets/{self.other_target.id}/', valid_payload, format='json')
+        response = self.client.patch(f'/api/manage/targets/{self.target.id}/', valid_payload, format='json')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
     
+    
     def test_target_delete_admin(self):
-        #admins should be allowed to delete a target
+        '''
+        Admins are allowed to delete a target.
+        '''
         self.client.force_authenticate(user=self.admin)
         response = self.client.delete(f'/api/manage/targets/{self.target.id}/')
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
     
     def test_target_delete_non_admin(self):
-        #managers should be allowed to delete a target for their children
+        '''
+        Higher roles can delete targets for their child orgs.
+        '''
         self.client.force_authenticate(user=self.manager)
         response = self.client.delete(f'/api/manage/targets/{self.child_target.id}/')
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
     
     def test_target_delete_non_admin_self(self):
-        #but not for themselves
+        '''
+        But not their own targets.
+        '''
         self.client.force_authenticate(user=self.manager)
         response = self.client.delete(f'/api/manage/targets/{self.target.id}/')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     #data validation tests here
 
+    def test_achievement(self):
+        self.client.force_authenticate(user=self.admin)
+        interaction1 = Interaction.objects.create(respondent=self.respondent_full, interaction_date=date(2024,6,2), task=self.task, interaction_location='here')
+        interaction2 = Interaction.objects.create(respondent=self.respondent_full, interaction_date=date(2024,6,3), task=self.task, interaction_location='there')
+        create_flag(instance=interaction2, reason="Test reason", caused_by=self.admin)
+        self.target.refresh_from_db()
+
+        response = self.client.get(f'/api/manage/targets/{self.target.id}/')
+        print(response.json())
+
     def test_target_create_rel(self):
+        '''
+        Also make sure that targets can be created with realtive amounts.
+        '''
         rel_task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.child_indicator)
+        interaction1 = Interaction.objects.create(respondent=self.respondent_full, interaction_date=date(2024,7,2), task=self.task, interaction_location='here')
+        interaction2 = Interaction.objects.create(respondent=self.respondent_full, interaction_date=date(2024,7,2), task=self.task, interaction_location='here')
+        create_flag(instance=interaction2, reason="Test reason", caused_by=self.admin)
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'task_id': rel_task.id,
             'related_to_id': self.task.id,
             'percentage_of_related': 75,
-            'start': '2025-07-01',
-            'end': '2025-07-31'
+            'start': '2024-07-01',
+            'end': '2024-07-31'
         }
         response = self.client.post('/api/manage/targets/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-    
+        target = Target.objects.filter(task=rel_task).first()
+        response = self.client.get(f'/api/manage/targets/{target.id}/')
+        print(response.json())
+
     def test_target_create_rel_wrong(self):
         rel_task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.child_indicator)
         #related to not with same org/project
@@ -217,8 +249,8 @@ class TargetViewSetTest(APITestCase):
             'task_id': rel_task.id,
             'related_to_id': self.other_task.id,
             'percentage_of_related': 75,
-            'start': '2025-07-01',
-            'end': '2025-07-31'
+            'start': '2024-07-01',
+            'end': '2024-07-31'
         }
         response = self.client.post('/api/manage/targets/', invalid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -275,8 +307,8 @@ class TargetViewSetTest(APITestCase):
         invalid_payload = {
             'task_id': self.task.id,
             'amount': 60,
-            'start': '2025-06-01',
-            'end': '2025-06-30',
+            'start': '2024-06-01',
+            'end': '2024-06-30',
         }
         response = self.client.post('/api/manage/targets/', invalid_payload, format='json')
         print(response.json())

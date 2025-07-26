@@ -47,9 +47,9 @@ class TaskSerializer(serializers.ModelSerializer):
     indicator = IndicatorSerializer(read_only=True)
     project = ProjectListSerializer(read_only=True)
     organization = OrganizationListSerializer(read_only=True)
-    organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True)
-    indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True)
-    project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True)
+    organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, source='organization')
+    indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True, source='indicator')
+    project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True, source='project')
  
     class Meta:
         model=Task
@@ -62,6 +62,10 @@ class TaskSerializer(serializers.ModelSerializer):
         organization = attrs.get('organization')
         indicator = attrs.get('indicator')
         project = attrs.get('project')
+        if not organization or not project or not indicator:
+            raise serializers.ValidationError(
+                    f"This task requires a project, indicator, and organization."
+                )
         if Task.objects.filter(project=project, organization=organization, indicator=indicator).exists():
             raise serializers.ValidationError('This task already exists.')
         if user.role != 'admin':
@@ -231,7 +235,7 @@ class TargetSerializer(serializers.ModelSerializer):
                     total += ir.numeric_component
                 amount += total
 
-            counts = DemographicCount.objects.filter(task=obj.related_to, event__event_date__gte=obj.start, event__event_date__lte=obj.end).exclude(id__in=flagged_counts)
+            counts = DemographicCount.objects.filter(task=obj.related_to, event__start__gte=obj.start, event__end__lte=obj.end)
             for dc in counts:
                 if dc.flags.filter(resolved=False).count() > 0:
                     continue #do not add flagged counts
@@ -239,7 +243,7 @@ class TargetSerializer(serializers.ModelSerializer):
         
         #also handle these
         elif obj.task.indicator.indicator_type == 'count':
-            counts = DemographicCount.objects.filter(task=obj.related_to, event__event_date__gte=obj.start, event__event_date__lte=obj.end).exclude(id__in=flagged_counts)
+            counts = DemographicCount.objects.filter(task=obj.related_to, event__start__gte=obj.start, event__end_date__lte=obj.end)
             for dc in counts:
                 if dc.flags.filter(resolved=False).count() > 0:
                     continue
@@ -250,12 +254,12 @@ class TargetSerializer(serializers.ModelSerializer):
         '''
         Get the actual number that has been acheived. Works similar to the above function.
         '''
-        from respondents.models import Interaction, InteractionSubcategory, InteractionFlag
-        from events.models import Event, DemographicCount, CountFlag
+        from respondents.models import Interaction, InteractionSubcategory
+        from events.models import Event, DemographicCount
 
         amount = 0
         if obj.task.indicator.indicator_type == 'respondent':
-            interactions = Interaction.objects.filter(task=obj.task, interaction_date__gte=obj.start, interaction_date__lte=obj.end).exclude(id__in=flagged_irs)
+            interactions = Interaction.objects.filter(task=obj.task, interaction_date__gte=obj.start, interaction_date__lte=obj.end)
             for ir in interactions:
                 if ir.flags.filter(resolved=False).count() > 0: 
                     continue #do not add flagged interactions
@@ -267,26 +271,25 @@ class TargetSerializer(serializers.ModelSerializer):
                 else:
                     amount += 1
             
-            counts = DemographicCount.objects.filter(task=obj.task, event__event_date__gte=obj.start, event__event_date__lte=obj.end).exclude(id__in=flagged_counts)
+            counts = DemographicCount.objects.filter(task=obj.task, event__start__gte=obj.start, event__end__lte=obj.end)
             for dc in counts:
                 if dc.flags.filter(resolved=False).count() > 0:
                     continue #do not add flagged counts
                 amount += dc.count
         
         elif obj.task.indicator.indicator_type == 'count':
-            flagged_counts = CountFlag.objects.values_list('count_id', flat=True)
-            counts = DemographicCount.objects.filter(task=obj.task, event__event_date__gte=obj.start, event__event_date__lte=obj.end).exclude(id__in=flagged_counts)
+            counts = DemographicCount.objects.filter(task=obj.task, event__start__gte=obj.start, event__end__lte=obj.end)
             for dc in counts:
                 if dc.flags.filter(resolved=False).count() > 0:
                     continue #do not add flagged counts
                 amount += dc.count
         #if the task indictor is tied to a number of events, automatically pull all completed events
         elif obj.task.indicator.indicator_type == 'event_no':
-            amount += Event.objects.filter(tasks=obj.task, status= Event.EventStatus.COMPLETED, event_date__gte=obj.start, event_date__lte=obj.end).count()
+            amount += Event.objects.filter(tasks=obj.task, status= Event.EventStatus.COMPLETED, start__gte=obj.start, end__lte=obj.end).count()
         
         #if the task indicator is tied to the number of organizations attending an event (i.e. a training) pull that
         elif obj.task.indicator.indicator_type == 'org_event_no':
-            events = Event.objects.filter(tasks=obj.task, status= Event.EventStatus.COMPLETED, event_date__gte=obj.start, event_date__lte=obj.end)
+            events = Event.objects.filter(tasks=obj.task, status= Event.EventStatus.COMPLETED, start__gte=obj.start, end__lte=obj.end)
             for event in events:
                 amount += event.organizations.count()
         return amount
@@ -385,16 +388,12 @@ class ProjectActivitySerializer(serializers.ModelSerializer):
     organizations = OrganizationListSerializer(read_only=True, many=True)
     organization_ids = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), many=True, write_only=True, required=False, source='organizations')
     comments = ProjectActivityCommentSerializer(read_only=True, many=True)
-    created_by_organization = serializers.SerializerMethodField()
-
-    def get_created_by_organization(self, obj):
-        return obj.created_by.organization.id
     
     class Meta:
         model = ProjectActivity
         fields = [
                     'id', 'project', 'project_id', 'organizations', 'organization_ids', 'start', 'end', 'comments',
-                    'cascade_to_children', 'visible_to_all', 'category', 'status', 'name', 'description', 'created_by_organization'
+                    'cascade_to_children', 'visible_to_all', 'category', 'status', 'name', 'description',   
                 ]
     
     def _set_organizations(self, activity, organizations):

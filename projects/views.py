@@ -214,9 +214,16 @@ class ProjectViewSet(RoleRestrictedViewSet):
         user = request.user
         parent_org_id = request.data.get('parent_id')
         child_org_id = request.data.get('child_id')
+        
         if user.role not in ['meofficer', 'manager', 'admin']:
             return Response(
                 {"detail": "You do not have permission to add a child organization."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if not parent_org_id or not child_org_id:
+            return Response(
+                {"detail": "Parent ID and Child ID are both required."},
                 status=status.HTTP_403_FORBIDDEN
             )
         
@@ -634,7 +641,8 @@ class ProjectDeadlineViewSet(RoleRestrictedViewSet):
                     status=status.HTTP_403_FORBIDDEN
                 )
         
-        dl_link = ProjectDeadlineOrganization.objects.filter(organization = organization).first()
+        dl_link = ProjectDeadlineOrganization.objects.get_or_create(deadline=project_deadline, organization=organization)[0]
         dl_link.completed= True
+        dl_link.updated_by = user
         dl_link.save()
         return Response(status=status.HTTP_204_NO_CONTENT)

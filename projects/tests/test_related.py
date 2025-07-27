@@ -131,34 +131,45 @@ class ProjectRelatedViewSetTest(APITestCase):
             created_by=self.admin,
         )
     def test_activity_admin_view(self):
-        #admins should be able to view all targets
+        '''
+        Admins can view all related activities
+        '''
         self.client.force_authenticate(user=self.admin)
         response = self.client.get('/api/manage/activities/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 4)
     
     def test_activity_parent_view(self):
-        #non-admins should only see targets associated with their org/child orgs and with active projects
+        '''
+        Non admins can only see public (visible to all) or activities scoped to them
+        '''
         self.client.force_authenticate(user=self.manager)
         response = self.client.get('/api/manage/activities/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 2)
     
     def test_activity_child_view(self):
-        #non-admins should only see targets associated with their org/child orgs and with active projects
+        '''
+        Child orgs can't see parents stuff unless explicity assigned/cascaded
+        '''
         self.client.force_authenticate(user=self.officer)
         response = self.client.get('/api/manage/activities/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 1)
     
     def test_target_client_view(self):
-        #admins should be able to view all targets
+        '''
+        Clients can see activities for projects they own
+        '''
         self.client.force_authenticate(user=self.client_user)
         response = self.client.get('/api/manage/activities/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 3)
     
     def test_activity_create_parent(self):
+        '''
+        Higher roles can create activities for their org and their children.
+        '''
         self.client.force_authenticate(user=self.manager)
         valid_payload = {
             'project_id': self.project.id,
@@ -176,6 +187,9 @@ class ProjectRelatedViewSetTest(APITestCase):
         self.assertEqual(created.organizations.count(), 2)
     
     def test_activity_patch(self):
+        '''
+        Can also patch activities.
+        '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'organization_ids': [self.parent_org.id, self.child_org.id],
@@ -190,6 +204,9 @@ class ProjectRelatedViewSetTest(APITestCase):
         self.assertEqual(created.created_by, self.admin)
 
     def test_deadline_create_parent(self):
+        '''
+        Parents can also create deadlines.
+        '''
         self.client.force_authenticate(user=self.manager)
         valid_payload = {
             'project_id': self.project.id,
@@ -205,6 +222,9 @@ class ProjectRelatedViewSetTest(APITestCase):
         self.assertEqual(created.created_by, self.manager)
     
     def test_deadline_resolve(self):
+        '''
+        Test resolving deadlines action.
+        '''
         self.client.force_authenticate(user=self.manager)
         valid_payload = {
             'organization_id': self.parent_org.id,
@@ -217,6 +237,9 @@ class ProjectRelatedViewSetTest(APITestCase):
 
 
     def test_bad_org(self):
+        '''
+        Non admins cannot create events for unrelated orgs.
+        '''
         self.client.force_authenticate(user=self.manager)
         valid_payload = {
             'project_id': self.project.id,

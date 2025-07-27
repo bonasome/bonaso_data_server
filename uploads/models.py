@@ -1,19 +1,26 @@
 from django.db import models
 from projects.models import Project
 from organizations.models import Organization
+
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
 class NarrativeReport(models.Model):
+    '''
+    Narrative report, but really any supporting document that is meant to be viewed by a person (not input
+    data into the system, like the file upload --> respondents.models).
+
+    It's most often attached to a project and an organization.
+    '''
     organization = models.ForeignKey(Organization, on_delete=models.SET_NULL, null=True, blank=True)
     project = models.ForeignKey(Project, on_delete=models.SET_NULL, null=True, blank=True)
-    uploaded_by = models.ForeignKey(
-        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='file_uploaded_by'
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
     file = models.FileField(upload_to='narrative_reports/')
     title = models.CharField(max_length=255, verbose_name='Upload Title')
     description = models.TextField(verbose_name='Description of Upload', blank=True)
+
+    uploaded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='file_uploaded_by')
+    created_at = models.DateTimeField(auto_now_add=True)
+    
     
     def __str__(self):
         org_name = self.organization.name if self.organization else "Unknown Organization"

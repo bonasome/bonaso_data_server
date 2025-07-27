@@ -1,50 +1,22 @@
 from rest_framework import serializers
-from django.shortcuts import get_object_or_404
-from django.db.models import Q
-from projects.serializers import TaskSerializer
-from projects.models import Task, ProjectOrganization
-from social.models import SocialMediaPost, SocialMediaPostTasks, SocialMediaPostFlag
-from social.utils import user_has_post_access
-from datetime import date
-from collections import defaultdict
 from rest_framework.exceptions import PermissionDenied
 
-class SocialMediaPostFlagSerializer(serializers.ModelSerializer):
-    created_by = serializers.SerializerMethodField()
-    resolved_by = serializers.SerializerMethodField()
+from projects.serializers import TaskSerializer
+from projects.models import Task, ProjectOrganization
+from social.models import SocialMediaPost, SocialMediaPostTasks
+from flags.serializers import FlagSerializer
 
-    def get_created_by(self, obj):
-        if obj.created_by:
-            return {
-                "id": obj.created_by.id,
-                "username": obj.created_by.username,
-                "first_name": obj.created_by.first_name,
-                "last_name": obj.created_by.last_name,
-            }
-        return None
-    def get_resolved_by(self, obj):
-        if obj.resolved_by:
-            return {
-                "id": obj.resolved_by.id,
-                "username": obj.resolved_by.username,
-                "first_name": obj.resolved_by.first_name,
-                "last_name": obj.resolved_by.last_name,
-            }
-        return None
-    
-    class Meta:
-        model=SocialMediaPostFlag
-        fields = [
-            'id', 'reason', 'created_by', 'created_at', 'resolved',
-            'resolved_reason', 'resolved_by', 'resolved_at'
-        ]
+
 
 class SocialMediaPostSerializer(serializers.ModelSerializer):
+    '''
+    Serializer for managing data around social media posts.
+    '''
     tasks = TaskSerializer(read_only=True, many=True)
     task_ids = serializers.PrimaryKeyRelatedField(
         queryset=Task.objects.all(), write_only=True, many=True, required=True
     )
-    flags = SocialMediaPostFlagSerializer(read_only=True, many=True)
+    flags = FlagSerializer(read_only=True, many=True)
 
     class Meta:
         model = SocialMediaPost
@@ -55,6 +27,9 @@ class SocialMediaPostSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, attrs):
+        '''
+        Permission checks and make sure that a platform is provided (specifying if other).
+        '''
         user = self.context['request'].user
         task_list = attrs.get('task_ids') or getattr(self.instance, 'tasks', None)
 
@@ -63,7 +38,7 @@ class SocialMediaPostSerializer(serializers.ModelSerializer):
 
         
         update_tasks = 'task_ids' in self.initial_data 
-
+        #check that all tasks are with the same org
         org = None
         if update_tasks:
             for task in task_list:
@@ -71,6 +46,7 @@ class SocialMediaPostSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError('All tasks must belong to the same organization.')
                 org = task.organization
 
+                #check that task is associated with the organization or their child
                 if user.role != 'admin':
                     if task.organization != user.organization and not ProjectOrganization.objects.filter(
                         parent_organization=user.organization,
@@ -78,7 +54,8 @@ class SocialMediaPostSerializer(serializers.ModelSerializer):
                         project=task.project
                     ).exists():
                         raise PermissionDenied('You do not have permission to use this task.')
-
+       
+        #make sure platform info is provided
         platform = attrs.get('platform') or getattr(self.instance, 'platform', None)
         if platform == SocialMediaPost.Platform.OTHER:
             other = attrs.get('other_platform') or getattr(self.instance, 'other_platform', None)

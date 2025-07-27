@@ -3,6 +3,9 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, Toke
 from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
 from rest_framework.exceptions import PermissionDenied
 
+'''
+JWT serializers for getting access/refresh tokens and refreshing tokens.
+'''
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):

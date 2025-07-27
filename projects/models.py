@@ -11,6 +11,9 @@ class Client(models.Model):
     '''
     Model for tracking who a project is for. Mostly useful for segmenting what client users are allowed
     to view.
+
+    We could have used organizations for this, but that might have complicated the org model too much, so better
+    to segment the logic to another model.
     '''
     name = models.CharField(max_length=255, verbose_name='Client Organization Name')
     full_name = models.CharField(max_length=255, blank=True, null=True, verbose_name='Client Organization Full Name')

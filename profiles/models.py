@@ -5,6 +5,9 @@ from projects.models import Project
 from respondents.models import Respondent
 from events.models import Event
 
+'''
+Few dedicated models for favorities, joiner model between a given field and a user.
+'''
 class FavoriteProject(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='favorite_projects')
     project = models.ForeignKey(Project, on_delete=models.CASCADE)

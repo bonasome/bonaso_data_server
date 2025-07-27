@@ -1,19 +1,18 @@
 from django.shortcuts import render
 from rest_framework import viewsets, permissions
-from uploads.models import NarrativeReport
-from uploads.serializers import NarrativeReportSerializer
-from projects.models import ProjectOrganization
-from organizations.models import Organization
-from projects.utils import get_valid_orgs
-from django.db.models import Q
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from django.http import FileResponse
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.exceptions import PermissionDenied
 
+
+from uploads.models import NarrativeReport
+from uploads.serializers import NarrativeReportSerializer
+from projects.models import ProjectOrganization
+
+from django.db.models import Q
 
 
 
@@ -28,9 +27,14 @@ class NarrativeReportViewSet(viewsets.ModelViewSet):
     search_fields = ['organization__name', 'project__name', 'title', 'description']  # <-- fixed missing comma + added nested lookups
 
     def get_queryset(self):
+        '''
+        Admins see all, clients related projects, higher roles see their org and child orgs.
+        '''
         user = self.request.user
         if user.role == 'admin':
             return NarrativeReport.objects.all()
+        if user.role == 'client':
+            return NarrativeReport.objects.filter(project__client=user.client_organization)
         elif user.role in ['meofficer', 'manager']:
             child_orgs = ProjectOrganization.objects.filter(
                 parent_organization=user.organization,
@@ -40,19 +44,18 @@ class NarrativeReportViewSet(viewsets.ModelViewSet):
             return NarrativeReport.objects.none()
     
     def perform_create(self, serializer):
+        '''
+        Save with uploaded by.
+        '''
         user = self.request.user
-        org = serializer.validated_data.get('organization')
-
-        if user.role != 'admin':
-            if user.role not in ['meofficer', 'manager']:
-                raise PermissionDenied("You do not have permissiont to perform this action.")
-            valid_orgs = get_valid_orgs(user)
-            if org.id not in valid_orgs:
-                raise PermissionDenied("You can only upload reports for your own organization or a child organization.")
         serializer.save(uploaded_by=user)
 
     @action(detail=True, methods=['get'])
     def download(self, request, pk=None):
+        '''
+        Special action to collect and download a report if they are an admin, the report is theirs or their
+        child orgs, or they are a client and the report is in their project.
+        '''
         user = request.user
         instance = self.get_object()
 
@@ -63,14 +66,18 @@ class NarrativeReportViewSet(viewsets.ModelViewSet):
             )
 
         # Restrict non-admins to their own or child orgs
-        if user.role != 'admin':
+        if user.role not in  ['admin', 'client']:
             if not ( instance.organization == user.organization or 
-            ProjectOrganization.objects.filter(organization=instance.organization, parent_organization=user.organization).exists()):
+            ProjectOrganization.objects.filter(organization=instance.organization, project=instance.project, parent_organization=user.organization).exists()):
                 return Response(
                     {"detail": "You do not have permission to download this report."},
                     status=status.HTTP_403_FORBIDDEN
                 )
-
+        if user.role == 'client' and not instance.project.client == user.client_organization:
+            return Response(
+                    {"detail": "You do not have permission to download this report."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
         if not instance.file:
             return Response({"detail": "File not found."}, status=status.HTTP_404_NOT_FOUND)
 

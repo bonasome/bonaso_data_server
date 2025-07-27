@@ -3,6 +3,13 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 
 class Organization(models.Model):
+    '''
+    Organizations are the a useful model for linking users together and determining which users should
+    see waht content. That said, its a fairly simple model mostly used for linking. The only required
+    field is a name. 
+
+    Other information can be collected and stored for convenience/reference.
+    '''
     name = models.CharField(max_length=255, verbose_name='Organization Name')
     full_name = models.CharField(max_length=255, verbose_name='Full/Extended Organization Name', blank=True, null=True)
     office_address = models.CharField(max_length=255, verbose_name='Office Address', null=True, blank=True)
@@ -11,6 +18,7 @@ class Organization(models.Model):
     executive_director = models.CharField(max_length=255, verbose_name='Name of Executive Director', null=True, blank=True)
     ed_email = models.EmailField(verbose_name='Exeuctive Director Email Address', null=True, blank=True)
     ed_phone = models.CharField(max_length=255, verbose_name='Exeuctive Director Phone Number', null=True, blank=True)
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='organization_created_by')

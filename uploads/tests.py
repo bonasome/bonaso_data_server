@@ -48,14 +48,14 @@ class UploadViewSetTest(APITestCase):
 
 
         self.sample_file = SimpleUploadedFile("report.pdf", b"dummy content", content_type="application/pdf")
-        self.report = NarrativeReport.objects.create(
+        self.child_report = NarrativeReport.objects.create(
             organization=self.child_org,
             project=self.project,
             uploaded_by=self.admin,
             file=self.sample_file,
             title="Monthly Report"
         )
-        self.report = NarrativeReport.objects.create(
+        self.other_report = NarrativeReport.objects.create(
             organization=self.other_org,
             project=self.project,
             uploaded_by=self.admin,
@@ -103,8 +103,8 @@ class UploadViewSetTest(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertTrue(NarrativeReport.objects.filter(title="Quarterly Report").exists())
-
+        report = NarrativeReport.objects.filter(title="Quarterly Report").first()
+        self.assertEqual(report.uploaded_by, self.officer)
 
 
     def test_upload_invalid_file(self):
@@ -186,31 +186,27 @@ class UploadViewSetTest(APITestCase):
 
     def test_admin_can_download_any_report(self):
         self.client.force_authenticate(user=self.admin)
-        response = self.client.get(f'/api/uploads/narrative-report/{self.report.id}/download/')
+        response = self.client.get(f'/api/uploads/narrative-report/{self.other_report.id}/download/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_officer_can_download_child_org_report(self):
         self.client.force_authenticate(user=self.officer)
-        response = self.client.get(f'/api/uploads/narrative-report/{self.report.id}/download/')
+        response = self.client.get(f'/api/uploads/narrative-report/{self.child_report.id}/download/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_collector_cannot_download(self):
         self.client.force_authenticate(user=self.data_collector)
-        response = self.client.get(f'/api/uploads/narrative-report/{self.report.id}/download/')
+        response = self.client.get(f'/api/uploads/narrative-report/{self.other_report.id}/download/')
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_officer_cannot_download_unrelated_org(self):
-        # put report in other org
-        self.report.organization = self.other_org
-        self.report.save()
-
         self.client.force_authenticate(user=self.officer)
-        response = self.client.get(f'/api/uploads/narrative-report/{self.report.id}/download/')
+        response = self.client.get(f'/api/uploads/narrative-report/{self.other_report.id}/download/')
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_download_missing_file(self):
-        self.report.file = None
-        self.report.save()
+        self.other_report.file = None
+        self.other_report.save()
 
         self.client.force_authenticate(user=self.admin)
         response = self.client.get(f'/api/uploads/narrative-report/{self.report.id}/download/')

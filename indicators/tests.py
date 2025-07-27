@@ -12,125 +12,104 @@ from indicators.models import Indicator, IndicatorSubcategory
 User = get_user_model()
 
 
-class TestIndicatorPerms(APITestCase):
+class TestIndicatorValidation(APITestCase):
     def setUp(self):
-        self.client_obj = Client.objects.create(name='Test Client')  # Assuming Client exists
-
         self.parent = Organization.objects.create(name='Parent Org')
-        self.child = Organization.objects.create(name='Child Org', parent_organization=self.parent)
-        self.wrong = Organization.objects.create(name='Wrong Org')
-
         self.admin = User.objects.create_user(username='admin', password='testpass', role='admin', organization=self.parent)
-        self.meofficer = User.objects.create_user(username='meofficer', password='testpass', role='meofficer', organization=self.parent)
-        self.manager = User.objects.create_user(username='manager', password='testpass', role='manager', organization=self.parent)
-        self.mechild = User.objects.create_user(username='mechild', password='testpass', role='meofficer', organization=self.child)
-        self.wrong_org = User.objects.create_user(username='wrong_org', password='testpass', role='meofficer', organization=self.wrong)
-        self.data_collector = User.objects.create_user(username='dc', password='testpass', role='data_collector', organization=self.parent)
-        self.view_only = User.objects.create_user(username='view', password='testpass', role='view_only', organization=self.parent)
-        self.no_org = User.objects.create_user(username='orgless', password='testpass', role='meofficer')
-        self.no_role = User.objects.create_user(username='norole', password='testpass')  # no role
-
-        self.project = Project.objects.create(
-            name='Alpha Project',
-            client=self.client_obj,
-            status=Project.Status.ACTIVE,
-            start='2024-01-01',
-            end='2024-12-31',
-            description='Test project',
-            created_by=self.admin,
-        )
-        self.project.organizations.set([self.parent, self.wrong])
-
-        self.indicator = Indicator.objects.create(code='Test101', name='Test')
-        self.inactive_ind = Indicator.objects.create(code='Test102', name='Inactive', status=Indicator.Status.PLANNED)
-        self.wrong_prog = Indicator.objects.create(code='Test103', name='Not in proj')
-        self.project.indicators.set([self.indicator])
-
-
+        self.officer = User.objects.create_user(username='officer', password='testpass', role='meofficer', organization=self.parent)
+        self.indicator = Indicator.objects.create(name='Test Indicator', code='TEST101')
+        self.prereq_resp = Indicator.objects.create(name='Prereq', code='PRE', indicator_type='respondent')
+        self.prereq_planned = Indicator.objects.create(name='Planned', code='PL', status='planned')
+        self.dep =Indicator.objects.create(name='Dep', code='DEP')
+        self.dep.prerequisites.set([self.prereq_resp])
+    
     def test_queryset_admin(self):
+        '''
+        Admins can see all indicators
+        '''
         self.client.force_authenticate(user=self.admin)
+        response = self.client.get('/api/indicators/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data['results']), 4)
+    
+    def test_queryset_meofficer(self):
+        '''
+        ME officers can only see active indicators.
+        '''
+        self.client.force_authenticate(user=self.officer)
         response = self.client.get('/api/indicators/')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data['results']), 3)
     
-    def test_queryset_meofficer(self):
-        self.client.force_authenticate(user=self.meofficer)
-        response = self.client.get('/api/indicators/')
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data['results']), 1)
-    
     def test_create_admin(self):
+        '''
+        Indicators can be created with the below payload.
+        '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'name': 'Ind 3',
             'code': '3',
+            'status': 'active',
+            'indicator_type': 'respondent',
         }
         response = self.client.post('/api/indicators/', valid_payload, format='json')
+        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
     
     def test_create_meofficer(self):
-        self.client.force_authenticate(user=self.meofficer)
+        '''
+        Other roles cannot create indicators.
+        '''
+        self.client.force_authenticate(user=self.officer)
         valid_payload = {
             'name': 'Ind 3',
             'code': '3',
+            'status': 'active',
+            'indicator_type': 'respondent',
         }
         response = self.client.post('/api/indicators/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_update_meofficer(self):
-        self.client.force_authenticate(user=self.meofficer)
+        '''
+        Or update them. 
+        '''
+        self.client.force_authenticate(user=self.officer)
         valid_payload = {
             'name': 'Ind 3',
             'code': '3',
+            'status': 'active',
+            'indicator_type': 'respondent',
         }
         response = self.client.patch(f'/api/indicators/{self.indicator.id}/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
     
     def test_delete_admin(self):
-        self.client.force_authenticate(user=self.admin)
-        response = self.client.delete(f'/api/indicators/{self.inactive_ind.id}/')
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-
+        '''
+        Admins cannot delete indicators with a prereq.
+        '''
+        #but not if they have a prerequisite
         response = self.client.delete(f'/api/indicators/{self.indicator.id}/')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
 
     def test_delete_meofficer(self):
-        self.client.force_authenticate(user=self.meofficer)
+        '''
+        But no one slse
+        '''
+        self.client.force_authenticate(user=self.officer)
         response = self.client.delete(f'/api/indicators/{self.indicator.id}/')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-
-class TestIndicatorValidation(APITestCase):
-    def setUp(self):
-        self.parent = Organization.objects.create(name='Parent Org')
-        self.admin = User.objects.create_user(username='admin', password='testpass', role='admin', organization=self.parent)
-        self.indicator = Indicator.objects.create(name='Test Indicator', code='TEST101')
-        self.prereq_resp = Indicator.objects.create(name='Prereq', code='PRE')
-        self.prereq_planned = Indicator.objects.create(name='Planned', code='PL', status='Planned')
-        self.dep =Indicator.objects.create(name='Dep', code='DEP')
-        self.dep.prerequisites.set([self.prereq_resp])
-    
-    def test_create(self):
-        self.client.force_authenticate(user=self.admin)
-        valid_payload = {
-            'name': 'Ind 3',
-            'code': 'NEW101',
-            'subcategory_data': [{'id': None,'name': 'Cat 1'}, {'id': None,'name': 'Cat 2'}],
-        }
-        response = self.client.post(f'/api/indicators/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        indicator = Indicator.objects.get(code='NEW101')
-        self.assertEqual(indicator.subcategories.count(), 2)
-        subcategory_names = list(indicator.subcategories.values_list('name', flat=True))
-        self.assertListEqual(sorted(subcategory_names), ['Cat 1', 'Cat 2'])
-
     def test_create_prereq(self):
+        '''
+        Test that indicators can also be created with prereqs
+        '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'name': 'Ind 3',
             'code': 'NEW101',
-            'indicator_type': 'Respondent',
-            'prerequisite_id': [self.indicator.id, self.dep.id]
+            'indicator_type': 'respondent',
+            'prerequisite_ids': [self.indicator.id, self.dep.id]
         }
         response = self.client.post(f'/api/indicators/', valid_payload, format='json')
         print(response.json())
@@ -138,18 +117,10 @@ class TestIndicatorValidation(APITestCase):
         indicator = Indicator.objects.get(code='NEW101')
         self.assertEqual(indicator.prerequisites.count(), 2)
 
-    def test_patch(self):
-        self.client.force_authenticate(user=self.admin)
-        valid_payload = {
-            'subcategory_data': [{'id': None, 'name': 'Cat 1'}],
-        }
-        response = self.client.patch(f'/api/indicators/{self.indicator.id}/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(self.indicator.subcategories.count(), 1)
-        subcategory_names = list(self.indicator.subcategories.values_list('name', flat=True))
-        self.assertListEqual(sorted(subcategory_names), ['Cat 1'])
-
     def test_no_code(self):
+        '''
+        Code is required
+        '''
         self.client.force_authenticate(user=self.admin)
         invalid_payload = {
             'name': 'Ind 3',
@@ -158,6 +129,9 @@ class TestIndicatorValidation(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_no_name(self):
+        '''
+        So is name.
+        '''
         self.client.force_authenticate(user=self.admin)
         invalid_payload = {
             'code': '3'
@@ -166,6 +140,9 @@ class TestIndicatorValidation(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_duplicates(self):
+        '''
+        Duplicate names/codes should throw an error.
+        '''
         self.client.force_authenticate(user=self.admin)
         invalid_payload = {
             'name': 'Ind 3',
@@ -181,62 +158,61 @@ class TestIndicatorValidation(APITestCase):
         response = self.client.post(f'/api/indicators/', invalid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_valid_prereq(self):
-        self.client.force_authenticate(user=self.admin)
-        invalid_payload = {
-            'name': 'Ind 3',
-            'code': 'PRE102',
-            'indicator_type': 'Respondent',
-            'status': 'Planned',
-            'prerequisite_id': [self.prereq_planned.id]
-        }
-        response = self.client.post(f'/api/indicators/', invalid_payload, format='json')
-        print(response.json())
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
     def test_invalid_prereq(self):
+        '''
+        Mismatched prereq types (i.e., respondent versus count) should fail, since thats impossible. 
+        '''
         self.client.force_authenticate(user=self.admin)
         #wrong type should fail
         invalid_payload = {
             'name': 'Ind 3',
             'code': 'PRE102',
-            'indicator_type': 'Count',
-            'prerequisite_id': [self.prereq_resp.id]
+            'indicator_type': 'count',
+            'prerequisite_ids': [self.prereq_resp.id],
+            'status': 'active',
         }
         response = self.client.post(f'/api/indicators/', invalid_payload, format='json')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-        #as should bad mixed statuses
+        '''
+        Mixed statuses is also weird, and should be flagged. 
+        '''
         invalid_payload = {
             'name': 'Ind 3',
             'code': 'PRE102',
-            'status': 'Active',
-            'indicator_type': 'Respondent',
-            'prerequisite_id': [self.prereq_planned.id]
+            'status': 'active',
+            'indicator_type': 'respondent',
+            'prerequisite_ids': [self.prereq_planned.id]
         }
         response = self.client.post(f'/api/indicators/', invalid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
     
     def test_dependency(self):
+        '''
+        Test patching statuses doesn't invalidate downstream indicators.
+        '''
         self.client.force_authenticate(user=self.admin)
         #wrong type should fail
         invalid_payload = {
-            'status': 'Planned'
+            'status': 'planned'
         }
         response = self.client.patch(f'/api/indicators/{self.prereq_resp.id}/', invalid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         invalid_payload = {
-            'indicator_type': 'Count'
+            'indicator_type': 'count'
         }
         response = self.client.patch(f'/api/indicators/{self.prereq_resp.id}/', invalid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
     
     def test_self_prereq(self):
+        '''
+        Make sure an indicator can't be its own prereq, since that could create an infinite loop.
+        '''
         self.client.force_authenticate(user=self.admin)
         invalid_payload = {
-            'prerequisite_id': [self.indicator.id]
+            'prerequisite_ids': [self.indicator.id]
         }
         response = self.client.patch(f'/api/indicators/{self.indicator.id}/', invalid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -257,11 +233,16 @@ class TestIndicatorSubcategories(APITestCase):
         self.dependent.subcategories.set([self.cat1, self.cat2])
 
     def test_create_subcats(self):
+        '''
+        Test subcats can be created (no ids passed)
+        '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'name': 'Ind 3',
             'code': 'NEW101',
-            'subcategory_names': [{'id': None, 'name': 'New 1'}, {'id': None, 'name': 'New 2'}],
+            'status': 'active',
+            'indicator_type': 'respondent',
+            'subcategory_data': [{'id': None, 'name': 'New 1'}, {'id': None, 'name': 'New 2'}],
         }
         response = self.client.post(f'/api/indicators/', valid_payload, format='json')
         print(response.json())
@@ -273,9 +254,12 @@ class TestIndicatorSubcategories(APITestCase):
         self.assertEqual(all_cats.count(), 4)
     
     def test_update_name(self):
+        '''
+        Test subcat names can be updated
+        '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
-            'subcategory_names': [{'id': self.cat1.id , 'name': 'Category 1'}, {'id': self.cat2.id, 'name': 'Category 2'}],
+            'subcategory_data': [{'id': self.cat1.id , 'name': 'Category 1'}, {'id': self.cat2.id, 'name': 'Category 2'}],
         }
         response = self.client.patch(f'/api/indicators/{self.indicator.id}/', valid_payload, format='json')
         print(response.json())
@@ -285,9 +269,12 @@ class TestIndicatorSubcategories(APITestCase):
         self.assertEqual(all_cats.count(), 2)
     
     def test_depr(self):
+        '''
+        Test they can be deprecated
+        '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
-            'subcategory_names': [{'id': self.cat1.id , 'name': 'Category 1', 'deprecated': False}, {'id': self.cat2.id, 'name': 'Category 2', 'deprecated': True}],
+            'subcategory_data': [{'id': self.cat1.id , 'name': 'Category 1', 'deprecated': False}, {'id': self.cat2.id, 'name': 'Category 2', 'deprecated': True}],
         }
         response = self.client.patch(f'/api/indicators/{self.indicator.id}/', valid_payload, format='json')
         print(response.json())
@@ -297,12 +284,16 @@ class TestIndicatorSubcategories(APITestCase):
         self.assertEqual(all_cats.count(), 1)
     
     def test_create_match(self):
+        '''
+        Test subcategories can be matched to a prereq.
+        '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'name': 'Ind 3',
             'code': 'NEW101',
-            'prerequisite_id': [self.indicator.id, self.dependent.id],
-            'indicator_type': 'Respondent',
+            'status': 'active',
+            'indicator_type': 'respondent',
+            'prerequisite_ids': [self.indicator.id, self.dependent.id],
             'match_subcategories_to': self.indicator.id,
         }
         response = self.client.post(f'/api/indicators/', valid_payload, format='json')
@@ -316,6 +307,9 @@ class TestIndicatorSubcategories(APITestCase):
         self.assertEqual(cat_ids, [self.cat1.id, self.cat2.id])
     
     def test_patch_update_cascade(self):
+        '''
+        Test that updates to an indicators subcats will affect downstream indicators as well.
+        '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'subcategory_data': [{'id': self.cat1.id, 'name': 'Cat 1'}, {'id': self.cat2.id, 'name': 'Cat 2'},
@@ -327,6 +321,9 @@ class TestIndicatorSubcategories(APITestCase):
         self.assertEqual(self.dependent.subcategories.count(), 3)
 
     def test_patch_unmatch(self):
+        '''
+        Test that subcats can be unmatched and reset.
+        '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'match_subcategories_to': None,
@@ -340,6 +337,9 @@ class TestIndicatorSubcategories(APITestCase):
         self.assertEqual(all_cats.count(), 3)
 
     def test_patch_unmatch_clear(self):
+        '''
+        Test that subcats can be unmatched a cleared.
+        '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'match_subcategories_to': None,

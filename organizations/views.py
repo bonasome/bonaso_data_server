@@ -1,45 +1,43 @@
 from django.shortcuts import render, redirect
-from django.http import JsonResponse
-from django.views import View
-from django.forms.models import model_to_dict
-from django.db.models import Case, When, Value, IntegerField
-from rest_framework.viewsets import ModelViewSet
-from rest_framework import filters
+from django.db.models import Q
+
 from rest_framework.response import Response
 from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.views import APIView
-from rest_framework.exceptions import PermissionDenied
-from rest_framework import generics
-from rest_framework.decorators import action
 from rest_framework import status
-from django.db.models import Q
+
 from users.restrictviewset import RoleRestrictedViewSet
 from organizations.models import Organization
-from projects.models import Project, Task
+from projects.models import Project, Task, ProjectOrganization
 from organizations.serializers import OrganizationListSerializer, OrganizationSerializer
 from projects.utils import get_valid_orgs
+
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
 class OrganizationViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
-    queryset = Organization.objects.none()
     serializer_class = OrganizationSerializer
     filter_backends = [SearchFilter, OrderingFilter]
     filterset_fields = ['project', 'indicator']
     ordering_fields = ['name']
     search_fields = ['name'] 
     def get_queryset(self):
-        queryset = super().get_queryset()
+
         user = self.request.user
         role = getattr(user, 'role', None)
         org = getattr(user, 'organization', None)
         if role == 'admin':
             queryset = Organization.objects.all()
         elif role in ['meofficer', 'manager']:
-            valid_orgs = get_valid_orgs(user)
-            queryset =  Organization.objects.filter(id__in=valid_orgs)
+            child_orgs = ProjectOrganization.objects.filter(
+                parent_organization=user.organization
+            ).values_list('organization__id', flat=True)
+
+            queryset = Organization.objects.filter(
+                Q(id=user.organization.id) | Q(id__in=child_orgs)
+            )
+            return queryset
         else:
             return Organization.objects.filter(id=user.organization.id)
         
@@ -58,7 +56,6 @@ class OrganizationViewSet(RoleRestrictedViewSet):
             queryset = queryset.filter(id__in=tasks.values_list('organization_id', flat=True))
         return queryset
 
-
     def get_serializer_class(self):
         if self.action == 'list':
             return OrganizationListSerializer
@@ -76,11 +73,7 @@ class OrganizationViewSet(RoleRestrictedViewSet):
         instance = self.get_object()
         if user.role != 'admin':
             return Response(
-                {
-                    "detail": (
-                        "You cannot delete an organization. "
-                    )
-                },
+                {"detail": ("You cannot delete an organization. ")},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -110,4 +103,5 @@ class OrganizationViewSet(RoleRestrictedViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         self.perform_destroy(instance)
+        
         return Response(status=status.HTTP_204_NO_CONTENT)

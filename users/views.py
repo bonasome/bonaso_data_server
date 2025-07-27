@@ -2,6 +2,14 @@ from django.shortcuts import render
 from django.contrib.auth import logout
 from .serializers import CustomTokenObtainPairSerializer, CustomMobileTokenSerializer
 from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.http import HttpResponse
+from django.conf import settings
+import os
+
+from rest_framework_simplejwt.tokens import RefreshToken, TokenError
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
+from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework.response import Response
@@ -9,25 +17,20 @@ from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from django.core.exceptions import ValidationError
 from rest_framework import status
-from django.db.models import Q
-from django.contrib.auth import get_user_model
-from rest_framework_simplejwt.tokens import RefreshToken, TokenError
-from django.contrib.auth import authenticate
-from rest_framework.permissions import AllowAny
-from datetime import timedelta
-from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
-from django.http import HttpResponse
-from django.conf import settings
+from rest_framework import status
 
 from projects.utils import get_valid_orgs
+from django.contrib.auth import get_user_model
 User = get_user_model()
 
-import os
+
 debug = os.getenv("DEBUG", "False").lower() in ["1", "true", "yes"]
 
 class CookieTokenObtainPairView(TokenObtainPairView):
+    '''
+    Class for getting JWT auth cookies
+    '''
     serializer_class = CustomTokenObtainPairSerializer
     def post(self, request, *args, **kwargs):
         print(f'DEBUG mode (from env): {debug}')
@@ -41,25 +44,28 @@ class CookieTokenObtainPairView(TokenObtainPairView):
                 key='access_token',
                 value=access_token,
                 httponly=True,
-                secure= not debug, 
+                secure= not debug, #required HTTPS for prod
                 samesite='None' if not debug else 'Lax',
-                max_age=60*5,
+                max_age=60*5, #5 minutes
                 path='/', 
             )
             response.set_cookie(
                 key='refresh_token',
                 value=refresh_token,
                 httponly=True,
-                secure=not debug, 
+                secure=not debug, #required HTTPS for prod
                 samesite='None' if not debug else 'Lax',
-                max_age=60*60*8,
+                max_age=60*60*8, #8 hours
                 path='/',
             )
-            del response.data['access']
+            del response.data['access'] #don't store token data outside of cookies
             del response.data['refresh']
         return response
 
 class CookieTokenRefreshView(TokenRefreshView):
+    '''
+    Class for refreshing tokens. with JWT auth. Same conditions as above
+    '''
     serializer_class = TokenRefreshSerializer
 
     def post(self, request, *args, **kwargs):
@@ -67,6 +73,7 @@ class CookieTokenRefreshView(TokenRefreshView):
         if not refresh_token:
             return Response({'detail': 'Refresh token missing.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        #check for invalid/blacklisted serializer tokens
         serializer = self.get_serializer(data={'refresh': refresh_token})
         try:
             serializer.is_valid(raise_exception=True)
@@ -87,7 +94,7 @@ class CookieTokenRefreshView(TokenRefreshView):
                 samesite='None' if not debug else 'Lax',
                 max_age=60 * 5
             )
-
+        #send a new token, since the old one is blacklisted
         if new_refresh_token:
             response.set_cookie(
                 key='refresh_token',
@@ -103,6 +110,7 @@ class CookieTokenRefreshView(TokenRefreshView):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def current_user(request):
+    #package sent to the frontend to check auth/send basic user data
     user = request.user
     return Response({
         'id': user.id,
@@ -113,6 +121,9 @@ def current_user(request):
 
 @api_view(['POST'])
 def logout_view(request):
+    '''
+    Log a user out 
+    '''
     response = HttpResponse("Logged out successfully")
     samesite_policy = 'None' if not settings.DEBUG else 'Lax'
 
@@ -133,6 +144,10 @@ def logout_view(request):
     return response
 
 class ApplyForNewUser(APIView):
+    '''
+    Function to generate new users. Restricts non-admins to creating for only certain orgs and 
+    prevents them from setting roles. Users must be approved by an admin before gaining full access.
+    '''
     permission_classes = [IsAuthenticated]
     def post(self, request):
         from organizations.models import Organization
@@ -145,13 +160,11 @@ class ApplyForNewUser(APIView):
         role = data.get('role')
         if not role: 
             role ='view_only'
-        try:
-            org = Organization.objects.get(id=org_id)
-        except Organization.DoesNotExist:
-            return Response({'detail': 'Organization not found.'}, status=400)
+
+        org = Organization.objects.filter(id=org_id).first()
         if user.role != 'admin':
             valid_orgs = get_valid_orgs(user)
-            if org.id not in valid_orgs:
+            if not org or org.id not in valid_orgs:
                 return Response({'detail': 'You do not have permission to create this user.'}, status=403)
         
         username = data.get('username')
@@ -160,6 +173,7 @@ class ApplyForNewUser(APIView):
         if not username or not password:
             return Response({'detail': 'Insufficient information provided.'}, status=status.HTTP_400_BAD_REQUEST)
         
+        #must have unique username
         if User.objects.filter(username=username).exists():
             return Response({'detail': 'A user with that username already exists.'}, status=status.HTTP_409_CONFLICT)
         
@@ -167,11 +181,14 @@ class ApplyForNewUser(APIView):
             validate_password(password)
         except ValidationError as e:
             return Response({'detail': e.messages}, status=400)
+        
+        #allow admins to create clients with a client org
         client_id = data.get('client_id')
         if user.role=='admin' and client_id:
             client = Client.objects.get(id=client_id)
         else:
             client = None
+        
         new_user = User.objects.create_user(
             username=username,
             password=password,
@@ -179,16 +196,18 @@ class ApplyForNewUser(APIView):
             last_name = data.get('last_name', ''),
             email=data.get('email', ''),
             organization=org,
-            role='view_only' if user.role !='admin' else role,
+            role='view_only' if user.role !='admin' else role, #default to view-only
             client_organization=client,
         )
         return Response({'message': 'User created successfuly. An admin will activate them shortly.', 'id': new_user.id}, status=status.HTTP_201_CREATED)
 
 class AdminResetPasswordView(APIView):
+    '''
+    View that allows an admin to reset a password.
+    '''
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
-        print('request received')
         admin_user = self.request.user
         if admin_user.role != 'admin':
             return Response({'detail': 'You do not have permission to perform this action.'}, status=status.HTTP_403_FORBIDDEN)
@@ -210,6 +229,9 @@ class AdminResetPasswordView(APIView):
         
 
 class MobileLoginView(TokenObtainPairView):
+    '''
+    Mobile does not support HTTP cookies, so send this via JSON.
+    '''
     permission_classes = [AllowAny]
     serializer_class = CustomMobileTokenSerializer
 
@@ -224,6 +246,9 @@ class MobileLoginView(TokenObtainPairView):
         })
 
 class MobileRefreshView(TokenRefreshView):
+    '''
+    Mobile does not support HTTP cookies, so send this via JSON.
+    '''
     def post(self, request, *args, **kwargs):
         refresh_token = request.data.get('refresh_token')
         if not refresh_token:
@@ -241,6 +266,9 @@ class MobileRefreshView(TokenRefreshView):
         })
     
 class TestConnectionView(APIView):
+    '''
+    Lightweight API to test connection.
+    '''
     permission_classes = [AllowAny]
 
     def get(self, request):

@@ -32,7 +32,8 @@ class SocialMediaPostSerializer(serializers.ModelSerializer):
         '''
         user = self.context['request'].user
         task_list = attrs.get('task_ids') or getattr(self.instance, 'tasks', None)
-
+        if user.role not in ['meofficer', 'manager', 'admin']:
+            raise PermissionDenied('You do not have permission to perform this action.')
         if not task_list:
             raise serializers.ValidationError({'task_ids': 'This field is required.'})
 
@@ -80,10 +81,12 @@ class SocialMediaPostSerializer(serializers.ModelSerializer):
         return post
 
     def update(self, instance, validated_data):
+        user = self.context['request'].user
         task_ids = validated_data.pop('task_ids', None)
         update_tasks = 'task_ids' in self.initial_data 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
+        instance.updated_by = user
         instance.save()
 
         if update_tasks:

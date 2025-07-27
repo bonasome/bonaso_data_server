@@ -1,18 +1,17 @@
-from django.shortcuts import render, redirect
-from django.http import JsonResponse
-from django.views import View
-from django.shortcuts import get_object_or_404
-from django.forms.models import model_to_dict
 from rest_framework import filters
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
-from django.db.models import Q, Prefetch
 from rest_framework.filters import OrderingFilter
 from rest_framework.decorators import action
-from users.restrictviewset import RoleRestrictedViewSet
 from rest_framework import status
+
+from django.apps import apps
+from django.db.models import Q
+from django.contrib.contenttypes.models import ContentType
+from django.utils.timezone import now
+from users.restrictviewset import RoleRestrictedViewSet
 
 from projects.models import ProjectOrganization
 from flags.models import Flag
@@ -29,6 +28,8 @@ class FlagViewSet(RoleRestrictedViewSet):
         user = self.request.user
         queryset = Flag.objects.all()
         if user.role in ['admin', 'client']:
+            obj=queryset.first()
+            print(obj.caused_by.organization)
             return queryset
         if user.role in ['meofficer', 'manager']:
             child_orgs = ProjectOrganization.objects.filter(
@@ -41,295 +42,90 @@ class FlagViewSet(RoleRestrictedViewSet):
             return queryset.filter()
         else:
             return queryset.filter(caused_by=user)
-    @action(detail=True, methods=['patch'], url_path='raise-flag')
-    def raise_flag(self, request, pk=None):
+    
+    @action(detail=False, methods=['post'], url_path='raise-flag')
+    def raise_flag(self, request):
+        ALLOWED_FLAG_MODELS = {
+            "respondents.respondent",
+            "respondents.interaction",
+            "events.demographiccount",
+            "posts.socialmediapost"
+        }
         user = request.user
-        respondent = self.get_object()
 
         if user.role not in ['admin', 'meofficer', 'manager']:
             raise PermissionDenied('You do not have permission to raise a flag.')
+        
+        model_str = request.data.get('model')
+        obj_id = request.data.get('id')
 
+        if not model_str or not obj_id:
+            return Response({"detail": "Model and ID are required."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if model_str.lower() not in ALLOWED_FLAG_MODELS:
+            return Response({"detail": "Model not allowed for flagging."}, status=400)
+        
+        try:
+            app_label, model_name = model_str.lower().split('.')
+            model = apps.get_model(app_label, model_name)
+            if not model:
+                raise LookupError
+        except (ValueError, LookupError):
+            return Response({"detail": f'"{model_str}" is not a valid model.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            target_obj = model.objects.get(pk=obj_id)
+        except model.DoesNotExist:
+            return Response({"detail": f"No {model.__name__} with id {obj_id}."}, status=status.HTTP_404_NOT_FOUND)
+
+        if user.role != 'admin':
+            try:
+                org = getattr(target_obj.created_by, 'organization', None)
+                if org != user.organization and not ProjectOrganization.objects.filter(parent_organization=user.organization, organization=org).exists():
+                    return Response({"detail": "You do not have permission to create a flag for this object."}, status=status.HTTP_403_FORBIDDEN)
+            except:
+                return Response({"detail": "You do not have permission to create a flag for this object."}, status=status.HTTP_403_FORBIDDEN)
+        reason_type = request.data.get('reason_type')
         reason = request.data.get('reason')
-        if not reason:
+        if not reason or not reason_type:
             return Response({"detail": "You must provide a reason for creating a flag."}, status=status.HTTP_400_BAD_REQUEST)
 
-        flag = RespondentFlag.objects.create(
-            respondent=respondent,
+        flag = Flag.objects.create(
+            content_type=ContentType.objects.get_for_model(model),
+            object_id=target_obj.id,
             created_by=user,
+            caused_by=user,
             reason=reason,
+            reason_type=reason_type,
         )
-        return Response({"detail": "Respondent flagged.", "flag": RespondentFlagSerializer(flag).data}, status=status.HTTP_200_OK)
 
-    @action(detail=True, methods=['patch'], url_path='resolve-flag/(?P<respondentflag_id>[^/.]+)')
-    def resolve_flag(self, request, pk=None, respondentflag_id=None):
+        return Response({"detail": f"{model.__name__} flagged.", "flag": FlagSerializer(flag).data}, 
+                status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['patch'], url_path='resolve-flag')
+    def resolve_flag(self, request, pk=None):
         user = request.user
-        respondent = self.get_object()
+        flag = self.get_object()
 
         if user.role not in ['admin', 'meofficer', 'manager']:
-            return Response({"detail": "You do not have permission to resolve a flag for this post."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": "You do not have permission to resolve a flag."}, status=status.HTTP_403_FORBIDDEN)
 
-        respondent_flag = get_object_or_404(RespondentFlag, id=respondentflag_id, respondent=respondent)
+        if user.role != 'admin':
+            if flag.caused_by.organization != user.organization and not ProjectOrganization.objects.filter(parent_organization=user.organization, organization=flag.caused_by.organization).exists():
+                return Response({"detail": "You do not have permission to resolve a flag for this object."}, status=status.HTTP_403_FORBIDDEN)
 
-        if respondent_flag.resolved:
+        if flag.resolved:
             return Response({"detail": "This flag is already resolved."}, status=status.HTTP_400_BAD_REQUEST)
 
         resolved_reason = request.data.get('resolved_reason')
         if not resolved_reason:
             return Response({"detail": "You must provide a reason for resolving a flag."}, status=status.HTTP_400_BAD_REQUEST)
-
-        respondent_flag.resolved = True
-        respondent_flag.resolved_by = user
-        respondent_flag.resolved_reason = resolved_reason
-        respondent_flag.resolved_at = now()
-        respondent_flag.save()
-
-        return Response({"detail": "Flag resolved.", "flag": RespondentFlagSerializer(respondent_flag).data}, status=status.HTTP_200_OK)
-    @action(detail=True, methods=['patch'], url_path='raise-flag')
-    def raise_flag(self, request, pk=None):
-        user = request.user
-        interaction = self.get_object()
-        if user.role not in ['admin', 'meofficer', 'manager']:
-            raise PermissionDenied('You do not have permission to raise a flag.')
-        if user.role in ['meofficer', 'manager'] and not (
-            interaction.task.organization == user.organization or 
-            ProjectOrganization.objects.filter(organization=interaction.task.organization, project=interaction.task.project, parent_organization=user.organization).exists()):
-            raise PermissionDenied('You do not have permission to raise a flag for this interaction.')
-        reason = request.data.get('reason', None)
-        if not reason:
-            return Response({"detail": f"You must provide a reason for creating a flag."}, status=status.HTTP_400_BAD_REQUEST)
-        InteractionFlag.objects.create(
-            interaction=interaction,
-            created_by = user,
-            reason=reason,
-        )
-        return Response({"detail": f"Interaction flagged."}, status=status.HTTP_200_OK)
-    
-    @action(detail=True, methods=['patch'], url_path='resolve-flag/(?P<interactionflag_id>[^/.]+)')
-    def resolve_flag(self, request, pk=None, interactionflag_id=None):
-        user = request.user
-        interaction = self.get_object()
-        interaction_flag = InteractionFlag.objects.filter(id=interactionflag_id).first()
-
-        if user.role not in ['admin', 'meofficer', 'manager']:
-            return Response({"detail": f"You do not have permissiont to resolve a flag for this interaction."}, status=status.HTTP_403_FORBIDDEN)
-        if user.role in ['meofficer', 'manager'] and not (
-        interaction.task.organization == user.organization or 
-         ProjectOrganization.objects.filter(organization=interaction.task.organization, project=interaction.task.project, parent_organization=user.organization).exists()):
-            return Response({"detail": f"You do not have permissiont to resolve a flag for this interaction."}, status=status.HTTP_403_FORBIDDEN)
-
-        if not interaction_flag:
-            return Response({"detail": f"Flag not found."}, status=status.HTTP_400_BAD_REQUEST)
-        
-        resolved_reason = request.data.get('resolved_reason', None)
-        if not resolved_reason:
-            return Response({"detail": f"You must provide a reason for resolving a flag."}, status=status.HTTP_400_BAD_REQUEST)
-        
-        interaction_flag.resolved = True
-        interaction_flag.resolved_by = user
-        interaction_flag.resolved_reason=resolved_reason
-        interaction_flag.resolved_at=now()
-        interaction_flag.save()
-        print(interaction_flag.resolved)
-        return Response({"detail": f"Flag resolved."}, status=status.HTTP_200_OK)
-
-
-    @action(detail=False, methods=['get'], url_path='flagged')
-    def get_flagged(self, request):
-        user = request.user
-        role = user.role
-        org = user.organization
-
-        # Start with flagged interactions
-        flags = InteractionFlag.objects.all()
-        related_ids = [flag.interaction.id for flag in flags.all()]
-        queryset = Interaction.objects.filter(id__in=related_ids)
-
-        # Role-based filtering
-        if role == 'client':
-            raise PermissionDenied('You do not have permission to view this page.')
-        elif role in ['meofficer', 'manager']:
-            child_orgs = ProjectOrganization.objects.filter(
-                parent_organization=user.organization
-            ).values_list('organization', flat=True)
-
-            queryset = queryset.filter(
-                Q(task__organization=user.organization) | Q(task__organization__in=child_orgs)
-            )
-        elif role == 'data_collector':
-            queryset = queryset.filter(created_by=user)
-
-        project_id = request.query_params.get('project')
-        organization_id = request.query_params.get('organization')
-        indicator_id = request.query_params.get('indicator')
-        resolved_param = request.query_params.get('resolved')
-        auto_param = request.query_params.get('auto_flagged')
-        start_param = self.request.query_params.get('start')
-        if start_param:
-            queryset = queryset.filter(interaction_date__gte=start_param)
-
-        end_param = self.request.query_params.get('end')
-        if end_param:
-            queryset = queryset.filter(interaction_date__lte=end_param)
-
-        if project_id:
-            queryset = queryset.filter(task__project__id = project_id)
-        if organization_id:
-            queryset = queryset.filter(task__organization__id = organization_id)
-        if indicator_id:
-            queryset = queryset.filter(task__indicator__id = indicator_id)
-        
-        if resolved_param:
-            queryset = queryset.filter(flags__resolved = resolved_param in ['true', '1']).distinct()
-            print(queryset.count())
-        if auto_param:
-            queryset = queryset.filter(flags__auto_flagged = auto_param in ['true', '1']).distinct()
-            print(queryset.count())
-
-        # Search filter (e.g., by respondent name or ID or comment)
-        search_term = request.query_params.get('search')
-        if search_term:
-            queryset = queryset.filter(
-                Q(respondent__first_name__icontains=search_term) |
-                Q(respondent__last_name__icontains=search_term) |
-                Q(respondent__village__icontains=search_term) |
-                Q(respondent__uuid__icontains=search_term) |
-                Q(comments__icontains=search_term) |
-                Q(task__indicator__name__icontains=search_term) |
-                Q(task__indicator__code__icontains=search_term) |
-                Q(task__organization__name__icontains=search_term) |
-                Q(task__project__name__icontains=search_term) |
-                Q(flags__reason__icontains=search_term)
-            ).distinct()
-
-        # Pagination
-        page = self.paginate_queryset(queryset)
-        if page is not None:
-            serializer = InteractionSerializer(page, many=True, context={'request': request})
-            return self.get_paginated_response(serializer.data)
-
-        # No pagination fallback
-        serializer = InteractionSerializer(queryset, many=True, context={'request': request})
-        return Response(serializer.data)
-    
-    
-    @action(detail=True, methods=['patch'], url_path='flag-count/(?P<count_id>[^/.]+)')
-    def flag_count(self, request, pk=None, count_id=None):
-        from events.serializers import CountFlagSerializer
-        event=self.get_object()
-        user=request.user
-        reason = request.data.get('reason', None)
-        if user.role not in ['meofficer', 'admin', 'manager']:
-            return Response(
-                {'detail': 'You do not have permission to flag event counts.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        count = DemographicCount.objects.filter(id=count_id).first()
-        if not count:
-            return Response(
-                {'detail': 'Invalid count id provided.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        if user.role != 'admin':
-             if count.task.organization != user.organization and not ProjectOrganization.objects.filter(organization=count.task.organization, parent_organization=user.organization).exists():
-                return Response(
-                    {'detail': 'You do not have permission to flag counts for this event.'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-        if reason is None:
-            return Response(
-                {'detail': 'Missing flag reason.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        
-        flag = CountFlag.objects.create(count=count, created_by=user, reason=reason)
-        serializer = CountFlagSerializer(flag)
-        return Response({"detail": f"Flagged count {count_id}.", "flag": serializer.data}, status=status.HTTP_200_OK)
-
-    @action(detail=True, methods=['patch'], url_path='resolve-flag/(?P<count_flags_id>[^/.]+)')
-    def resolve_count(self, request, pk=None, count_flags_id=None):
-        from events.serializers import CountFlagSerializer
-        event=self.get_object()
-        user=request.user
-        reason = request.data.get('resolved_reason', None)
-        if user.role not in ['meofficer', 'admin', 'manager']:
-            return Response(
-                {'detail': 'You do not have permission to flag event counts.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        flag = CountFlag.objects.filter(id=count_flags_id).first()
-        if not flag:
-            return Response(
-                {'detail': 'Flag does not exist.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        if user.role != 'admin':
-            if flag.count.task.organization != user.organization and not ProjectOrganization.objects.filter(organization=flag.count.task.organization, parent_organization=user.organization).exists():
-                return Response(
-                    {'detail': 'You do not have permission to flag counts for this event.'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-        if reason is None:
-            return Response(
-                {'detail': 'Missing flag reason.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
 
         flag.resolved = True
-        flag.resolved_at = now()
         flag.resolved_by = user
-        flag.resolved_reason = reason
+        flag.resolved_reason = resolved_reason
+        flag.resolved_at = now()
         flag.save()
-        serializer = CountFlagSerializer(flag)
-        return Response({"detail": f"Resolved flag.", "flag": serializer.data}, status=status.HTTP_200_OK)
 
-    @action(detail=True, methods=['patch'], url_path='raise-flag')
-    def raise_flag(self, request, pk=None):
-        user = request.user
-        post = self.get_object()
-
-        if user.role not in ['admin', 'meofficer', 'manager']:
-            raise PermissionDenied('You do not have permission to raise a flag.')
-
-        if user.role in ['meofficer', 'manager'] and not user_has_post_access(user, post):
-            raise PermissionDenied('You do not have permission to raise a flag for this post.')
-
-        reason = request.data.get('reason')
-        if not reason:
-            return Response({"detail": "You must provide a reason for creating a flag."}, status=status.HTTP_400_BAD_REQUEST)
-
-        post_flag = SocialMediaPostFlag.objects.create(
-            social_media_post=post,
-            created_by=user,
-            reason=reason,
-        )
-        return Response({"detail": "Post flagged.", "flag": SocialMediaPostFlagSerializer(post_flag).data}, status=status.HTTP_200_OK)
-
-    @action(detail=True, methods=['patch'], url_path='resolve-flag/(?P<postflag_id>[^/.]+)')
-    def resolve_flag(self, request, pk=None, postflag_id=None):
-        user = request.user
-        post = self.get_object()
-
-        if user.role not in ['admin', 'meofficer', 'manager']:
-            return Response({"detail": "You do not have permission to resolve a flag for this post."}, status=status.HTTP_403_FORBIDDEN)
-
-        if user.role in ['meofficer', 'manager'] and not user_has_post_access(user, post):
-            return Response({"detail": "You do not have permission to resolve a flag for this post."}, status=status.HTTP_403_FORBIDDEN)
-
-        post_flag = get_object_or_404(SocialMediaPostFlag, id=postflag_id, social_media_post=post)
-
-        if post_flag.resolved:
-            return Response({"detail": "This flag is already resolved."}, status=status.HTTP_400_BAD_REQUEST)
-
-        resolved_reason = request.data.get('resolved_reason')
-        if not resolved_reason:
-            return Response({"detail": "You must provide a reason for resolving a flag."}, status=status.HTTP_400_BAD_REQUEST)
-
-        post_flag.resolved = True
-        post_flag.resolved_by = user
-        post_flag.resolved_reason = resolved_reason
-        post_flag.resolved_at = now()
-        post_flag.save()
-
-        return Response({"detail": "Flag resolved.", "flag": SocialMediaPostFlagSerializer(post_flag).data}, status=status.HTTP_200_OK)
+        return Response({"detail": "Flag resolved.", "flag": FlagSerializer(flag).data}, status=status.HTTP_200_OK)
+    

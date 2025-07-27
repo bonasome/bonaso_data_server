@@ -39,18 +39,27 @@ class OrganizationViewSetTest(APITestCase):
         child_link.save()
 
     def test_organization_list_view(self):
+        '''
+        Test admins can see all.
+        '''
         self.client.force_authenticate(user=self.admin)
         response = self.client.get('/api/organizations/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 3)
     
     def test_not_admin_list(self):
+        '''
+        Higher roles can see themselves and their children.
+        '''
         self.client.force_authenticate(user=self.officer)
         response = self.client.get('/api/organizations/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 2)
     
     def test_organization_create_view(self):
+        '''
+        Admins/higher roles can create orgs
+        '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'name': 'Test org 4',
@@ -59,6 +68,9 @@ class OrganizationViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
     
     def test_dc_no_create(self):
+        '''
+        Not lower roles
+        '''
         self.client.force_authenticate(user=self.data_collector)
         valid_payload = {
             'name': 'Test org 4',
@@ -67,6 +79,9 @@ class OrganizationViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
     
     def test_duplicate_names(self):
+        '''
+        Prevent duplicate names for clarity.
+        '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'name': 'Test Org',

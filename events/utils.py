@@ -53,7 +53,7 @@ def count_flag_logic(instance, user):
             if not prerequisite_count:
                 already_flagged = existing_flags.filter(reason=reason).exists()
                 if not already_flagged:
-                    create_flag(instance, reason, user)
+                    create_flag(instance, reason, user, 'missing_prerequisite')
             else:
                 outstanding_flag = existing_flags.filter(reason=reason, resolved=False).first()
                 if outstanding_flag:
@@ -64,6 +64,6 @@ def count_flag_logic(instance, user):
             if prerequisite_count and prerequisite_count.count < instance.count:
                 already_flagged = existing_flags.filter(reason=reason).exists()
                 if not already_flagged:
-                    create_flag(instance, reason, user)
+                    create_flag(instance, reason, user, 'suspicious')
             else:
                 resolve_flag(existing_flags, reason)

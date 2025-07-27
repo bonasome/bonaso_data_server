@@ -9,7 +9,7 @@ from events.models import EventOrganization
 #helper to manage potentially multiple flags created during id process
 def _maybe_create_flag(flags_qs, respondent, reason, user):
     if not flags_qs.filter(reason=reason).exists():
-        create_flag(respondent, reason, user)
+        create_flag(respondent, reason, user, 'entry_error')
 
 def respondent_flag_check(respondent, user):
     '''
@@ -91,7 +91,7 @@ def interaction_flag_check(interaction, user, downstream=False):
             respondent=interaction.respondent, task=interaction.task
         ).exclude(pk=interaction.pk).exists():
             if not outstanding_flags.filter(reason=reason).exists():
-                create_flag(interaction, reason, user)
+                create_flag(interaction, reason, user, 'suspicious')
         else:
             resolve_flag(outstanding_flags, reason)
                 
@@ -111,7 +111,7 @@ def interaction_flag_check(interaction, user, downstream=False):
                 )
             if not prereqs.exists():
                 if not outstanding_flags.filter(reason=reason).exists():
-                    create_flag(interaction, reason, user)
+                    create_flag(interaction, reason, user, 'missing_prerequisite')
             else:
                 resolve_flag(outstanding_flags, reason)
 
@@ -128,12 +128,12 @@ def interaction_flag_check(interaction, user, downstream=False):
                     previous_ids = set(most_recent.subcategories.values_list('id', flat=True))
                     if not current_ids.issubset(previous_ids):
                         if not outstanding_flags.filter(reason=reason).exists():
-                            create_flag(interaction, reason, user)
+                            create_flag(interaction, reason, user, 'missing_prerequisite')
                     else:
                         resolve_flag(outstanding_flags, reason)
 
     #Rule 3: Check for a required attribute
-    required_attributes = interaction.task.indicator.required_attribute.all() 
+    required_attributes = interaction.task.indicator.required_attributes.all() 
     if required_attributes.exists():
         respondent_attrs = set(interaction.respondent.special_attribute.values_list('id', flat=True))
         
@@ -145,7 +145,7 @@ def interaction_flag_check(interaction, user, downstream=False):
             
             if attribute.id not in respondent_attrs:
                 if not outstanding_flags.filter(reason=reason).exists():
-                    create_flag(interaction, reason, user)
+                    create_flag(interaction, reason, user, 'missing_prerequisite')
             else:
                 resolve_flag(outstanding_flags, reason)
                 

@@ -13,6 +13,9 @@ User = get_user_model()
 
 
 class TestIndicatorValidation(APITestCase):
+    '''
+    Test indicator creation/validation logic.
+    '''
     def setUp(self):
         self.parent = Organization.objects.create(name='Parent Org')
         self.admin = User.objects.create_user(username='admin', password='testpass', role='admin', organization=self.parent)
@@ -218,6 +221,9 @@ class TestIndicatorValidation(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 class TestIndicatorSubcategories(APITestCase):
+    '''
+    Specific tests for managing indicator subcateogires (creating, editing, matching, deprecating)
+    '''
     def setUp(self):
 
         self.org = Organization.objects.create(name='Parent Org')

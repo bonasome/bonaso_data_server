@@ -36,8 +36,8 @@ class SocialMediaPostViewSet(RoleRestrictedViewSet):
             ).values_list('organization', flat=True)
 
             return SocialMediaPost.objects.filter(
-                Q(task__organization=user.organization) |
-                Q(task__organization__in=child_orgs)
+                Q(tasks__organization=user.organization) |
+                Q(tasks__organization__in=child_orgs)
             )
 
         return SocialMediaPost.objects.none()

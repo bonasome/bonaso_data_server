@@ -5,7 +5,8 @@ from django.contrib.contenttypes.fields import GenericRelation
 from datetime import date
 import uuid
 
-from users.models import User
+from django.contrib.auth import get_user_model
+User = get_user_model()
 from indicators.models import IndicatorSubcategory
 from projects.models import Task
 from events.models import Event

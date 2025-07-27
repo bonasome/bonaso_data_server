@@ -3,7 +3,8 @@ from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ValidationError
 from django.contrib.contenttypes.fields import GenericRelation
 
-from users.models import User
+from django.contrib.auth import get_user_model
+User = get_user_model()
 from projects.models import Task
 
 class SocialMediaPost(models.Model):

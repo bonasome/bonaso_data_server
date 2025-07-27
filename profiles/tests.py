@@ -4,16 +4,22 @@ from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
 from django.urls import reverse
 from django.contrib.auth import get_user_model
-
-from profiles.models import FavoriteProject, FavoriteRespondent
-from projects.models import Project, ProjectOrganization
+from datetime import date
+from profiles.models import FavoriteObject
+from projects.models import Project, ProjectOrganization, Task
 from organizations.models import Organization
 from projects.models import Project, Client
-from indicators.models import Indicator, IndicatorSubcategory
-from respondents.models import Respondent
+from respondents.models import Respondent, Interaction
+from indicators.models import Indicator
 User = get_user_model()
 
-class TestProfileViewSet(APITestCase):
+class ProfileViewSetTest(APITestCase):
+    '''
+    Basic test that the profile viewset works and only returns profiles that a user should be seeing:
+        -Admins: all
+        -Higher Roles: Orgs+child orgs
+        -Everyone else: themselves
+    '''
     def setUp(self):
         self.parent = Organization.objects.create(name='Parent Org')
         self.child = Organization.objects.create(name='Child Org')
@@ -45,26 +51,56 @@ class TestProfileViewSet(APITestCase):
         child_link.parent_organization = self.parent
         child_link.save()
 
+        '''
+        This is all to test the feed
+        '''
+        self.respondent= Respondent.objects.create(
+            is_anonymous=True,
+            age_range=Respondent.AgeRanges.T_24,
+            village='Testingplace',
+            district= Respondent.District.CENTRAL,
+            citizenship='test',
+            sex = Respondent.Sex.FEMALE,
+            created_by=self.admin
+        )
+        self.indicator = Indicator.objects.create(code='1', name='Parent', created_by=self.admin)
+        
+        self.task = Task.objects.create(project=self.project, organization=self.parent, indicator=self.indicator, created_by=self.admin)
+        self.interaction = Interaction.objects.create(interaction_date=date(2024, 12, 12), interaction_location='there', respondent=self.respondent, task=self.task, created_by=self.data_collector)
+        self.interaction.updated_by =self.admin
+        self.interaction.save()
+
     def test_admin_see_all(self):
+        '''
+        Admins should be able to see all users.
+        '''
         self.client.force_authenticate(user=self.admin)
         response = self.client.get('/api/profiles/users/')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data['results']), 6)
     
     def test_officer_see_org(self):
+        '''
+        Officers should see their org + children
+        '''
         self.client.force_authenticate(user=self.officer)
         response = self.client.get('/api/profiles/users/')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data['results']), 5)
     
     def test_dc_see_self(self):
+        '''
+        Lower roles can only see self
+        '''
         self.client.force_authenticate(user=self.data_collector)
         response = self.client.get('/api/profiles/users/')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data['results']), 1)
-    
 
-    def dc_patch_self(self):
+    def test_dc_patch_self(self):
+        '''
+        Lower roles can patch self
+        '''
         self.client.force_authenticate(user=self.data_collector)
         valid_payload = {
             'first_name': 'Goolius',
@@ -74,7 +110,10 @@ class TestProfileViewSet(APITestCase):
         self.data_collector.refresh_from_db()
         self.assertEqual(self.data_collector.first_name, 'Goolius')
     
-    def me_officer_patch_child(self):
+    def test_me_officer_patch_child(self):
+        '''
+        Officers can patch their subordinates.
+        '''
         self.client.force_authenticate(user=self.officer)
         valid_payload = {
             'first_name': 'Goolius',
@@ -84,7 +123,10 @@ class TestProfileViewSet(APITestCase):
         self.mechild.refresh_from_db()
         self.assertEqual(self.mechild.first_name, 'Goolius')
     
-    def me_officer_cannot_patch_other(self):
+    def test_me_officer_cannot_patch_other(self):
+        '''
+        But not others
+        '''
         self.client.force_authenticate(user=self.officer)
         valid_payload = {
             'first_name': 'Goolius',
@@ -92,9 +134,19 @@ class TestProfileViewSet(APITestCase):
         response = self.client.patch(f'/api/profiles/users/{self.wrong_org.id}/', valid_payload, format='json')
         self.assertEqual(response.status_code, 404)
 
+    def test_activity(self):
+        '''
+        Quick test to see if feed returns things
+        '''
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get(f'/api/profiles/users/{self.admin.id}/activity/')
+        print(response.json())
+        self.assertEqual(response.status_code, 200)
 
-#at some point we should maybe write some tests for other favorites, but this is lower stakes
-class FavoriteRespondentTests(APITestCase):
+class FavoriteTests(APITestCase):
+    '''
+    Test to make sure the favorite system works. Test favoriting, unfavoriting and getting favoties
+    '''
     def setUp(self):
         self.user = User.objects.create_user(username='testuser', password='testpass123', role='data_collector')
         self.user2 = User.objects.create_user(username='testuser2', password='testpass123', role='data_collector')
@@ -104,31 +156,24 @@ class FavoriteRespondentTests(APITestCase):
         self.user2.organization = self.org
         self.respondent = Respondent.objects.create(
             is_anonymous=True,
-            age_range=Respondent.AgeRanges.ET_24,
+            age_range=Respondent.AgeRanges.T_24,
             village='Testingplace',
             district= Respondent.District.CENTRAL,
             citizenship='test',
             sex = Respondent.Sex.FEMALE,
         )
 
-    def test_favorite_Respondent(self):
+    def test_favorite_unfavorite_Respondent(self):
         self.client.force_authenticate(user=self.user)
-        response = self.client.post('/api/profiles/favorite-respondents/', {'respondent_id': self.respondent.id})
+        response = self.client.post('/api/profiles/users/favorite/', 
+            {'model': 'respondents.respondent', 'id': self.respondent.id}
+        )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(FavoriteRespondent.objects.count(), 1)
-        self.assertEqual(FavoriteRespondent.objects.first().user, self.user)
+        response = self.client.get('/api/profiles/users/get-favorites/')
+        print(response.json())
+        self.assertEqual(len(response.data), 1)
 
-    def test_unfavorite_Respondent(self):
-        self.client.force_authenticate(user=self.user)
-        favorite = FavoriteRespondent.objects.create(user=self.user, respondent=self.respondent)
-        url = f'/api/profiles/favorite-respondents/{favorite.pk}/'
-        response = self.client.delete(url)
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertEqual(FavoriteRespondent.objects.count(), 0)
-    
-    def test_malicious_unfavorite_Respondent(self):
-        self.client.force_authenticate(user=self.user2)
-        favorite = FavoriteRespondent.objects.create(user=self.user, respondent=self.respondent)
-        url = f'/api/profiles/favorite-respondents/{favorite.pk}/'
-        response = self.client.delete(url)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        response = self.client.delete('/api/profiles/users/unfavorite/', 
+            {'model': 'respondents.respondent', 'id': self.respondent.id}
+        )
+        self.assertEqual(FavoriteObject.objects.filter(user=self.user).count(), 0)

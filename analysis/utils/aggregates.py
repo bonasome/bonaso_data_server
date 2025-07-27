@@ -1,180 +1,22 @@
 from django.db.models import Q
-from respondents.models import Interaction, HIVStatus, Pregnancy, InteractionSubcategory
+from respondents.models import Interaction
 from projects.models import Target, ProjectOrganization
-from events.models import DemographicCount
+from events.models import DemographicCount, Event
 from itertools import product
-from datetime import date, datetime
-from dateutil.relativedelta import relativedelta
+from datetime import date
 from collections import defaultdict
 
+from analysis.utils.collection import get_event_counts_from_indicator, get_interactions_from_indicator, get_hiv_statuses, get_pregnancies, get_interaction_subcats, get_events_from_indicator, get_posts_from_indicator
+from analysis.utils.periods import get_month_string, get_quarter_string, get_month_strings_between, get_quarter_strings_between
+
+#map to convert some of the different field names from the respondent/count model
 FIELD_MAP = {
     'kp_type': 'kp_status',
     'disability_type': 'disability_status',
     # others as needed
 }
 
-FILTERS_MAP = {
-    'kp_type': 'kp_status__name',
-    'disability_type': 'disability_status__name',
-    # others as needed
-}
-
-def get_month_string(date):
-    return date.strftime('%b %Y') 
-
-def get_quarter_string(date):
-    return f"Q{((date.month - 1) // 3) + 1} {date.year}"
-
-def get_month_strings_between(start_date, end_date):
-    months = []
-    current = start_date.replace(day=1)
-    while current <= end_date:
-        months.append(get_month_string(current)) 
-        current += relativedelta(months=1)
-    return months
-
-def get_quarter_strings_between(start_date, end_date):
-    quarters = []
-    current = start_date.replace(day=1)
-    while current <= end_date:
-        quarters.append(get_quarter_string(current))
-        current += relativedelta(months=3)
-    return quarters
-
-
-#theoretically unnecessary to check other roles since the viewset should bar them
-def get_interactions_from_indicator(user, indicator, project, organization, start, end, filters):
-    queryset = Interaction.objects.filter(task__indicator=indicator)
-    if user.role not in ['admin', 'client']:
-        child_orgs = ProjectOrganization.objects.filter(
-                parent_organization=user.organization,
-            ).values_list('organization', flat=True)
-        queryset = queryset.filter(
-                Q(task__organization=user.organization) | Q(task__organization__in=child_orgs)
-            )
-    if project:
-        queryset=queryset.filter(task__project=project)
-    if organization:
-        queryset=queryset.filter(task__organization=organization)
-    if start:
-        queryset=queryset.filter(interaction_date__gte=start)
-    if end:
-        queryset=queryset.filter(interaction_date__lte=end)
-    if filters:
-        for field, values in filters.items():
-            if field == 'subcategory':
-                continue #this has to be handled at a lower level
-            elif field in ['pregnancy', 'hiv_status']:
-                if len(values) == 2 or len(values) == 0:
-                        continue
-                respondent_ids = {i.respondent_id for i in queryset}
-                if field == 'pregnancy':
-                    pregnancies_map = get_pregnancies(respondent_ids)
-                    preg_ids = [
-                        interaction.id for interaction in queryset
-                        if any(
-                            p.term_began <= interaction.interaction_date <= (p.term_ended or date.today())
-                            for p in pregnancies_map.get(interaction.respondent.id, [])
-                        )
-                    ]
-                    if values[0] == 'Pregnant':
-                        queryset = queryset.filter(id__in=preg_ids)
-                    elif values[0] == 'Not_Pregnant':
-                        queryset = queryset.exclude(id__in=preg_ids)
-                if field == 'hiv_status':
-                    hiv_status_map = get_hiv_statuses(respondent_ids)
-                    pos_ids = [
-                        interaction.id for interaction in queryset
-                        if any(
-                            hs.date_positive <= interaction.interaction_date
-                            for hs in hiv_status_map.get(interaction.respondent.id, [])
-                        )
-                    ]
-                    if values[0] == 'HIV_Positive':
-                        queryset = queryset.filter(id__in=pos_ids)
-                    elif values[0] == 'HIV_Negative':
-                        queryset = queryset.exclude(id__in=pos_ids)
-            elif field == 'citizenship':
-                if len(values) == 2 or len(values) == 0:
-                    continue
-                if values[0] == 'citizen':
-                    queryset = queryset.filter(respondent__citizenship='Motswana')
-                elif values[0] == 'non_citizen':
-                    queryset = queryset.exclude(respondent__citizenship='Motswana')
-            else:
-                field_name = FILTERS_MAP.get(field, field)
-                if isinstance(values, list):
-                    lookup = f"respondent__{field_name}__in"
-                    queryset = queryset.filter(**{lookup: values})
-                else:
-                    queryset = queryset.filter(**{field_name: values})
-
-    interaction_ids = queryset.values_list('id', flat=True)
-    #flags = InteractionFlag.objects.filter(interaction__id__in=interaction_ids)
-    #flagged_ids = flags.values_list('interaction_id', flat=True)
-    flagged_ids = []
-    return [obj for obj in queryset if obj.id not in flagged_ids]
-
-def get_interaction_subcats(interactions):
-    interaction_ids = [ir.id for ir in interactions]
-    return InteractionSubcategory.objects.filter(interaction__id__in=interaction_ids)
-
-
-def get_event_counts_from_indicator(user, indicator, params, project, organization, start, end, filters):
-    query = Q()
-    for field, should_exist in params.items():
-        if should_exist:
-            query |= Q(**{f"{field}__isnull": True})
-
-    queryset = DemographicCount.objects.filter(task__indicator=indicator)
-    if project:
-        queryset=queryset.filter(task__project=project)
-    if organization:
-        queryset=queryset.filter(task__organization=organization)
-    if start:
-        queryset=queryset.filter(event__event_date__gte=start)
-    if end:
-        queryset=queryset.filter(event__event_date__lte=end)
-    if user.role not in ['admin', 'client']:
-        child_orgs = ProjectOrganization.objects.filter(
-                parent_organization=user.organization,
-            ).values_list('organization', flat=True)
-        queryset = queryset.filter(
-                Q(task__organization=user.organization) | Q(task__organization__in=child_orgs)
-            )
-    if filters:
-        for field, values in filters.items():
-            if isinstance(values, list):
-                lookup = f"{field}__in"
-                queryset = queryset.filter(**{lookup: values})
-            else:
-                queryset = queryset.filter(**{field: values})
-    count_ids = queryset.values_list('id', flat=True)
-    #flags = CountFlag.objects.filter(count__id__in=count_ids)
-    #flagged_ids = flags.values_list('count_id', flat=True)
-    flagged_ids = []
-    queryset  = [obj for obj in queryset if obj.id not in flagged_ids]
-    #pre_exclude any count that does not match the requested breakdowns
-    return queryset
-
-def get_pregnancies(respondent_ids):
-    pregnancies = Pregnancy.objects.filter(respondent_id__in=respondent_ids)
-
-    pregnancies_by_respondent = {}
-    for p in pregnancies:
-        if p and p.term_began:
-            pregnancies_by_respondent.setdefault(p.respondent_id, []).append(p)
-    return pregnancies_by_respondent
-
-def get_hiv_statuses(respondent_ids):
-    hiv_statuses = HIVStatus.objects.filter(respondent_id__in=respondent_ids)
-    hiv_status_by_respondent = {}
-    for hs in hiv_statuses:
-        if hs and hs.date_positive:
-            hiv_status_by_respondent.setdefault(hs.respondent_id, []).append(hs)
-    return hiv_status_by_respondent
-
-def get_indicator_aggregate(user, indicator, params, split=None, project=None, organization=None, start=None, end=None, filters=None):
+def demographic_aggregates(user, indicator, params, split=None, project=None, organization=None, start=None, end=None, filters=None):
     interactions = get_interactions_from_indicator(user, indicator, project, organization, start, end, filters)
     counts = get_event_counts_from_indicator(user, indicator, params, project, organization, start, end, filters)
     fields_map = {}
@@ -200,7 +42,6 @@ def get_indicator_aggregate(user, indicator, params, split=None, project=None, o
         fields_map['period'] = periods
 
     
-
     #fields_map = {age_range: [18-24, 25-34...], sex: ['Male', 'Female]}
 
     cartesian_product = list(product(*[bd for bd in fields_map.values()]))
@@ -313,7 +154,99 @@ def get_indicator_aggregate(user, indicator, params, split=None, project=None, o
             if pos is not None:
                 aggregates[pos]['count'] += count.count
     return aggregates
+
+def event_no_aggregates(user, indicator, split, project, organization, start, end):
+    events = get_events_from_indicator(user, indicator, project, organization, start, end)
+    print('event_no', len(events))
+    aggregates = defaultdict(int)
+
+    if split in ['month', 'quarter']:
+        by_period = defaultdict(int)
+        period_func = get_quarter_string if split == 'quarter' else get_month_string
+
+        for event in events:
+            period = period_func(event.start)
+            by_period[period] += 1
+            aggregates['count'] += 1  # total count across periods
+
+        aggregates['by_period'] = dict(by_period)
+
+    else:
+        aggregates['count'] = len(events)
+
+    return dict(aggregates)
+
     
+
+def event_org_no_aggregates(user, indicator, split, project, organization, start, end):
+    events = get_events_from_indicator(user, indicator, project, organization, start, end)
+    print('event_org_no', len(events))
+    aggregates = defaultdict(int)
+
+    if split in ['month', 'quarter']:
+        by_period = defaultdict(int)
+        period_func = get_quarter_string if split == 'quarter' else get_month_string
+
+        for event in events:
+            org_count = event.organizations.count()
+            period = period_func(event.start)
+            by_period[period] += org_count
+            aggregates['count'] += org_count  # total count across periods
+
+        aggregates['by_period'] = dict(by_period)
+
+    else:
+        aggregates['count'] += sum(event.organizations.count() for event in events)
+
+    return dict(aggregates)
+
+def social_aggregates(user, indicator, split, project, organization, start, end, platform):
+    posts = get_posts_from_indicator(user, indicator, project, organization, platform, start, end)
+    aggregates = defaultdict(int)
+
+    if split in ['month', 'quarter']:
+        by_period = defaultdict(lambda: defaultdict(int))
+        period_func = get_quarter_string if split == 'quarter' else get_month_string
+
+        for post in posts:
+            likes = post.likes or 0
+            views = post.views or 0
+            comments = post.comments or 0
+            period = period_func(post.published_at or date.fromtimestamp(post.created_at))
+
+            by_period[period]['likes'] += likes
+            by_period[period]['views'] += views
+            by_period[period]['comments'] += comments
+            by_period[period]['total_engagement'] += (likes + views + comments)
+
+            aggregates['likes'] += likes
+            aggregates['views'] += views
+            aggregates['comments'] += comments
+            aggregates['total_engagement'] += (likes + views + comments)
+
+        aggregates['by_period'] = {k: dict(v) for k, v in by_period.items()}
+
+    else:
+        aggregates['likes'] += sum(post.likes or 0 for post in posts)
+        aggregates['views'] += sum(post.views or 0 for post in posts)
+        aggregates['comments'] += sum(post.comments or 0 for post in posts)
+        aggregates['total_engagement'] += sum((post.likes or 0) + (post.views or 0) + (post.comments or 0) for post in posts)
+
+    return dict(aggregates)
+
+def aggregates_switchboard(user, indicator, params, split=None, project=None, organization=None, start=None, end=None, filters=None, platform=None):
+    aggregates = {}
+    if indicator.indicator_type == 'respondent' or indicator.indicator_type=='count':
+        aggregates = demographic_aggregates(user, indicator, params, split, project, organization, start, end, filters)
+    if indicator.indicator_type == 'event_no':
+        aggregates = event_no_aggregates(user, indicator, split, project, organization, start, end)
+    if indicator.indicator_type == 'event_org_no':
+        aggregates = event_org_no_aggregates(user, indicator, split, project, organization, start, end)
+    if indicator.indicator_type == 'social':
+        aggregates = social_aggregates(user, indicator, split, project, organization, start, end, platform)
+    return aggregates
+
+
 def prep_csv(aggregates, params):
     column_field = next((k for k, v in params.items() if v), None)
     column_field_choices = sorted({cell[column_field] for cell in aggregates.values()})

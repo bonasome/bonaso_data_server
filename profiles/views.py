@@ -1,31 +1,25 @@
 from django.shortcuts import render
-from users.restrictviewset import RoleRestrictedViewSet
-from django.db.models import Q
+from django.contrib.contenttypes.models import ContentType
+
+from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.filters import SearchFilter, OrderingFilter
+
+from users.restrictviewset import RoleRestrictedViewSet
+from django.contrib.auth import get_user_model
+User = get_user_model()
+
 from profiles.models import FavoriteObject
 from profiles.serializers import ProfileSerializer, FavoriteObjectSerializer
-from django.contrib.auth import get_user_model
-from rest_framework import status
-from django.shortcuts import get_object_or_404
-from rest_framework.response import Response
-from rest_framework.decorators import action
-
 from django.contrib.contenttypes.models import ContentType
 from profiles.utils import get_favorited_object, get_user_activity
-from respondents.models import Interaction, Respondent
 from respondents.utils import get_enum_choices
-from organizations.models import Organization
-from indicators.models import Indicator
-from projects.models import Project, Task, Target
 from projects.utils import get_valid_orgs
-from uploads.models import NarrativeReport
-from django.utils import timezone
-from datetime import datetime, timedelta
-from respondents.serializers import SimpleInteractionSerializer
 
-User = get_user_model()
+
 
 
 class ProfileViewSet(RoleRestrictedViewSet):
@@ -36,7 +30,6 @@ class ProfileViewSet(RoleRestrictedViewSet):
     ordering_fields = ['last_name']
     search_fields = ['last_name','first_name', 'username']
 
-    
     def get_queryset(self):
         '''
         View only self +child orgs if higher role, self if lower role, and everyone if admin.

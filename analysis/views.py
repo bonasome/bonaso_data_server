@@ -16,16 +16,18 @@ from django.db import transaction
 from users.restrictviewset import RoleRestrictedViewSet
 from organizations.models import Organization
 from projects.models import Project
-from indicators.models import Indicator, IndicatorSubcategory
+from django.shortcuts import get_object_or_404
+from indicators.models import Indicator
 from django.contrib.auth import get_user_model
 from analysis.serializers import DashboardSettingSerializer, DashboardSettingListSerializer, DashboardIndicatorChartSerializer
-from analysis.models import DashboardSetting, IndicatorChartSetting, ChartField, DashboardIndicatorChart, ChartFilter
+from analysis.models import DashboardSetting, IndicatorChartSetting, ChartField, DashboardIndicatorChart, ChartFilter, ChartIndicator
 from events.models import DemographicCount
+from respondents.utils import get_enum_choices
 from datetime import date
 import csv
 from django.utils.timezone import now
 from datetime import datetime
-from analysis.utils import get_indicator_aggregate, prep_csv
+from analysis.utils.aggregates import aggregates_switchboard, prep_csv
 from io import StringIO
 User = get_user_model()
 
@@ -33,18 +35,28 @@ User = get_user_model()
 class AnalysisViewSet(RoleRestrictedViewSet):
     @action(detail=False, methods=["get"], url_path='aggregate/(?P<indicator_id>[^/.]+)')
     def indicator_aggregate(self, request, indicator_id=None):
+        '''
+        Action that pulls indicators and gets the counts as a JSON object.
+        '''
         user = request.user
         if user.role not in ['client', 'admin', 'meofficer', 'manager']:
             return Response(
                 {"detail": "You do not have permission to view aggregated counts."},
                 status=status.HTTP_403_FORBIDDEN
             )
+
+        '''
+        Get the indicator
+        '''
         indicator = Indicator.objects.filter(id=indicator_id).first()
         if not indicator:
             return Response(
                 {"detail": "Please provide a valid indicator id to view aggregate counts."},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        '''
+        Get any filter params
+        '''
         project_id = request.query_params.get('project')
         organization_id = request.query_params.get('organization')
         start = request.query_params.get('start')
@@ -55,10 +67,11 @@ class AnalysisViewSet(RoleRestrictedViewSet):
         params = {}
         for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory']:
             params[cat] = request.query_params.get(cat) in ['true', '1']
-        
+        platform = request.query_params.get('platform')
+        #split, i.e. time period
         split = request.query_params.get('split')
-
-        aggregate = get_indicator_aggregate(user, indicator, params, split, project, organization, start, end)
+        #aggregator function from anlysis.utils
+        aggregate = aggregates_switchboard(user, indicator, params, split, project, organization, start, end, None, platform)
         return Response(
                 {"counts": aggregate},
                 status=status.HTTP_200_OK
@@ -66,6 +79,9 @@ class AnalysisViewSet(RoleRestrictedViewSet):
     
     @action(detail=False, methods=["get"], url_path='download-indicator-aggregate/(?P<indicator_id>[^/.]+)')
     def download_indicator_aggregate(self, request, indicator_id=None):
+        '''
+        Very similar to the above action but takes the extra step to conver the data to csv format with a header row.
+        '''
         user = request.user
         if user.role not in ['client', 'admin', 'meofficer', 'manager']:
             return Response(
@@ -84,7 +100,7 @@ class AnalysisViewSet(RoleRestrictedViewSet):
         for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy']:
             params[cat] = request.query_params.get(cat) in ['true', '1']
         split = request.query_params.get('split')
-        aggregates = get_indicator_aggregate(user, indicator, params, split)
+        aggregates = aggregates_switchboard(user, indicator, params, split)
 
         if not aggregates:
             return Response(
@@ -95,7 +111,7 @@ class AnalysisViewSet(RoleRestrictedViewSet):
         timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         filename = f'aggregates_{indicator.code}_{timestamp}.csv'
 
-        
+        #convert tot csv
         rows = prep_csv(aggregates, params)
         fieldnames = rows[0]
         buffer = StringIO()
@@ -109,87 +125,103 @@ class AnalysisViewSet(RoleRestrictedViewSet):
         response = HttpResponse(buffer.getvalue(), content_type='text/csv')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
-    
-    
-
 
 class DashboardSettingViewSet(RoleRestrictedViewSet):
     serializer_class = DashboardSettingSerializer  # default
 
     def get_serializer_class(self):
         if self.action == 'list':
-            return DashboardSettingListSerializer
+            return DashboardSettingListSerializer #for panel showing list of dashboards
         else:
-            return DashboardSettingSerializer
+            return DashboardSettingSerializer #for dedicated views
         
     def get_queryset(self):
-        return DashboardSetting.objects.filter(created_by=self.request.user)
+        return DashboardSetting.objects.filter(created_by=self.request.user) #only see your dashboards
     
     @action(detail=False, methods=['get'], url_path='meta')
-    def get_dashboard_meta(self, request):
-        chart_types = [t for t, _ in IndicatorChartSetting.ChartType.choices]
-        chart_type_labels = [choice.label for choice in IndicatorChartSetting.ChartType]
-        fields = [f for f, _ in ChartField.Field.choices]
-        field_labels = [choice.label for choice in ChartField.Field]
-        axes = [s for s, _ in IndicatorChartSetting.AxisOptions.choices]
-        axis_labels = [choice.label for choice in IndicatorChartSetting.AxisOptions]
-        
+    def get_meta(self, request):
+        '''
+        Get labels for the front end to assure consistency.
+        '''
         return Response({
-            'chart_types': chart_types,
-            'chart_type_labels': chart_type_labels,
-            'fields': fields,
-            'field_labels': field_labels,
-            'axes': axes,
-            'axis_labels': axis_labels
+            "statuses": get_enum_choices(IndicatorChartSetting.ChartType),
+            "fields": get_enum_choices(ChartField.Field),
+            "axes": get_enum_choices(IndicatorChartSetting.AxisOptions)
         })
 
     @action(detail=True, methods=['patch'], url_path='charts')
+    @transaction.atomic
     def create_update_chart(self, request, pk=None):
+        '''
+        Custom action for creating/updating chart settings. Controlled action allows for real time simple updates
+        and logic.
+        '''
         dashboard = self.get_object()
         user = request.user
+        #indicator(s) and chart type is required. It is a chart after all
         existing_id = request.data.get('chart_id')
-        indicator_id = request.data.get('indicator')
-        indicator = Indicator.objects.filter(id=indicator_id).first()
-        if not indicator:
+        indicator_ids = request.data.get('indicators')
+        if not indicator_ids:
             return Response(
-                {"detail": "A valid indicator id is required."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+                    {"detail": f'At least one indicator is required.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        #get indicator objects and make sure no bad IDs were provided
+        indicators = []
+        for ii in indicator_ids:
+            indicator = Indicator.objects.filter(id=ii).first()
+            if not indicator:
+                return Response(
+                    {"detail": f'"{ii}" is not a valid indicator id.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            indicators.append(indicator)
+
         chart_type = request.data.get('chart_type')
         if not chart_type:
             return Response(
                 {"detail": "A valid chart type is required."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        legend = request.data.get('legend')
-        axis = request.data.get('axis')
-        stack = request.data.get('stack')
-        use_target = str(request.data.get('use_target')).lower() in ['true', '1']
-        tabular = str(request.data.get('tabular')).lower() in ['true', '1']
-        order = request.data.get('order', 0)
+        #get the fields
+        legend = request.data.get('legend') #chart legend
+        axis = request.data.get('axis') #chart axis
+        stack = request.data.get('stack') #stack (for bar charts)
+        use_target = str(request.data.get('use_target')).lower() in ['true', '1'] #show targets if provided
+        tabular = str(request.data.get('tabular')).lower() in ['true', '1'] #show a data table underneath
+        order = request.data.get('order', DashboardIndicatorChart.objects.filter(dashboard=dashboard).count())
         width = request.data.get('width')
         height = request.data.get('height')
-        filters_map = request.data.get('filters', [])
+        filters_map = request.data.get('filters', []) #array map for creating filters
         
-        if legend == 'subcategory' and not indicator.subcategories.exists():
+        #if multiple indicators were provided, that's the legend, so remove an existing settings
+        if len(indicators) > 1:
             legend=None
-        if stack == 'subcategory' and not indicator.subcategories.exists():
             stack=None
+            use_target=False
 
+        if len(indicators) ==1:
+            #validate that subcategories exist if chosen
+            if legend == 'subcategory' and not indicators[0].subcategories.exists():
+                legend=None
+            if stack == 'subcategory' and not indicators[0].subcategories.exists():
+                stack=None
+
+        #remove legend/stack for use_target (since targets are not demographically split)
         if legend and use_target:
                 legend = None
         if stack and use_target:
             stack=None
 
+        #if the chart exists, update it
         if existing_id:    
-            chart_link = DashboardIndicatorChart.objects.filter(id=existing_id).first()
+            chart_link = get_object_or_404(DashboardIndicatorChart, id=existing_id)
             chart = chart_link.chart
             chart.chart_type = chart_type
             chart.axis = axis
             chart.use_target = use_target
             chart.legend = legend
             chart.stack = stack
-            chart.indicator = indicator
             chart.tabular = tabular
             ChartFilter.objects.filter(chart=chart).delete()
             chart.save()
@@ -198,10 +230,9 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
             chart_link.height = height
             chart_link.order = order
             chart_link.save()
-
+        #else create a new one
         else:
             chart = IndicatorChartSetting.objects.create(
-                indicator = indicator,
                 chart_type = chart_type,
                 tabular = tabular,
                 axis = axis,
@@ -217,19 +248,37 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
                 height = height,
                 order = order,
             )
+
+        #clear then bulk create indicators
+        ChartIndicator.objects.filter(chart=chart).delete()
+        bulk_links = [
+        ChartIndicator(chart=chart, indicator=indicator)
+            for indicator in indicators
+        ]
+        ChartIndicator.objects.bulk_create(bulk_links)
+
+        #create filters
         filters = []
         if filters_map:
             for field, values in filters_map.items():
                 for val in values:
-                    field_obj = ChartField.objects.get_or_create(name=field)[0]
+                    try:
+                        field_obj = ChartField.objects.get(name=field)
+                    except ChartField.DoesNotExist:
+                        return Response({"detail": f"Invalid filter field: '{field}'"}, status=status.HTTP_400_BAD_REQUEST)
                     fil = ChartFilter.objects.create(field=field_obj, value=val, chart=chart)
                     filters.append(fil)
 
+        #serialize the data
         serializer = DashboardIndicatorChartSerializer(chart_link)
-        return Response({"detail": f"Dashboard updated.", "chart_data": serializer.data}, status=status.HTTP_200_OK)
+        msg = "Dashboard chart created." if not existing_id else "Dashboard chart updated."
+        return Response({"detail": msg, "chart_data": serializer.data}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['delete'], url_path='remove-chart/(?P<chart_link_id>[^/.]+)')
     def remove_chart(self, request, pk=None, chart_link_id=None):
+        '''
+        Delete your chart.
+        '''
         dashboard = self.get_object()
         user = request.user
         IndicatorChartSetting.objects.filter(id=chart_link_id).delete()
@@ -237,6 +286,9 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
 
     @action(detail=False, methods=['get'], url_path='breakdowns')
     def get_breakdowns_meta(self, request):
+        '''
+        Map the front end can use to get prettier names for the user.
+        '''
         breakdowns = {}
 
         # Loop over desired choice fields
@@ -250,8 +302,3 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
                 }
 
         return Response(breakdowns)
-class IndicatorChartSettingViewSet(RoleRestrictedViewSet):
-    serializer_class = IndicatorChartSetting
-        
-    def get_queryset(self):
-        return IndicatorChartSetting.objects.filter(created_by=self.request.user)

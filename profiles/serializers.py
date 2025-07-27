@@ -1,11 +1,11 @@
 from rest_framework import serializers
-from profiles.models import FavoriteObject
 
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
 from organizations.serializers import OrganizationListSerializer
 from organizations.models import Organization
+from profiles.models import FavoriteObject
 
 class ProfileListSerializer(serializers.ModelSerializer):
     '''

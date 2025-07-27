@@ -5,6 +5,10 @@ from indicators.models import Indicator
 from projects.models import Project
 User = get_user_model()
 class ChartField(models.Model):
+    '''
+    Shared enum storing model that handles controlled filter/legend/stack fields 
+    (see the events.models --> Demogrpahic count for more).
+    '''
     class Field(models.TextChoices):
         AR = 'age_range', _('Age Range')
         SEX = 'sex', _('Sex')
@@ -13,11 +17,21 @@ class ChartField(models.Model):
         CIT = 'citizenship', _('Citizenship')
         HIV = 'hiv_status', _('HIV Status')
         PREG = 'pregnancy', ('Pregnancy')
+        ORG = 'organization', ('Organization')
         SC = 'subcategory', ('Indicator Subcategory')
     
     name = models.CharField(max_length=25, choices=Field.choices, unique=True)
     
 class IndicatorChartSetting(models.Model):
+    '''
+    Chart settings: basically a storage system for users so that they can create charts and view them repeatedly.
+
+    The current supported chart types are Pie, Line, and Bar:
+        -Bar supports an axis (time period), legend (field), and stack (second field), unless multiple indicators are present
+        -Line supports an axis and legend
+        -Pie supports a legend
+    All charts can also be filtered by the fields above. All charts can also include a data table.
+    '''
     class ChartType(models.TextChoices):
         PIE = 'Pie', _('Pie Chart')
         LINE = 'Line', _('Line Chart')
@@ -26,19 +40,29 @@ class IndicatorChartSetting(models.Model):
         MONTH  = 'month', _('Month')
         QUARTER = 'quarter', _('Quarter')
     
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='chart_settings_created_by')
-    indicator = models.ForeignKey(Indicator, on_delete=models.CASCADE)
+    
+    indicator = models.ManyToManyField(Indicator, through='ChartIndicator')
     chart_type = models.CharField(max_length=25, choices=ChartType.choices, default=ChartType.BAR, null=True, blank=True)
-    tabular = models.BooleanField(default=False)
+    tabular = models.BooleanField(default=False) #also show a data table
     axis = models.CharField(max_length=25, choices=AxisOptions.choices, default=AxisOptions.QUARTER, null=True, blank=True)
     legend = models.CharField(max_length=25, choices=ChartField.Field.choices, default=None, null=True, blank=True)
     stack = models.CharField(max_length=25, choices=ChartField.Field.choices, default=None, null=True, blank=True)
-    use_target = models.BooleanField(default=False)
+    use_target = models.BooleanField(default=False) #determines whether or not to show targets (will disable legend/stack)
     filters = models.ManyToManyField(ChartField, through='ChartFilter', blank=True, related_name='chart_filters')
+    
+    #seperate date filters not linked to fields
     start_date = models.DateField(null=True, blank=True)
     end_date = models.DateField(null=True, blank=True)
+
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='chart_settings_created_by')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+class ChartIndicator(models.Model):
+    chart = models.ForeignKey(IndicatorChartSetting, on_delete=models.CASCADE)
+    indicator = models.ForeignKey(Indicator, on_delete=models.CASCADE)
+    class Meta:
+        unique_together = ('chart', 'indicator')
 
 class ChartFilter(models.Model):
     chart = models.ForeignKey(IndicatorChartSetting, on_delete=models.CASCADE, related_name='chart_for_filter')

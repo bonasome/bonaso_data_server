@@ -2,7 +2,7 @@ from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 from django.db import transaction
 from analysis.models import DashboardFilter, ChartField, IndicatorChartSetting, DashboardSetting, DashboardIndicatorChart, ChartFilter
-from analysis.utils import get_indicator_aggregate, get_target_aggregates
+from analysis.utils.aggregates import  get_target_aggregates, aggregates_switchboard
 from projects.serializers import ProjectListSerializer, Target
 from indicators.serializers import IndicatorListSerializer
 from events.models import DemographicCount

@@ -15,6 +15,11 @@ User = get_user_model()
 
 
 class TargetViewSetTest(APITestCase):
+    '''
+    Viewset for testing target creation/editing/viewing logic. 
+
+    Please note that our aggregation logic is tested in the analysis app under analysis.tests.test_achievement.
+    '''
     def setUp(self):
         #set up users for each role
         self.admin = User.objects.create_user(username='admin', password='testpass', role='admin')
@@ -208,16 +213,6 @@ class TargetViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     #data validation tests here
-
-    def test_achievement(self):
-        self.client.force_authenticate(user=self.admin)
-        interaction1 = Interaction.objects.create(respondent=self.respondent_full, interaction_date=date(2024,6,2), task=self.task, interaction_location='here')
-        interaction2 = Interaction.objects.create(respondent=self.respondent_full, interaction_date=date(2024,6,3), task=self.task, interaction_location='there')
-        create_flag(instance=interaction2, reason="Test reason", caused_by=self.admin)
-        self.target.refresh_from_db()
-
-        response = self.client.get(f'/api/manage/targets/{self.target.id}/')
-        print(response.json())
 
     def test_target_create_rel(self):
         '''

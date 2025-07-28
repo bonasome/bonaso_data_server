@@ -67,7 +67,9 @@ class AnalysisViewSet(RoleRestrictedViewSet):
         params = {}
         for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory']:
             params[cat] = request.query_params.get(cat) in ['true', '1']
-        platform = request.query_params.get('platform')
+        #special social media param
+        platform = request.query_params.get('platform') in ['true', '1']
+        
         #split, i.e. time period
         split = request.query_params.get('split')
         #aggregator function from anlysis.utils

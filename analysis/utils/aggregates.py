@@ -5,9 +5,10 @@ from events.models import DemographicCount, Event
 from itertools import product
 from datetime import date
 from collections import defaultdict
-
+from indicators.models import Indicator
 from analysis.utils.collection import get_event_counts_from_indicator, get_interactions_from_indicator, get_hiv_statuses, get_pregnancies, get_interaction_subcats, get_events_from_indicator, get_posts_from_indicator
 from analysis.utils.periods import get_month_string, get_quarter_string, get_month_strings_between, get_quarter_strings_between
+from analysis.utils.interactions_prep import build_keys
 
 #map to convert some of the different field names from the respondent/count model
 FIELD_MAP = {
@@ -36,12 +37,10 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
                 fields_map[param] = [value for value, label in field.choices]
         
     period_func = get_quarter_string if split == 'quarter' else get_month_string
-    periods = sorted({period_func(i.interaction_date) for i in interactions})
+    periods = sorted({period_func(i.interaction_date) for i in interactions}) + sorted({period_func(count.event.end) for count in counts})
 
     if split in ['month', 'quarter']:
         fields_map['period'] = periods
-
-    
     #fields_map = {age_range: [18-24, 25-34...], sex: ['Male', 'Female]}
 
     cartesian_product = list(product(*[bd for bd in fields_map.values()]))
@@ -60,79 +59,25 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
     respondent_ids = {i.respondent_id for i in interactions}
     hiv_status_map = get_hiv_statuses(respondent_ids=respondent_ids)
     pregnancies_map = get_pregnancies(respondent_ids=respondent_ids)
-    subcats = get_interaction_subcats(interactions)
-
-    cartesian_product_sets = {frozenset(item) for item in cartesian_product}
-    product_index_sets = {frozenset(k): v for k, v in product_index.items()}
 
     subcat_filter = None
     if filters:
         subcat_filter = filters.get('subcategory', None)
 
+    subcats = get_interaction_subcats(interactions, subcat_filter)
+
+    product_index_sets = {frozenset(k): v for k, v in product_index.items()}
+
     for interaction in interactions:
-        include = False
-        interaction_params = []
-        for field in fields_map.keys():
-            get_field = FIELD_MAP.get(field, field)
-            if field == 'pregnancy':
-                field_val = 'Pregnant' if any(
-                    p.term_began <= interaction.interaction_date <= p.term_ended if p.term_ended else date.today()
-                    for p in pregnancies_map.get(interaction.respondent.id, [])
-                ) else 'Not_Pregnant'
-            elif field == 'hiv_status':
-                field_val = 'HIV_Positive' if any(
-                    hs. date_positive <= interaction.interaction_date
-                    for hs in hiv_status_map.get(interaction.respondent.id, [])
-                ) else 'HIV_Negative'
-            elif field == 'subcategory':
-                field_val = None
-            elif field == 'period':
-                field_val = None
-            else:
-                field_val = getattr(interaction.respondent, get_field)
-                if field == 'citizenship':
-                    field_val = 'citizen' if field_val == 'Motswana' else 'non-citizen'
-            if field_val:
-                interaction_params.append(field_val)
-        print(interaction_params)
-        if split in ['month', 'quarter']:
-            interaction_params.append(period_func(interaction.interaction_date))
-        permus = []
-        numerics = []
-        if indicator.subcategories.exists() and include_subcats:
-            interaction_subcats = subcats.filter(interaction=interaction)
-            for cat in interaction_subcats:
-                if subcat_filter:
-                    if str(cat.subcategory.id) in subcat_filter:
-                        continue
-                combo = tuple(interaction_params + [cat.subcategory.name])
-                permus.append(combo)
-                if indicator.require_numeric:
-                    numerics.append(cat.numeric_component)
-        else:
-            combo = tuple(interaction_params)
-            permus.append(combo)
-            if indicator.subcategories.exists() and indicator.require_numeric and not include_subcats:
-                total = 0
-                interaction_subcats = subcats.filter(interaction=interaction)
-                for cat in interaction_subcats:
-                    if subcat_filter:
-                        if str(cat.subcategory.id) in subcat_filter:
-                            continue
-                    total += cat.numeric_component
-                numerics.append(total)
-            elif indicator.require_numeric:
-                numerics.append(interaction.numeric_component)
-        
-
-        for i, combination in enumerate(permus):
-            combo_set = frozenset(combination)
-            if combo_set in cartesian_product_sets:
-                pos = product_index_sets.get(combo_set)
-                if pos is not None:
-                    amount = numerics[i] if numerics else 1
-                    aggregates[pos]['count'] += amount
-
+        keys = build_keys(interaction, pregnancies_map, hiv_status_map, subcats, include_subcats)
+        print('===keys===', keys)
+        print('===breakdowns===', cartesian_product)
+        for key, value in keys.items():
+            for breakdown in cartesian_product:
+                if frozenset(breakdown).issubset(key):
+                    pos = product_index_sets.get(frozenset(breakdown))
+                    if pos is not None:
+                        aggregates[pos]['count'] += value
 
     for count in counts:
         count_params = []
@@ -143,16 +88,15 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
                 field_val = getattr(count, field)
             if field == 'subcategory':
                 field_val = field_val.name 
-            if field_val: 
+            if field_val is not None:
                 count_params.append(field_val)
         if split in ['month', 'quarter']:
-            count_params.append(period_func(count.event.event_date))
+            count_params.append(period_func(count.event.end))
 
         param_set = frozenset(count_params)
-        if param_set in cartesian_product_sets:
-            pos = product_index_sets.get(param_set)
-            if pos is not None:
-                aggregates[pos]['count'] += count.count
+        pos = product_index_sets.get(param_set)
+        if pos is not None:
+            aggregates[pos]['count'] += count.count
     return aggregates
 
 def event_no_aggregates(user, indicator, split, project, organization, start, end):
@@ -200,37 +144,62 @@ def event_org_no_aggregates(user, indicator, split, project, organization, start
 
     return dict(aggregates)
 
-def social_aggregates(user, indicator, split, project, organization, start, end, platform):
-    posts = get_posts_from_indicator(user, indicator, project, organization, platform, start, end)
+
+def social_aggregates(user, indicator, split, project, organization, start, end, platform=False):
+    posts = get_posts_from_indicator(user, indicator, project, organization, start, end)
     aggregates = defaultdict(int)
 
     if split in ['month', 'quarter']:
-        by_period = defaultdict(lambda: defaultdict(int))
+        # Structure: { period: { platform: {metric: value} } }
+        by_period = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
         period_func = get_quarter_string if split == 'quarter' else get_month_string
 
         for post in posts:
             likes = post.likes or 0
             views = post.views or 0
             comments = post.comments or 0
-            period = period_func(post.published_at or date.fromtimestamp(post.created_at))
 
-            by_period[period]['likes'] += likes
-            by_period[period]['views'] += views
-            by_period[period]['comments'] += comments
-            by_period[period]['total_engagement'] += (likes + views + comments)
+            engagement = likes + views + comments
+
+            period = period_func(post.published_at)
+            post_platform = post.platform or 'unknown'
+
+            by_period[period][post_platform]['likes'] += likes
+            by_period[period][post_platform]['views'] += views
+            by_period[period][post_platform]['comments'] += comments
+            by_period[period][post_platform]['total_engagement'] += engagement
 
             aggregates['likes'] += likes
             aggregates['views'] += views
             aggregates['comments'] += comments
-            aggregates['total_engagement'] += (likes + views + comments)
+            aggregates['total_engagement'] += engagement
 
-        aggregates['by_period'] = {k: dict(v) for k, v in by_period.items()}
-
+        # Convert nested defaultdicts to regular dicts
+        aggregates['by_period'] = {
+            period: {plat: dict(metrics) for plat, metrics in plat_data.items()}
+            for period, plat_data in by_period.items()
+        }
     else:
-        aggregates['likes'] += sum(post.likes or 0 for post in posts)
-        aggregates['views'] += sum(post.views or 0 for post in posts)
-        aggregates['comments'] += sum(post.comments or 0 for post in posts)
-        aggregates['total_engagement'] += sum((post.likes or 0) + (post.views or 0) + (post.comments or 0) for post in posts)
+        by_platform = defaultdict(lambda: defaultdict(int))
+
+        for post in posts:
+            likes = post.likes or 0
+            views = post.views or 0
+            comments = post.comments or 0
+            engagement = likes + views + comments
+            post_platform = post.platform or 'unknown'
+
+            by_platform[post_platform]['likes'] += likes
+            by_platform[post_platform]['views'] += views
+            by_platform[post_platform]['comments'] += comments
+            by_platform[post_platform]['total_engagement'] += engagement
+
+            aggregates['likes'] += likes
+            aggregates['views'] += views
+            aggregates['comments'] += comments
+            aggregates['total_engagement'] += engagement
+
+        aggregates['by_platform'] = {plat: dict(metrics) for plat, metrics in by_platform.items()}
 
     return dict(aggregates)
 
@@ -320,5 +289,85 @@ def get_target_aggregates(user, indicator, split, start=None, end=None, project=
 
     return dict(targets_map)
         
+def get_achievement(user, target):
+    '''
+    Slightly lighter weight helper that ignores demographics and just gets the raw totals for comparisons against
+    targets.
+
+    Note that we cascade all of these so that child organizations achievement is included when viewing parents.
+    '''
+    task = target.task
+    start = target.start
+    end = target.end
+    indicator = task.indicator
+
+    total = 0
+    #respondent and count both use event counts
+    if indicator.indicator_type in [Indicator.IndicatorType.RESPONDENT, Indicator.IndicatorType.COUNT]:
+        valid_counts  = get_event_counts_from_indicator(
+            user=user,
+            indicator=indicator, 
+            project=task.project,
+            start=start,
+            end=end, 
+            cascade=True,
+            params={},
+            organization=task.organization,
+            filters=None
+        )
+        total += sum(count.count or 0 for count in valid_counts)
+        #respondent also pulls interactions
+        if indicator.indicator_type == Indicator.IndicatorType.RESPONDENT:
+            valid_irs = get_interactions_from_indicator(
+                user=user,
+                indicator=indicator,
+                project=task.project,
+                start=start,
+                end=end,
+                cascade=True,
+                organization=task.organization,
+                filters=None
+            )
+            if indicator.require_numeric:
+                if indicator.subcategories.exists():
+                    # Prefetch all subcategories once
+                    subcats = get_interaction_subcats(valid_irs)
+                    # Filter for relevant interactions only
+                    subcats = subcats.filter(interaction__in=valid_irs)
+                    total += sum(cat.numeric_component or 0 for cat in subcats)
+                else:
+                    total += sum(ir.numeric_component or 0 for ir in valid_irs)
+            else:
+                total += valid_irs.count()
+    #pull event numbers for raw event count/org count tests
+    elif indicator.indicator_type in [Indicator.IndicatorType.EVENT_NO, Indicator.IndicatorType.ORG_EVENT_NO]:
+        valid_events = get_events_from_indicator(
+            user=user,
+            indicator=indicator,
+            organization=task.organization,
+            project=task.project,
+            start=start,
+            end=end, 
+            cascade=True,
+        )
+        if indicator.indicator_type == Indicator.IndicatorType.EVENT_NO:
+            total += len(valid_events)
+        elif indicator.indicator_type == Indicator.IndicatorType.ORG_EVENT_NO:
+            total += sum(e.organizations.count() for e in valid_events)
+    #pull posts for social. Using total engagement for now
+    elif indicator.indicator_type == Indicator.IndicatorType.SOCIAL:
+        valid_posts = get_posts_from_indicator(
+            user=user,
+            indicator=indicator,
+            project=task.project,
+            organization=task.organization,
+            start=start,
+            end=end, 
+            cascade=True,
+            filters=None,
+        )
+        total += sum(((p.likes or 0) + (p.comments or 0) + (p.views or 0)) for p in valid_posts)
+    return total
+
 
 

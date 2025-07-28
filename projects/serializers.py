@@ -12,7 +12,7 @@ from organizations.serializers import OrganizationListSerializer
 from indicators.models import Indicator
 from indicators.serializers import IndicatorSerializer
 from profiles.serializers import ProfileListSerializer
-
+from analysis.utils.aggregates import get_achievement
 
 class ClientSerializer(serializers.ModelSerializer):
     '''
@@ -214,85 +214,17 @@ class TargetSerializer(serializers.ModelSerializer):
         '''
         Get the actual numeric value that a related to percentage represents at a given moment.
         '''
-        #import these here to avoid circular imports
-        from respondents.models import Interaction, InteractionSubcategory
-        from events.models import DemographicCount
+        user = self.context.get('request').user
         if not obj.related_to:
             return None
-        amount = 0
-        #loop logic to tally counts for related interactions/counts within the target range, skipping flags
-        if obj.related_to.indicator.indicator_type == 'respondent':
-            irs = Interaction.objects.filter(task=obj.related_to, interaction_date__gte=obj.start, interaction_date__lte=obj.end)
-            for ir in irs:
-                if ir.flags.filter(resolved=False).count() > 0: 
-                    continue #do not add flagged interactions
-                total = 1
-                #if the indicator has a number, get that (possibly adding up different subcats)
-                if ir.task.indicator.require_numeric and ir.task.indicator.subcategories.exists():
-                    for cat in InteractionSubcategory.objects.filter(interaction=ir):
-                        total+= cat.numeric_component
-                elif ir.task.indicator.require_numeric:
-                    total += ir.numeric_component
-                amount += total
-
-            counts = DemographicCount.objects.filter(task=obj.related_to, event__start__gte=obj.start, event__end__lte=obj.end)
-            for dc in counts:
-                if dc.flags.filter(resolved=False).count() > 0:
-                    continue #do not add flagged counts
-                amount += dc.count
-        
-        #also handle these
-        elif obj.task.indicator.indicator_type == 'count':
-            counts = DemographicCount.objects.filter(task=obj.related_to, event__start__gte=obj.start, event__end_date__lte=obj.end)
-            for dc in counts:
-                if dc.flags.filter(resolved=False).count() > 0:
-                    continue
-                amount += dc.count
-        return amount
+        return get_achievement(user, obj.related_to)
 
     def get_achievement(self, obj):
         '''
         Get the actual number that has been acheived. Works similar to the above function.
         '''
-        from respondents.models import Interaction, InteractionSubcategory
-        from events.models import Event, DemographicCount
-
-        amount = 0
-        if obj.task.indicator.indicator_type == 'respondent':
-            interactions = Interaction.objects.filter(task=obj.task, interaction_date__gte=obj.start, interaction_date__lte=obj.end)
-            for ir in interactions:
-                if ir.flags.filter(resolved=False).count() > 0: 
-                    continue #do not add flagged interactions
-                if ir.subcategories.exists() and ir.task.indicator.require_numeric:
-                    for cat in InteractionSubcategory.objects.filter(interaction=ir):
-                        amount += cat.numeric_component
-                elif ir.task.indicator.require_numeric:
-                    amount += ir.numeric_component
-                else:
-                    amount += 1
-            
-            counts = DemographicCount.objects.filter(task=obj.task, event__start__gte=obj.start, event__end__lte=obj.end)
-            for dc in counts:
-                if dc.flags.filter(resolved=False).count() > 0:
-                    continue #do not add flagged counts
-                amount += dc.count
-        
-        elif obj.task.indicator.indicator_type == 'count':
-            counts = DemographicCount.objects.filter(task=obj.task, event__start__gte=obj.start, event__end__lte=obj.end)
-            for dc in counts:
-                if dc.flags.filter(resolved=False).count() > 0:
-                    continue #do not add flagged counts
-                amount += dc.count
-        #if the task indictor is tied to a number of events, automatically pull all completed events
-        elif obj.task.indicator.indicator_type == 'event_no':
-            amount += Event.objects.filter(tasks=obj.task, status= Event.EventStatus.COMPLETED, start__gte=obj.start, end__lte=obj.end).count()
-        
-        #if the task indicator is tied to the number of organizations attending an event (i.e. a training) pull that
-        elif obj.task.indicator.indicator_type == 'org_event_no':
-            events = Event.objects.filter(tasks=obj.task, status= Event.EventStatus.COMPLETED, start__gte=obj.start, end__lte=obj.end)
-            for event in events:
-                amount += event.organizations.count()
-        return amount
+        user = self.context.get('request').user
+        return get_achievement(user, obj)
 
     class Meta:
         model = Target

@@ -5,6 +5,13 @@ from events.models import DemographicCount, Event
 from datetime import date
 from social.models import SocialMediaPost
 
+'''
+This is a set of helpers that prefetches models based on perms/filters/time period so that the aggregators
+can focus on aggregating.
+'''
+
+
+
 #similar thing for filters, but get the name
 FILTERS_MAP = {
     'kp_type': 'kp_status__name',
@@ -12,9 +19,11 @@ FILTERS_MAP = {
     # others as needed
 }
 
-def get_interactions_from_indicator(user, indicator, project=None, organization=None, start=None, end=None, filters=None):
+def get_interactions_from_indicator(user, indicator, project=None, organization=None, start=None, end=None, filters=None, cascade=False):
     '''
     Helper function get get list of interactions that match a set of conditions.
+
+    CASCADE: Determines if this should pull the organization and its child org, only works if a project is provided.
     '''
     queryset = Interaction.objects.filter(task__indicator=indicator)
 
@@ -39,7 +48,19 @@ def get_interactions_from_indicator(user, indicator, project=None, organization=
     if project:
         queryset=queryset.filter(task__project=project)
     if organization:
-        queryset=queryset.filter(task__organization=organization)
+        if cascade and project:
+            accessible_orgs = list(
+                ProjectOrganization.objects.filter(
+                    parent_organization=user.organization, project=project
+                ).values_list('organization', flat=True)
+            )
+            accessible_orgs.append(user.organization.id)
+            
+            queryset = queryset.filter(
+                task__organization__in=accessible_orgs
+            )
+        else:
+            queryset=queryset.filter(task__organization=organization)
     if start:
         queryset=queryset.filter(interaction_date__gte=start)
     if end:
@@ -97,13 +118,21 @@ def get_interactions_from_indicator(user, indicator, project=None, organization=
     queryset = queryset.exclude(flags__resolved=False).exclude(respondent__flags__resolved=False).distinct()
     return queryset
 
-def get_interaction_subcats(interactions):
+def get_interaction_subcats(interactions, filter_ids=None):
+    '''
+    Small helper to prefetch valid subcats.
+    '''
     interaction_ids = [ir.id for ir in interactions]
+    if filter_ids:
+        return InteractionSubcategory.objects.filter(interaction__id__in=interaction_ids).exclude(id__in=filter_ids)
     return InteractionSubcategory.objects.filter(interaction__id__in=interaction_ids)
 
-def get_event_counts_from_indicator(user, indicator, params, project, organization, start, end, filters):
+def get_event_counts_from_indicator(user, indicator, params, project, organization, start, end, filters, cascade=False):
     '''
-    Similar helper function get mathcing counts from events.
+    Similar helper function get mathcing counts from events. Takes params only to prefilter any counts
+    that do not match the demographic values.
+
+    CASCADE: Determines if this should pull the organization and its child org, only works if a project is provided.
     '''
     query = Q()
     for field, should_exist in params.items():
@@ -126,11 +155,23 @@ def get_event_counts_from_indicator(user, indicator, params, project, organizati
     if project:
         queryset=queryset.filter(task__project=project)
     if organization:
-        queryset=queryset.filter(task__organization=organization)
+        if cascade and project:
+            accessible_orgs = list(
+                ProjectOrganization.objects.filter(
+                    parent_organization=user.organization, project=project
+                ).values_list('organization', flat=True)
+            )
+            accessible_orgs.append(user.organization.id)
+            
+            queryset = queryset.filter(
+                task__organization__in=accessible_orgs
+            )
+        else:
+            queryset=queryset.filter(task__organization=organization)
     if start:
         queryset=queryset.filter(event__start__gte=start)
     if end:
-        queryset=queryset.filter(event_end__lte=end)
+        queryset=queryset.filter(event__end__lte=end)
     if user.role not in ['admin', 'client']:
         child_orgs = ProjectOrganization.objects.filter(
                 parent_organization=user.organization,
@@ -150,15 +191,18 @@ def get_event_counts_from_indicator(user, indicator, params, project, organizati
     queryset = queryset.exclude(flags__resolved=False).distinct()
     return queryset
 
-def get_events_from_indicator(user, indicator, project, organization, start, end):
+def get_events_from_indicator(user, indicator, project, organization, start, end, cascade=False):
     '''
     Function that pulls events that match conditions (for event count/org count indicator types).
+    Does not accept filters, because why?
+
+    CASCADE: Determines if this should pull the organization and its child org, only works if a project is provided.
     '''
     queryset = Event.objects.filter(tasks__indicator=indicator, status=Event.EventStatus.COMPLETED)
     if user.role == 'admin':
         queryset=queryset
     elif user.role == 'client':
-        queryset=queryset.filter(tasks__project__client=user.client_organization)
+        queryset=queryset.filter(tasks__indicator=indicator, tasks__project__client=user.client_organization)
     else:
         child_orgs = ProjectOrganization.objects.filter(
                 parent_organization=user.organization,
@@ -169,24 +213,40 @@ def get_events_from_indicator(user, indicator, project, organization, start, end
     if project:
         queryset=queryset.filter(tasks__project=project)
     if organization:
-        queryset=queryset.filter(tasks__organization=organization)
+        if cascade and project:
+            accessible_orgs = list(
+                ProjectOrganization.objects.filter(
+                    parent_organization=user.organization, project=project
+                ).values_list('organization', flat=True)
+            )
+            accessible_orgs.append(user.organization.id)
+            
+            queryset = queryset.filter(
+                tasks__organization__in=accessible_orgs
+            )
+        else:
+            queryset=queryset.filter(tasks__organization=organization)
     if start:
-        queryset=queryset.filter(event__start__gte=start)
+        queryset=queryset.filter(start__gte=start)
     if end:
-        queryset=queryset.filter(event_end__lte=end)
+        queryset=queryset.filter(end__lte=end)
 
-    return queryset
+    return queryset.distinct()
 
 #platform is the only filter social posts can accept
-def get_posts_from_indicator(user, indicator, project, organization, platform, start, end):
+def get_posts_from_indicator(user, indicator, project, organization, start, end, filters=None, cascade=False):
     '''
-    Function that pulls social posts that match conditions (for event count/org count indicator types).
+    Function that pulls social posts that match conditions. Takes platform as a possible filter.
+
+    CASCADE: Determines if this should pull the organization and its child org, only works if a project is provided.
     '''
     queryset = SocialMediaPost.objects.filter(tasks__indicator=indicator)
     if user.role == 'admin':
         queryset=queryset
     elif user.role == 'client':
-        queryset=queryset.filter(tasks__project__client=user.client_organization)
+        #this is an edge case, but make sure if an event is linked to two projects, it doesn't accidently
+        #pull one that shoudn't be there
+        queryset=queryset.filter(tasks__project__client=user.client_organization, tasks__indicator=indicator,)
     else:
         child_orgs = ProjectOrganization.objects.filter(
                 parent_organization=user.organization,
@@ -197,18 +257,37 @@ def get_posts_from_indicator(user, indicator, project, organization, platform, s
     if project:
         queryset=queryset.filter(tasks__project=project)
     if organization:
-        queryset=queryset.filter(tasks__organization=organization)
+        if cascade and project:
+            accessible_orgs = list(
+                ProjectOrganization.objects.filter(
+                    parent_organization=user.organization, project=project
+                ).values_list('organization', flat=True)
+            )
+            accessible_orgs.append(user.organization.id)
+            
+            queryset = queryset.filter(
+                tasks__organization__in=accessible_orgs
+            )
+        else:
+            queryset=queryset.filter(tasks__organization=organization)
     if start:
         queryset=queryset.filter(published_at__gte=start)
     if end:
         queryset=queryset.filter(published_at__lte=end)
-    if platform:
-        queryset=queryset.filter(platform=platform)
-    
+    if filters:
+        for field, values in filters.items():
+            if isinstance(values, list):
+                lookup = f"{field}__in"
+                queryset = queryset.filter(**{lookup: values})
+            else:
+                queryset = queryset.filter(**{field: values})
     queryset = queryset.exclude(flags__resolved=False).distinct()
     return queryset
 
 def get_pregnancies(respondent_ids):
+    '''
+    Helper to pull related pregnancy objects a build a map for easy checks. 
+    '''
     pregnancies = Pregnancy.objects.filter(respondent_id__in=respondent_ids)
 
     pregnancies_by_respondent = {}
@@ -218,6 +297,9 @@ def get_pregnancies(respondent_ids):
     return pregnancies_by_respondent
 
 def get_hiv_statuses(respondent_ids):
+    '''
+    Helper to pull related HIV status and build a map.
+    '''
     hiv_statuses = HIVStatus.objects.filter(respondent_id__in=respondent_ids)
     hiv_status_by_respondent = {}
     for hs in hiv_statuses:

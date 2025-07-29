@@ -21,7 +21,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
           
     class Meta:
         model = Organization
-        fields = ['id', 'name', 'full_name', 'office_address', 
+        fields = ['id', 'name', 'full_name', 'office_address', 'description',
                   'office_phone', 'office_email', 'executive_director', 'ed_phone', 'ed_email', 
                   'created_by', 'created_at', 'updated_by', 'updated_at'
                   ]
@@ -38,6 +38,6 @@ class OrganizationSerializer(serializers.ModelSerializer):
         name = attrs.get('name', None)
         if not name:
             raise serializers.ValidationError('Name is required.')
-        if Organization.objects.filter(name=name).exists():
+        if Organization.objects.filter(name=name).exclude(pk=getattr(self.instance, 'pk', None)).exists():
             raise serializers.ValidationError('Name is already in use. Please check if this organization is already in the system.')
         return attrs

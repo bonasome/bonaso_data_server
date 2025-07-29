@@ -50,58 +50,23 @@ class ProjectViewSet(RoleRestrictedViewSet):
         client_org = getattr(user, 'client_organization', None)
         if role == 'admin':
             queryset = Project.objects.all()
-            status = self.request.query_params.get('status')
-            if status:
-                queryset = queryset.filter(status=status)
-            return queryset
         elif role == 'client' and client_org:
-            return Project.objects.filter(client=client_org)
-        elif role and org:
-            return Project.objects.filter(organizations=org, status=Project.Status.ACTIVE)
+            queryset = Project.objects.filter(client=client_org)
+        elif role in ['meofficer', 'manager']:
+            queryset =  Project.objects.filter(organizations=org, status=Project.Status.ACTIVE)
+        else: 
+            queryset = Project.objects.none()
+        
+        status = self.request.query_params.get('status')
+        if status:
+                queryset = queryset.filter(status=status)
 
-        return Project.objects.none()
-    #this may not be necessary now that we have actions to handle this
-    '''
-    def partial_update(self, request, *args, **kwargs):
-        user = request.user
-        instance = self.get_object()
+        indicator_param = self.request.query_params.get('indicator')
+        if indicator_param:
+            valid_ids = Task.objects.filter(indicator__id=indicator_param).distinct().values_list('project__id', flat=True)
+            queryset = queryset.filter(id__in=valid_ids)
+        return queryset
 
-        if user.role != 'admin':
-            if user.role in ['meofficer', 'manager']:
-                if instance.status == Project.Status.ACTIVE:
-                    allowed_keys = ['organization_id']
-                    if not any(k in request.data for k in allowed_keys):
-                        raise PermissionDenied("Only admins can edit projects.") #not anything else
-
-                    new_org_ids = request.data.get('organization_id', [])
-                    if not isinstance(new_org_ids, list):
-                        new_org_ids = [new_org_ids]
-
-                    existing_org_ids = set(instance.organizations.values_list('id', flat=True))
-                    new_orgs = Organization.objects.filter(id__in=new_org_ids).exclude(id__in=existing_org_ids)
-
-                    # Check for invalid orgs not children of user's org
-                    invalid_orgs = [org for org in new_orgs if org.parent_organization != user.organization]
-                    if invalid_orgs:
-                        raise PermissionDenied("You may only add your subgrantees.")
-
-                    # Check if all requested IDs exist
-                    found_org_ids = set(org.id for org in new_orgs)
-                    missing_org_ids = set(new_org_ids) - found_org_ids - existing_org_ids
-                    if missing_org_ids:
-                        return Response({"detail": f"Organizations not found: {missing_org_ids}"}, status=400)
-
-                    instance.organizations.add(*new_orgs)
-
-                    # Return updated data
-                    serializer = ProjectDetailSerializer(instance, context=self.get_serializer_context())
-                    return Response(serializer.data)
-            else:
-                raise PermissionDenied("Only admins can edit active projects.")
-
-        # Admin users get normal partial update behavior
-        return super().partial_update(request, *args, **kwargs)
-    '''
     @transaction.atomic
     def destroy(self, request, *args, **kwargs):
         '''

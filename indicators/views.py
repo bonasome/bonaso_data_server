@@ -19,7 +19,7 @@ class IndicatorViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = IndicatorSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['status']
+    filterset_fields = ['status', 'indicator_type']
     ordering_fields = ['code', 'name']
     search_fields = ['name', 'code', 'description'] 
 

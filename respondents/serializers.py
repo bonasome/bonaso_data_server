@@ -437,11 +437,12 @@ class SimpleInteractionSerializer(serializers.ModelSerializer):
         model=Interaction
         fields = ['id', 'interaction_date']
 
+    
 class InteractionSubcategoryInputSerializer(serializers.Serializer):
     id = serializers.IntegerField(required=False, allow_null=True) #to allow creation fo new 
     subcategory = IndicatorSubcategorySerializer()
-    numeric_component = serializers.IntegerField(required=False, allow_null=True)
-
+    numeric_component = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    
 class InteractionSerializer(serializers.ModelSerializer):
     respondent = serializers.PrimaryKeyRelatedField(queryset=Respondent.objects.all())
     task_id = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True, source='task')
@@ -590,7 +591,10 @@ class InteractionSerializer(serializers.ModelSerializer):
         )
         for subcat in subcategories:
             subcat_id = subcat.get('subcategory').get('id')
-            numeric_value = subcat.get('numeric_component')
+            numeric_value = None
+            if interaction.task.indicator.require_numeric:
+                numeric_value = subcat.get('numeric_component')
+            
 
             try:
                 subcategory = IndicatorSubcategory.objects.get(pk=subcat_id)
@@ -634,7 +638,9 @@ class InteractionSerializer(serializers.ModelSerializer):
 
                 for subcat in subcategories:
                     subcat_id = subcat.get('subcategory').get('id')
-                    numeric_value = subcat.get('numeric_component')
+                    numeric_value = None
+                    if instance.task.indicator.require_numeric:
+                        numeric_value = subcat.get('numeric_component', None)
 
                     try:
                         subcategory = IndicatorSubcategory.objects.get(pk=subcat_id)

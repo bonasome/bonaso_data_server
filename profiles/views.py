@@ -90,6 +90,25 @@ class ProfileViewSet(RoleRestrictedViewSet):
         }
         return Response(data, status=status.HTTP_200_OK)
     
+    @action(detail=False, methods=['post'], url_path='is-favorited')
+    def is_favorited(self, request):
+        user= request.user
+        model_str = request.data.get('model')
+        obj_id = request.data.get('id')
+
+        if not model_str or not obj_id:
+            return Response({"detail": "Model and ID are required."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        response = get_favorited_object(model_str, obj_id)
+        if not response.get('success', False):
+            return Response(response.get('data', {'detail': 'Invalid information provided.'}), status=status.HTTP_400_BAD_REQUEST)
+        model = response.get('data')
+
+        is_favorited = FavoriteObject.objects.filter(user=user, content_type=ContentType.objects.get_for_model(model), object_id=obj_id).exists()
+        print(is_favorited)
+        return Response({'favorited': is_favorited}, status=status.HTTP_200_OK)
+
+
     @action(detail=False, methods=['post'], url_path='favorite')
     def favorite(self, request, pk=None):
         '''

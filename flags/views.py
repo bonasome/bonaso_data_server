@@ -16,6 +16,7 @@ from users.restrictviewset import RoleRestrictedViewSet
 from projects.models import ProjectOrganization
 from flags.models import Flag
 from flags.serializers import FlagSerializer
+from respondents.utils import get_enum_choices
 
 class FlagViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
@@ -42,6 +43,14 @@ class FlagViewSet(RoleRestrictedViewSet):
             return queryset.filter()
         else:
             return queryset.filter(caused_by=user)
+    @action(detail=False, methods=['get'], url_path='meta')
+    def get_meta(self, request):
+        '''
+        Get labels for the front end to assure consistency.
+        '''
+        return Response({
+            "flag_reasons": get_enum_choices(Flag.FlagReason),
+        })
     
     @action(detail=False, methods=['post'], url_path='raise-flag')
     def raise_flag(self, request):

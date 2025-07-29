@@ -13,7 +13,8 @@ from respondents.exceptions import DuplicateExists
 from projects.models import Task, ProjectOrganization
 from projects.serializers import TaskSerializer
 
-from indicators.models import IndicatorSubcategory
+from indicators.models import IndicatorSubcategory, Indicator
+from indicators.serializers import IndicatorSubcategorySerializer
 from flags.serializers import FlagSerializer
 from profiles.serializers import ProfileListSerializer
 from events.models import Event
@@ -25,10 +26,15 @@ class RespondentListSerializer(serializers.ModelSerializer):
     '''
     Shorthand serializer that only gives essential information for indexes and the like
     '''
+    display_name = serializers.SerializerMethodField()
+    def get_display_name(self, obj):
+        return str(obj)  # Uses obj.__str__()
     class Meta:
         model = Respondent
-        fields = ['id', 'uuid', 'is_anonymous', 'first_name', 'last_name', 'sex', 
-                  'village', 'district', 'citizenship', 'comments']
+        fields = [
+            'id', 'uuid', 'is_anonymous','sex', 'village', 'district', 'citizenship', 
+            'comments', 'age_range', 'display_name'
+        ]
 
 '''
 Several through table serializers for related models
@@ -50,11 +56,15 @@ class DisabilitySerializer(serializers.ModelSerializer):
 
 class PregnancySerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(required=False, allow_null=True)
+    created_by = ProfileListSerializer(read_only=True)
+    updated_by = ProfileListSerializer(read_only=True)
     class Meta:
         model = Pregnancy
         fields = ['id', 'term_began', 'term_ended', 'created_by', 'created_at', 'updated_by', 'updated_at']
 
 class HIVStatusSerializer(serializers.ModelSerializer):
+    created_by = ProfileListSerializer(read_only=True)
+    updated_by = ProfileListSerializer(read_only=True)
     class Meta:
         model = HIVStatus
         fields = ['id', 'hiv_positive', 'date_positive', 'created_by', 'created_at', 'updated_by', 'updated_at']
@@ -62,6 +72,7 @@ class HIVStatusSerializer(serializers.ModelSerializer):
 
 class RespondentSerializer(serializers.ModelSerializer):
     #id_no = serializers.CharField(write_only=True, required=False, allow_blank=True, allow_null=True)
+    display_name = serializers.SerializerMethodField()
     dob = serializers.DateField(required=False, allow_null=True)
 
     created_by = ProfileListSerializer(read_only=True)
@@ -84,7 +95,8 @@ class RespondentSerializer(serializers.ModelSerializer):
     disability_status_names = serializers.ListField(child=serializers.CharField(), write_only=True, required=False)
     
     flags = FlagSerializer(read_only=True, many=True)
-
+    def get_display_name(self, obj):
+        return str(obj)  # Uses obj.__str__()
     class Meta:
         model=Respondent
         fields = [
@@ -92,11 +104,13 @@ class RespondentSerializer(serializers.ModelSerializer):
             'village', 'district', 'citizenship', 'comments', 'email', 'phone_number', 'dob',
             'age_range', 'created_by', 'updated_by', 'created_at', 'updated_at', 'special_attribute', 
             'special_attribute_names', 'pregnancies', 'pregnancy_data', 'hiv_status', 'kp_status', 'kp_status_names', 'disability_status',
-            'disability_status_names', 'hiv_status_data', 'flags', 'current_age_range'
+            'disability_status_names', 'hiv_status_data', 'flags', 'current_age_range', 'display_name'
         ]
 
     def validate_id_no(self, value):
         #confirm this is not a duplicate (check id_no)
+        if not value:
+            return value
         if self.instance:
             existing = Respondent.objects.filter(id_no=value).exclude(id=self.instance.id)
         else:
@@ -117,11 +131,11 @@ class RespondentSerializer(serializers.ModelSerializer):
         #make sure that no sensitive fields are sent with anonymous respondents
         if 'is_anonymous' in attrs:
             if attrs['is_anonymous']:
-                for field in ['first_name', 'last_name', 'email', 'phone_number', 'dob']:
+                for field in ['id_no', 'first_name', 'last_name', 'email', 'phone_number', 'dob']:
                     if attrs.get(field):
                         raise serializers.ValidationError(f"{field} must not be set when is_anonymous is True.")
             else:
-                for field in ['first_name', 'last_name', 'dob']:
+                for field in ['id_no', 'first_name', 'last_name', 'dob']:
                     if not attrs.get(field) and not getattr(self.instance, field, None):
                         raise serializers.ValidationError(f"{field} is required when respondent is not anonymous.")
         
@@ -424,14 +438,14 @@ class SimpleInteractionSerializer(serializers.ModelSerializer):
         fields = ['id', 'interaction_date']
 
 class InteractionSubcategoryInputSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    name = serializers.CharField()
+    id = serializers.IntegerField(required=False, allow_null=True) #to allow creation fo new 
+    subcategory = IndicatorSubcategorySerializer()
     numeric_component = serializers.IntegerField(required=False, allow_null=True)
 
 class InteractionSerializer(serializers.ModelSerializer):
     respondent = serializers.PrimaryKeyRelatedField(queryset=Respondent.objects.all())
-    task = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True)
-    task_detail = TaskSerializer(source='task', read_only=True)
+    task_id = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True, source='task')
+    task = TaskSerializer(read_only=True)
     subcategories = serializers.SerializerMethodField()
     subcategories_data = InteractionSubcategoryInputSerializer(many=True, write_only=True, required=False)
     flags = FlagSerializer(read_only=True, many=True)
@@ -439,6 +453,10 @@ class InteractionSerializer(serializers.ModelSerializer):
     updated_by = ProfileListSerializer(read_only=True)
     event = EventSerializer(read_only=True)
     event_id = serializers.PrimaryKeyRelatedField(queryset=Event.objects.all(), write_only=True, source='event', required=False, allow_null=True)
+    display_name = serializers.SerializerMethodField()
+    def get_display_name(self, obj):
+        return str(obj)  # Uses obj.__str__()
+
     def get_subcategories(self, obj):
         subcats = InteractionSubcategory.objects.filter(interaction=obj)
         data = []
@@ -456,7 +474,7 @@ class InteractionSerializer(serializers.ModelSerializer):
     class Meta:
         model=Interaction
         fields = [
-            'id', 'respondent', 'subcategories', 'subcategories_data', 'task', 'task_detail',
+            'id', 'display_name', 'respondent', 'subcategories', 'subcategories_data', 'task_id', 'task',
             'interaction_date', 'numeric_component', 'created_by', 'updated_by', 'created_at', 'updated_at',
             'comments', 'interaction_location', 'event','event_id', 'flags'
         ]
@@ -515,9 +533,8 @@ class InteractionSerializer(serializers.ModelSerializer):
         #verify location is present
         if not interaction_location:
             raise serializers.ValidationError("Interaction location is required.")
-        
         #verify that the selected task's indicator is supposed to be linked to a respondent
-        if task.indicator.indicator_type != 'respondent':
+        if task.indicator.indicator_type != Indicator.IndicatorType.RESPONDENT:
             raise serializers.ValidationError("This task cannot be assigned to an interaction.")
         
         #check if number is required/present
@@ -546,13 +563,13 @@ class InteractionSerializer(serializers.ModelSerializer):
 
                     if numeric_value is None:
                         raise serializers.ValidationError(
-                            f"Subcategory {cat.get('name')} requires a numeric component."
+                            f"Subcategory {cat.get('subcategory').get('name')} requires a numeric component."
                         )
                     try:
                         int(numeric_value)
                     except (ValueError, TypeError):
                         raise serializers.ValidationError(
-                            f"Numeric component for subcategory {cat.get('name')} must be a valid integer."
+                            f"Numeric component for subcategory {cat.get('subcategory').get('name')} must be a valid integer."
                         )
         else:
             if not subcategories or subcategories in [None, '', []]:
@@ -572,7 +589,7 @@ class InteractionSerializer(serializers.ModelSerializer):
             **validated_data
         )
         for subcat in subcategories:
-            subcat_id = subcat.get('id')
+            subcat_id = subcat.get('subcategory').get('id')
             numeric_value = subcat.get('numeric_component')
 
             try:
@@ -616,7 +633,7 @@ class InteractionSerializer(serializers.ModelSerializer):
                 InteractionSubcategory.objects.filter(interaction=instance).delete()
 
                 for subcat in subcategories:
-                    subcat_id = subcat['id']
+                    subcat_id = subcat.get('subcategory').get('id')
                     numeric_value = subcat.get('numeric_component')
 
                     try:

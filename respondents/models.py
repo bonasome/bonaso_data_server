@@ -291,7 +291,7 @@ class Interaction(models.Model):
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='interaction_updated_by')
     
     def __str__(self):
-        return f'Interaction with {self.respondent} on {self.interaction_date} for {self.task.indicator.code}'
+        return f'Interaction with {self.respondent} on {self.interaction_date} for {self.task.indicator} by {self.task.organization}'
 
 
 class InteractionSubcategory(models.Model):

@@ -96,14 +96,7 @@ class RespondentViewSet(RoleRestrictedViewSet):
             "age_ranges": get_enum_choices(Respondent.AgeRanges),
             "kp_types": get_enum_choices(KeyPopulation.KeyPopulations),
             "disability_types": get_enum_choices(DisabilityType.DisabilityTypes),
-            "special_attributes": get_enum_choices(
-                RespondentAttributeType.Attributes,
-                exclude={
-                    RespondentAttributeType.Attributes.PLWHIV,
-                    RespondentAttributeType.Attributes.KP,
-                    RespondentAttributeType.Attributes.PWD,
-                }
-            )
+            "special_attributes": get_enum_choices(RespondentAttributeType.Attributes)
         })
     
     @action(detail=False, methods=['post'], url_path='bulk')
@@ -171,7 +164,7 @@ class RespondentViewSet(RoleRestrictedViewSet):
                                     'respondent': respondent.id,
                                     'interaction_date': interaction_date,
                                     'interaction_location': interaction_location,
-                                    'task': task_id,
+                                    'task_id': task_id,
                                     'numeric_component': numeric_component,
                                     'subcategories_data': subcats,
                                     'comments': '',

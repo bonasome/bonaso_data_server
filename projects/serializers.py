@@ -50,11 +50,16 @@ class TaskSerializer(serializers.ModelSerializer):
     organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, source='organization')
     indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True, source='indicator')
     project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True, source='project')
- 
+    display_name = serializers.SerializerMethodField(read_only=True)
+
+    def get_display_name(self, obj):
+        return str(obj)  # Uses obj.__str__()
+
+    
     class Meta:
         model=Task
         fields = ['id', 'indicator', 'organization', 'project', 'indicator_id', 
-                  'project_id', 'organization_id']
+                  'project_id', 'organization_id', 'display_name']
         
 
     def validate(self, attrs):

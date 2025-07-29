@@ -19,23 +19,17 @@ class IndicatorListSerializer(serializers.ModelSerializer):
     that handle then match subcategory category.
     '''
     subcategories = serializers.SerializerMethodField()
+    display_name = serializers.SerializerMethodField(read_only=True)
+
     def get_subcategories(self, obj):
         return obj.subcategories.filter(deprecated=False).count()
-
+    
+    def get_display_name(self, obj):
+        return str(obj)  # Uses obj.__str__()
+    
     class Meta:
         model=Indicator
-        fields = ['id', 'code', 'name', 'subcategories']
-
-class PrerequisiteSerializer(serializers.ModelSerializer):
-    '''
-    Nested serializer that is used for prerequisites.
-    '''
-    subcategories = serializers.SerializerMethodField()
-    def get_subcategories(self, obj):
-        return obj.subcategories.filter(deprecated=False).count()
-    class Meta:
-        model = Indicator
-        fields = ['id', 'code', 'name', 'subcategories']
+        fields = ['id', 'display_name', 'subcategories']
 
 class IndicatorSerializer(serializers.ModelSerializer):
     '''
@@ -47,7 +41,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
         child=serializers.CharField(), write_only=True, required=False
     )
 
-    prerequisites = PrerequisiteSerializer(read_only=True, many=True)
+    prerequisites = IndicatorListSerializer(read_only=True, many=True)
     prerequisite_ids = serializers.PrimaryKeyRelatedField(
         source='prerequisites',
         queryset=Indicator.objects.all(),
@@ -63,9 +57,13 @@ class IndicatorSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True
     )
+    display_name = serializers.SerializerMethodField(read_only=True)
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
 
+    def get_display_name(self, obj):
+        return str(obj)  # Uses obj.__str__()
+    
     def get_subcategories(self, obj):
         '''
         Collect non-deprecated subcategories
@@ -77,7 +75,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
         model = Indicator
         fields = ['id', 'name', 'code', 'prerequisites', 'prerequisite_ids', 'description', 'subcategories', 'match_subcategories_to',
                   'subcategory_data', 'require_numeric', 'status', 'created_by', 'created_at', 'allow_repeat', 'governs_attribute',
-                  'updated_by', 'updated_at', 'required_attributes', 'required_attribute_names', 'indicator_type']
+                  'updated_by', 'updated_at', 'required_attributes', 'required_attribute_names', 'indicator_type', 'display_name']
         
     def to_representation(self, instance):
         representation = super().to_representation(instance)

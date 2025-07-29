@@ -11,10 +11,17 @@ class ProfileListSerializer(serializers.ModelSerializer):
     '''
     Lightweight serializer used quite a bit for getting created by/updated by
     '''
+    display_name = serializers.SerializerMethodField(read_only=True)
     organization = OrganizationListSerializer(read_only=True)
+
+    def get_display_name(self, obj):
+        if obj.first_name and obj.last_name:
+            return f'{obj.first_name} {obj.last_name}'
+        else:
+            return f'{obj.username}'
     class Meta:
         model=User
-        fields = ['id', 'first_name', 'last_name', 'organization']
+        fields = ['id', 'display_name', 'organization']
 
 class ProfileSerializer(serializers.ModelSerializer):
     '''

@@ -92,7 +92,7 @@ class Task(models.Model):
         unique_together = ('project', 'organization', 'indicator')
 
     def __str__(self):
-        return f'{self.organization}, {self.indicator} ({self.project})'
+        return f'{self.indicator} ({self.organization}, {self.project})'
     
 class Target(models.Model):
     '''

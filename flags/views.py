@@ -58,7 +58,7 @@ class FlagViewSet(RoleRestrictedViewSet):
             "respondents.respondent",
             "respondents.interaction",
             "events.demographiccount",
-            "posts.socialmediapost"
+            "social.socialmediapost"
         }
         user = request.user
 

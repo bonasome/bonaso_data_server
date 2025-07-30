@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 
+from profiles.serializers import ProfileListSerializer
 from projects.serializers import TaskSerializer
 from projects.models import Task, ProjectOrganization
 from social.models import SocialMediaPost, SocialMediaPostTasks
@@ -18,12 +19,16 @@ class SocialMediaPostSerializer(serializers.ModelSerializer):
     )
     flags = FlagSerializer(read_only=True, many=True)
 
+    created_by = ProfileListSerializer(read_only=True)
+    updated_by = ProfileListSerializer(read_only=True)
+
     class Meta:
         model = SocialMediaPost
         fields = [
             'id', 'name', 'description', 'likes', 'comments', 'views',
             'platform', 'other_platform', 'link_to_post', 'published_at',
-            'tasks', 'task_ids', 'created_at', 'flags'
+            'tasks', 'task_ids', 'created_at', 'flags', 'updated_at', 'created_by',
+            'updated_by',
         ]
 
     def validate(self, attrs):

@@ -27,20 +27,31 @@ class SocialMediaPostViewSet(RoleRestrictedViewSet):
 
         user = self.request.user
 
-        if user.role in ['admin', 'client']:
-            return SocialMediaPost.objects.all()
+        queryset = SocialMediaPost.objects.all()
 
-        if user.role in ['meofficer', 'manager']:
+        if user.role == 'admin':
+            queryset = queryset
+        elif user.role == 'client':
+            queryset = queryset.filter(tasks__project__client=user.client_organization).distinct()
+        elif user.role in ['meofficer', 'manager']:
             child_orgs = ProjectOrganization.objects.filter(
                 parent_organization=user.organization
             ).values_list('organization', flat=True)
 
-            return SocialMediaPost.objects.filter(
+            queryset = queryset.filter(
                 Q(tasks__organization=user.organization) |
                 Q(tasks__organization__in=child_orgs)
-            )
+            ).distinct()
+        else:
+            queryset = SocialMediaPost.objects.none()
+        start = self.request.query_params.get('start')
+        end = self.request.query_params.get('end')
+        if start:
+            queryset = queryset.filter(published_at__gte=start)
+        if end:
+            queryset = queryset.filter(published_at__lte=end)
 
-        return SocialMediaPost.objects.none()
+        return queryset
     
     @action(detail=False, methods=['get'], url_path='meta')
     def get_meta(self, request):

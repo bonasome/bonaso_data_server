@@ -20,7 +20,7 @@ class ClientSerializer(serializers.ModelSerializer):
     '''
     class Meta:
         model = Client
-        fields = ['id', 'name', 'full_name']
+        fields = ['id', 'name', 'full_name', 'description']
 
     def validate(self, attrs):
         request = self.context.get('request')

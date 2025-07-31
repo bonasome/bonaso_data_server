@@ -18,7 +18,8 @@ class Client(models.Model):
     '''
     name = models.CharField(max_length=255, verbose_name='Client Organization Name')
     full_name = models.CharField(max_length=255, blank=True, null=True, verbose_name='Client Organization Full Name')
-    
+    description = models.TextField(blank=True, null=True, verbose_name='Client Description')
+
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='client_created_by')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

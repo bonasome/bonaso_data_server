@@ -93,6 +93,8 @@ class IndicatorSerializer(serializers.ModelSerializer):
         '''
         Special validation for prerequisites
         '''
+        if not value:
+            return None
         if self.instance:
             for prereq in value:
                 if prereq == self.instance:
@@ -112,7 +114,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
         name = attrs.get('name', getattr(self.instance, 'name', None))
         status = attrs.get('status', getattr(self.instance, 'status', None))
         indicator_type = attrs.get('indicator_type', getattr(self.instance, 'indicator_type', None))
-        prerequisites = attrs.get('prerequisites', getattr(self.instance, 'prerequisites', None))
+        prerequisites = attrs.get('prerequisites', getattr(self.instance, 'prerequisites', []))
         required_attributes = attrs.get('required_attribute_names', getattr(self.instance, 'required_attributes', None))
         governs_attribute = attrs.get('governs_attribute', getattr(self.instance, 'governs_attribute', None))
         ind_id = self.instance.id if self.instance else None
@@ -208,7 +210,8 @@ class IndicatorSerializer(serializers.ModelSerializer):
         required_attribute_names = validated_data.pop('required_attribute_names', [])
 
         indicator = Indicator.objects.create(**validated_data)
-        indicator.prerequisites.set(prerequisites)
+        if prerequisites is not None:
+            indicator.prerequisites.set(prerequisites)
 
         #if matched subcats, set them equal here
         if indicator.match_subcategories_to:
@@ -227,7 +230,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
         
         #create required attributes as well
         attrs = [
-            RespondentAttributeType.objects.get_or_create(name=name)
+            RespondentAttributeType.objects.get_or_create(name=name)[0]
             for name in required_attribute_names
         ]
         indicator.required_attributes.set(attrs)
@@ -236,7 +239,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         from respondents.models import RespondentAttributeType
-        prerequisites = validated_data.pop('prerequisites', None)
+        prerequisites = validated_data.pop('prerequisites', [])
 
         #for our m2m fields, nothing attached for a partial does nothing, an empty array wipes
         subcategory_data = validated_data.pop('subcategory_data', None) 
@@ -245,7 +248,10 @@ class IndicatorSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
 
         instance.save()
-        if prerequisites is not None:
+        print(prerequisites)
+        if 'prerequisite_ids' in self.initial_data:
+            if prerequisites is None:
+                prerequisites = []
             instance.prerequisites.set(prerequisites)
 
         #same as above, match or set the subcategories

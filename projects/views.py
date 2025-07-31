@@ -59,12 +59,21 @@ class ProjectViewSet(RoleRestrictedViewSet):
         
         status = self.request.query_params.get('status')
         if status:
-                queryset = queryset.filter(status=status)
+            queryset = queryset.filter(status=status)
+
+        start = self.request.query_params.get('start')
+        if start:
+            queryset = queryset.filter(start__gte=start)
+
+        end = self.request.query_params.get('end')
+        if end:
+            queryset = queryset.filter(end__lte=end)
 
         indicator_param = self.request.query_params.get('indicator')
         if indicator_param:
             valid_ids = Task.objects.filter(indicator__id=indicator_param).distinct().values_list('project__id', flat=True)
             queryset = queryset.filter(id__in=valid_ids)
+
         return queryset
 
     @transaction.atomic
@@ -479,10 +488,9 @@ class ClientViewSet(RoleRestrictedViewSet):
         '''
         user = self.request.user
         role = getattr(user, 'role', None)
-        
+        queryset = Client.objects.all()
         if role != 'admin':
             queryset= Client.objects.none()
-
         return queryset
 
     def perform_create(self, serializer):

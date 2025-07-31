@@ -33,7 +33,7 @@ from respondents.models import Respondent, Interaction, HIVStatus, KeyPopulation
 from respondents.serializers import RespondentSerializer, InteractionSerializer
 from respondents.utils import check_event_perm
 from respondents.utils_file_upload import excel_columns, valid_excel_date, is_email, is_phone_number, is_truthy
-from indicators.models import IndicatorSubcategory
+from indicators.models import IndicatorSubcategory, Indicator
 from events.models import Event, EventOrganization
 
 class InteractionViewSet(RoleRestrictedViewSet):
@@ -226,7 +226,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
         headers.append({'header': 'Interaction Location', 'options': [], 'multiple': False})
         
         #pull tasks related to the project
-        tasks = Task.objects.filter(organization__id=org_id, project__id=project_id, indicator__indicator_type='Respondent').order_by('indicator__code')
+        tasks = Task.objects.filter(organization__id=org_id, project__id=project_id, indicator__indicator_type=Indicator.IndicatorType.RESPONDENT).order_by('indicator__code')
         if not tasks:
             raise serializers.ValidationError('There are no tasks associated with this project for your organization.')
         

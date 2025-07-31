@@ -3,6 +3,7 @@ from rest_framework.exceptions import PermissionDenied
 
 from messaging.models import Message, MessageRecipient, Announcement, Alert, AnnouncementOrganization
 from projects.models import Project
+from projects.serializers import ProjectListSerializer
 from projects.utils import ProjectPermissionHelper
 from organizations.models import Organization
 from profiles.serializers import ProfileListSerializer
@@ -24,9 +25,10 @@ class AlertSerializer(serializers.ModelSerializer):
         fields = ['id', 'alert_type', 'sent_on', 'subject', 'body', 'content_object', 'object_id']
 
 class AnnouncementSerializer(serializers.ModelSerializer):
+    project = ProjectListSerializer(read_only=True)
     project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True, required=False, allow_null=True, source='project')
     organization_ids = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, required=False, many=True, source='organizations')
-
+    sent_by = ProfileListSerializer(read_only=True)
     class Meta:
         model = Announcement
         fields = [

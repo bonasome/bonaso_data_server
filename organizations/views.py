@@ -48,7 +48,9 @@ class OrganizationViewSet(RoleRestrictedViewSet):
 
         exclude_project_id = self.request.query_params.get('exclude_project')
         if exclude_project_id:
-            queryset = queryset.exclude(projectorganization__project__id=exclude_project_id)
+            exclude_ids = ProjectOrganization.objects.filter(project__id=exclude_project_id).values_list('organization__id', flat=True)
+            queryset = queryset.exclude(id__in=exclude_ids)
+
         exclude_event_id = self.request.query_params.get('exclude_event')
         if exclude_event_id:
             queryset = queryset.exclude(eventorganization__event__id=exclude_event_id)

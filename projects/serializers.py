@@ -18,9 +18,11 @@ class ClientSerializer(serializers.ModelSerializer):
     '''
     Simple serializer for viewing/editing clients. Only admins have rights to do this.
     '''
+    created_by = ProfileListSerializer(read_only=True)
+    updated_by = ProfileListSerializer(read_only=True)
     class Meta:
         model = Client
-        fields = ['id', 'name', 'full_name', 'description']
+        fields = ['id', 'name', 'full_name', 'description', 'created_by', 'created_at', 'updated_by', 'updated_at']
 
     def validate(self, attrs):
         request = self.context.get('request')
@@ -222,7 +224,7 @@ class TargetSerializer(serializers.ModelSerializer):
         user = self.context.get('request').user
         if not obj.related_to:
             return None
-        return get_achievement(user, obj.related_to)
+        return get_achievement(user, obj, obj.related_to)
 
     def get_achievement(self, obj):
         '''
@@ -325,12 +327,14 @@ class ProjectActivitySerializer(serializers.ModelSerializer):
     organizations = OrganizationListSerializer(read_only=True, many=True)
     organization_ids = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), many=True, write_only=True, required=False, source='organizations')
     comments = ProjectActivityCommentSerializer(read_only=True, many=True)
-    
+    created_by = ProfileListSerializer(read_only=True)
+    updated_by = ProfileListSerializer(read_only=True)
     class Meta:
         model = ProjectActivity
         fields = [
                     'id', 'project', 'project_id', 'organizations', 'organization_ids', 'start', 'end', 'comments',
-                    'cascade_to_children', 'visible_to_all', 'category', 'status', 'name', 'description',   
+                    'cascade_to_children', 'visible_to_all', 'category', 'status', 'name', 'description', 
+                    'created_by', 'created_at', 'updated_by', 'updated_at'  
                 ]
     
     def _set_organizations(self, activity, organizations):
@@ -402,6 +406,8 @@ class ProjectDeadlineSerializer(serializers.ModelSerializer):
     project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True, required=False, allow_null=True, source='project')
     organizations = serializers.SerializerMethodField()
     organization_ids = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), many=True, write_only=True, required=False, source='organizations')
+    created_by = ProfileListSerializer(read_only=True)
+    updated_by = ProfileListSerializer(read_only=True)
 
     def get_organizations(self, obj):
         org_links = ProjectDeadlineOrganization.objects.filter(deadline=obj)
@@ -413,9 +419,11 @@ class ProjectDeadlineSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = ProjectDeadline
-        fields = ['id', 'project', 'project_id', 'organizations', 'organization_ids', 'deadline_date',
-                'cascade_to_children', 'visible_to_all', 'name', 'description',
-                ]
+        fields = [
+            'id', 'project', 'project_id', 'organizations', 'organization_ids', 'deadline_date',
+            'cascade_to_children', 'visible_to_all', 'name', 'description', 'created_by', 'created_at', 
+            'updated_by', 'updated_at'
+        ]
     
     def _set_organizations(self, deadline, organizations):
         # Clear existing relationships first

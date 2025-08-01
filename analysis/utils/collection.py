@@ -26,7 +26,7 @@ def get_interactions_from_indicator(user, indicator, project=None, organization=
     CASCADE: Determines if this should pull the organization and its child org, only works if a project is provided.
     '''
     queryset = Interaction.objects.filter(task__indicator=indicator)
-
+    
     #start with perms
     if user.role == 'admin':
         queryset=queryset
@@ -47,20 +47,22 @@ def get_interactions_from_indicator(user, indicator, project=None, organization=
     #handle additional parameters
     if project:
         queryset=queryset.filter(task__project=project)
+    
     if organization:
         if cascade and project:
             accessible_orgs = list(
                 ProjectOrganization.objects.filter(
-                    parent_organization=user.organization, project=project
+                    parent_organization=organization, project=project
                 ).values_list('organization', flat=True)
             )
-            accessible_orgs.append(user.organization.id)
+            accessible_orgs.append(organization.id)
             
             queryset = queryset.filter(
                 task__organization__in=accessible_orgs
             )
         else:
             queryset=queryset.filter(task__organization=organization)
+
     if start:
         queryset=queryset.filter(interaction_date__gte=start)
     if end:
@@ -116,6 +118,7 @@ def get_interactions_from_indicator(user, indicator, project=None, organization=
                 else:
                     queryset = queryset.filter(**{field_name: values})
     queryset = queryset.exclude(flags__resolved=False).exclude(respondent__flags__resolved=False).distinct()
+
     return queryset
 
 def get_interaction_subcats(interactions, filter_ids=None):
@@ -158,10 +161,10 @@ def get_event_counts_from_indicator(user, indicator, params, project, organizati
         if cascade and project:
             accessible_orgs = list(
                 ProjectOrganization.objects.filter(
-                    parent_organization=user.organization, project=project
+                    parent_organization=organization, project=project
                 ).values_list('organization', flat=True)
             )
-            accessible_orgs.append(user.organization.id)
+            accessible_orgs.append(organization.id)
             
             queryset = queryset.filter(
                 task__organization__in=accessible_orgs
@@ -216,10 +219,10 @@ def get_events_from_indicator(user, indicator, project, organization, start, end
         if cascade and project:
             accessible_orgs = list(
                 ProjectOrganization.objects.filter(
-                    parent_organization=user.organization, project=project
+                    parent_organization=organization, project=project
                 ).values_list('organization', flat=True)
             )
-            accessible_orgs.append(user.organization.id)
+            accessible_orgs.append(organization.id)
             
             queryset = queryset.filter(
                 tasks__organization__in=accessible_orgs
@@ -260,10 +263,10 @@ def get_posts_from_indicator(user, indicator, project, organization, start, end,
         if cascade and project:
             accessible_orgs = list(
                 ProjectOrganization.objects.filter(
-                    parent_organization=user.organization, project=project
+                    parent_organization=organization, project=project
                 ).values_list('organization', flat=True)
             )
-            accessible_orgs.append(user.organization.id)
+            accessible_orgs.append(organization.id)
             
             queryset = queryset.filter(
                 tasks__organization__in=accessible_orgs

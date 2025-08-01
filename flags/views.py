@@ -2,7 +2,7 @@ from rest_framework import filters
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.filters import OrderingFilter
 from rest_framework.decorators import action
 from rest_framework import status
@@ -16,12 +16,15 @@ from users.restrictviewset import RoleRestrictedViewSet
 from projects.models import ProjectOrganization
 from flags.models import Flag
 from flags.serializers import FlagSerializer
+from flags.utils import get_flag_metadata
 from respondents.utils import get_enum_choices
+
 
 class FlagViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = FlagSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
+    filterset_fields = []
     ordering_fields = ['-created_at']
     search_fields = ['reason_type', 'reason']
     
@@ -29,20 +32,68 @@ class FlagViewSet(RoleRestrictedViewSet):
         user = self.request.user
         queryset = Flag.objects.all()
         if user.role in ['admin', 'client']:
-            obj=queryset.first()
-            print(obj.caused_by.organization)
-            return queryset
-        if user.role in ['meofficer', 'manager']:
+            pass
+        elif user.role in ['meofficer', 'manager']:
             child_orgs = ProjectOrganization.objects.filter(
                 parent_organization=user.organization
             ).values_list('organization', flat=True)
 
             queryset = queryset.filter(
                 Q(caused_by__organization=user.organization) | Q(caused_by__organization__in=child_orgs)
-            )
-            return queryset.filter()
+            ).distinct()
         else:
-            return queryset.filter(caused_by=user)
+            queryset = queryset.filter(caused_by=user)
+
+
+        org_param = self.request.query_params.get('organization')
+        if org_param:
+            queryset = queryset.filter(caused_by__organization__id=org_param)
+
+        model_param = self.request.query_params.get('model')
+        if model_param:
+            print(model_param)
+            try:
+                app_label, model_name = model_param.lower().split('.')
+                model = apps.get_model(app_label, model_name)
+                if model is None:
+                    raise LookupError(f"Model '{model_param}' not found.")
+                content_type = ContentType.objects.get_for_model(model)
+                queryset = queryset.filter(content_type=content_type)
+            except (ValueError, LookupError) as e:
+                raise ValidationError({"model": f"Invalid model string '{model_param}': {str(e)}"})
+            
+        resolved_str = self.request.query_params.get('resolved')
+        if resolved_str is not None:
+            if resolved_str.lower() in ['true', '1']:
+                queryset = queryset.filter(resolved=True)
+            elif resolved_str.lower() in ['false', '0']:
+                queryset = queryset.filter(resolved=False)
+
+        auto_str = self.request.query_params.get('auto_flagged')
+        if auto_str is not None:
+            print(auto_str)
+            if auto_str.lower() in ['true', '1']:
+                queryset = queryset.filter(auto_flagged=True)
+            elif auto_str.lower() in ['false', '0']:
+                queryset = queryset.filter(auto_flagged=False)
+
+        start = self.request.query_params.get('start')
+        if start:
+            queryset = queryset.filter(created_at__gte=start)
+
+        end = self.request.query_params.get('end')
+        if end:
+            queryset = queryset.filter(created_at__lte=end)
+
+        return queryset.distinct()
+    
+    @action(detail=False, methods=["get"], url_path='metadata')
+    def metadata(self, request):
+        # Apply all filters/search/orderings as usual
+        queryset = self.filter_queryset(self.get_queryset())
+
+        return Response(get_flag_metadata(queryset))
+    
     @action(detail=False, methods=['get'], url_path='meta')
     def get_meta(self, request):
         '''
@@ -50,6 +101,12 @@ class FlagViewSet(RoleRestrictedViewSet):
         '''
         return Response({
             "flag_reasons": get_enum_choices(Flag.FlagReason),
+            "models": [
+                {'value': "respondents.respondent", 'label': 'Respondent'},
+                {'value':"respondents.interaction",'label': 'Interaction'},
+                {'value':"events.demographiccount",'label': 'Demographic Count from Event'},
+                {'value':"social.socialmediapost", 'label': 'Social Media Post'},
+            ]
         })
     
     @action(detail=False, methods=['post'], url_path='raise-flag')

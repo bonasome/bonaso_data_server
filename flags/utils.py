@@ -1,6 +1,7 @@
 from django.utils.timezone import now
 from django.contrib.contenttypes.models import ContentType
 from django.apps import apps
+from django.db.models import Count
 
 from flags.models import Flag
 
@@ -36,3 +37,15 @@ def get_object_from_str(model_str: str, object_id: int):
         return model.objects.get(pk=object_id)
     except (ValueError, LookupError, model.DoesNotExist):
         return None
+
+def get_flag_metadata(queryset):
+    total = queryset.count()
+    auto_flagged = queryset.filter(auto_flagged=True).count()
+    active = queryset.filter(resolved=False).count()
+    by_type = queryset.values("reason_type").annotate(count=Count("id"))
+    return {
+        'total': total,
+        'auto_flagged': auto_flagged,
+        'active': active,
+        'by_type': by_type,
+    }

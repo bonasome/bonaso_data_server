@@ -168,8 +168,8 @@ class EventViewSetTest(APITestCase):
             'location': 'Gaborone',
             'host_id': self.parent_org.id,
             'description': 'Testing creation',
-            'task_id': [self.task.id],
-            'organization_id': [self.child_org.id],
+            'task_ids': [self.task.id],
+            'organization_ids': [self.child_org.id],
 
         }
         response = self.client.post('/api/activities/events/', valid_payload, format='json')
@@ -186,7 +186,7 @@ class EventViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'start': '2024-07-08',
-            'task_id': [self.new_task.id],
+            'task_ids': [self.new_task.id],
         }
         response = self.client.patch(f'/api/activities/events/{self.event.id}/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -220,8 +220,8 @@ class EventViewSetTest(APITestCase):
             'location': 'Gaborone',
             'host_id': self.parent_org.id,
             'description': 'Testing creation',
-            'task_id': [self.task.id],
-            'organization_id': [self.child_org.id],
+            'task_ids': [self.task.id],
+            'organization_ids': [self.child_org.id],
         }
         response = self.client.post('/api/activities/events/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -235,8 +235,8 @@ class EventViewSetTest(APITestCase):
             'location': 'Gaborone',
             'host_id': self.other_org.id,
             'description': 'Testing creation',
-            'task_id': [self.task.id],
-            'organization_id': [self.child_org.id],
+            'task_ids': [self.task.id],
+            'organization_ids': [self.child_org.id],
         }
         response = self.client.post('/api/activities/events/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -250,8 +250,8 @@ class EventViewSetTest(APITestCase):
             'location': 'Gaborone',
             'host_id': self.parent_org.id,
             'description': 'Testing creation',
-            'task_id': [self.task.id],
-            'organization_id': [self.other_org.id],
+            'task_ids': [self.task.id],
+            'organization_ids': [self.other_org.id],
         }
         response = self.client.post('/api/activities/events/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -265,8 +265,8 @@ class EventViewSetTest(APITestCase):
             'location': 'Gaborone',
             'host_id': self.parent_org.id,
             'description': 'Testing creation',
-            'task_id': [self.other_task.id],
-            'organization_id': [self.parent_org.id],
+            'task_ids': [self.other_task.id],
+            'organization_ids': [self.parent_org.id],
         }
         response = self.client.post('/api/activities/events/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -279,8 +279,8 @@ class EventViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.manager)
         valid_payload = {
             'start': '2024-07-01',
-            'organization_id': [self.child_org.id],
-            'task_id': [self.child_task.id]
+            'organization_ids': [self.child_org.id],
+            'task_ids': [self.child_task.id]
         }
         response = self.client.patch(f'/api/activities/events/{self.event.id}/', valid_payload, format='json')
         print(response.json())
@@ -291,7 +291,7 @@ class EventViewSetTest(APITestCase):
         #should fail
         valid_payload = {
             'start': '2024-07-01',
-            'organization_id': [self.other_org.id],
+            'organization_ids': [self.other_org.id],
         }
         response = self.client.patch(f'/api/activities/events/{self.event.id}/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -299,7 +299,7 @@ class EventViewSetTest(APITestCase):
         #should also fail
         valid_payload = {
             'start': '2024-07-01',
-            'organization_id': [self.parent_org.id],
+            'organization_ids': [self.parent_org.id],
         }
         response = self.client.patch(f'/api/activities/events/{self.other_event.id}/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -334,7 +334,7 @@ class EventViewSetTest(APITestCase):
         '''
         self.client.force_authenticate(user=self.admin)
         invalid_payload = {
-            'task_id': [self.other_task.id],
+            'task_ids': [self.other_task.id],
         }
         response = self.client.patch(f'/api/activities/events/{self.other_event.id}/', invalid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

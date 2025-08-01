@@ -33,7 +33,7 @@ class EventViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = EventSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['event_type']
+    filterset_fields = ['event_type', 'status', 'host', 'start', 'end']
     ordering_fields = ['name', 'host']
     search_fields = ['name', 'description', 'host'] 
     filterset_fields = ['event_type']
@@ -63,23 +63,19 @@ class EventViewSet(RoleRestrictedViewSet):
         else:
             return Event.objects.none()
 
-        org_param = self.request.query_params.get('organization')
-        if org_param:
-            queryset = queryset.filter(
-                Q(organizations__id=org_param) | Q(host__id=org_param)
-            )
-
-        ind_param = self.request.query_params.get('indicator')
-        if ind_param:
-            queryset = queryset.filter(tasks__indicator__id=ind_param)
-
+        host_param = self.request.query_params.get('host')
+        if host_param:
+            queryset=queryset.filter(host__id=host_param)
+        status_param = self.request.query_params.get('status')
+        if status_param:
+            queryset=queryset.filter(status=status_param)
         start_param = self.request.query_params.get('start')
         if start_param:
-            queryset = queryset.filter(event_date__gte=start_param)
+            queryset = queryset.filter(start__gte=start_param)
 
         end_param = self.request.query_params.get('end')
         if end_param:
-            queryset = queryset.filter(event_date__lte=end_param)
+            queryset = queryset.filter(end__lte=end_param)
 
         return queryset
     

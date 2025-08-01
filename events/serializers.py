@@ -37,16 +37,16 @@ class EventSerializer(serializers.ModelSerializer):
     host_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, required=False, allow_null=True, source='host')
     organizations = OrganizationListSerializer(many=True, read_only=True)
     tasks = TaskSerializer(many=True, read_only=True)
-    organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), required=False, many=True, write_only=True, source='organizations')
-    task_id = serializers.PrimaryKeyRelatedField(queryset= Task.objects.all(), many=True, required=False, write_only=True, source='tasks')
+    organization_ids = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), required=False, many=True, write_only=True, source='organizations')
+    task_ids = serializers.PrimaryKeyRelatedField(queryset= Task.objects.all(), many=True, required=False, write_only=True, source='tasks')
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
 
     class Meta:
         model = Event
         fields = [
-                    'id', 'name', 'description', 'host', 'host_id', 'tasks', 'organizations', 'organization_id', 
-                    'task_id', 'location', 'start', 'end', 'event_type', 'status', 'created_by', 'created_at',
+                    'id', 'name', 'description', 'host', 'host_id', 'tasks', 'organizations', 'organization_ids', 
+                    'task_ids', 'location', 'start', 'end', 'event_type', 'status', 'created_by', 'created_at',
                     'updated_by', 'updated_at'
                 ]
     

@@ -289,14 +289,14 @@ def get_target_aggregates(user, indicator, split, start=None, end=None, project=
 
     return dict(targets_map)
         
-def get_achievement(user, target):
+def get_achievement(user, target, related=None):
     '''
     Slightly lighter weight helper that ignores demographics and just gets the raw totals for comparisons against
     targets.
 
     Note that we cascade all of these so that child organizations achievement is included when viewing parents.
     '''
-    task = target.task
+    task = related if related else target.task
     start = target.start
     end = target.end
     indicator = task.indicator
@@ -339,6 +339,7 @@ def get_achievement(user, target):
                     total += sum(ir.numeric_component or 0 for ir in valid_irs)
             else:
                 total += valid_irs.count()
+
     #pull event numbers for raw event count/org count tests
     elif indicator.indicator_type in [Indicator.IndicatorType.EVENT_NO, Indicator.IndicatorType.ORG_EVENT_NO]:
         valid_events = get_events_from_indicator(

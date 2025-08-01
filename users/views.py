@@ -156,7 +156,7 @@ class ApplyForNewUser(APIView):
         if not user or user.role not in ['meofficer', 'manager', 'admin'] or not user.organization:
             return Response({'detail': 'You do not have permission to perform this action.'}, status=status.HTTP_403_FORBIDDEN)
         data = request.data
-        org_id = data.get('organization', user.organization.id)
+        org_id = data.get('organization_id', user.organization.id)
         role = data.get('role')
         if not role: 
             role ='view_only'

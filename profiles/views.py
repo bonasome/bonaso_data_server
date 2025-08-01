@@ -18,7 +18,7 @@ from django.contrib.contenttypes.models import ContentType
 from profiles.utils import get_favorited_object, get_user_activity
 from respondents.utils import get_enum_choices
 from projects.utils import get_valid_orgs
-
+from flags.models import Flag
 
 
 
@@ -54,7 +54,51 @@ class ProfileViewSet(RoleRestrictedViewSet):
 
         response_data = {}
         for model_label, instances in activity.items():
-            response_data[model_label] = [str(instance) for instance in instances]  # Or use serializers
+            response_data[model_label] = []
+            for instance in instances:
+                info = {
+                    'display_name': str(instance), 
+                    'id': instance.id
+                }
+                if model_label.lower() in [
+                    'projects.task', 
+                    'projects.projectactivity', 
+                    'projects.projectdeadline',
+                ]:
+                    info['parent'] = instance.project.id
+                    if model_label.lower() in ['projects.task']:
+                        info['second_parent'] = instance.organization_id
+                elif model_label.lower() in ['projects.target']:
+                    info['parent'] = instance.task.project_id
+                    info['second_parent'] = instance.task.organization_id
+                elif model_label.lower() in ['events.demographiccount']:
+                    info['parent'] = instance.event_id
+                elif model_label.lower() in ['respondents.interaction']:
+                    info['parent'] = instance.respondent_id
+                else:
+                    info['parent'] = None
+                    info['second_parent'] = None
+                if 'created_by' in [f.name for f in instance._meta.get_fields()]:
+                    info['created'] = True if instance.created_by == user else False
+                else: 
+                    info['created'] = False
+
+                if 'updated_by' in [f.name for f in instance._meta.get_fields()]:
+                    info['updated'] = True if instance.updated_by == user else False
+                else: 
+                    info['updated'] = False
+
+                if 'created_at' in [f.name for f in instance._meta.get_fields()]:
+                    info['created_at'] = instance.created_at
+                else:
+                    info['created_at'] = None
+                if 'updated_at' in [f.name for f in instance._meta.get_fields()]:
+                    info['updated_at'] = instance.created_at
+                else:
+                    info['updated_at'] = None
+                
+                
+                response_data[model_label].append(info)
         
         return Response(response_data, status=status.HTTP_200_OK)
     

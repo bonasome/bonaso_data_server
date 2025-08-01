@@ -49,9 +49,12 @@ class FlagViewSet(RoleRestrictedViewSet):
         if org_param:
             queryset = queryset.filter(caused_by__organization__id=org_param)
 
+        reason_param = self.request.query_params.get('reason_type')
+        if reason_param:
+            queryset = queryset.filter(reason_type=reason_param)
+
         model_param = self.request.query_params.get('model')
         if model_param:
-            print(model_param)
             try:
                 app_label, model_name = model_param.lower().split('.')
                 model = apps.get_model(app_label, model_name)
@@ -71,7 +74,6 @@ class FlagViewSet(RoleRestrictedViewSet):
 
         auto_str = self.request.query_params.get('auto_flagged')
         if auto_str is not None:
-            print(auto_str)
             if auto_str.lower() in ['true', '1']:
                 queryset = queryset.filter(auto_flagged=True)
             elif auto_str.lower() in ['false', '0']:

@@ -1,7 +1,9 @@
-from django.utils.timezone import now
+from django.utils.timezone import now, localtime
 from django.contrib.contenttypes.models import ContentType
 from django.apps import apps
 from django.db.models import Count
+from django.db.models.functions import TruncMonth
+from django.utils.dateformat import DateFormat
 
 from flags.models import Flag
 
@@ -43,9 +45,19 @@ def get_flag_metadata(queryset):
     auto_flagged = queryset.filter(auto_flagged=True).count()
     active = queryset.filter(resolved=False).count()
     by_type = queryset.values("reason_type").annotate(count=Count("id"))
+    by_model = queryset.values("content_type").annotate(count=Count("id"))
+
+    by_month = Flag.objects.annotate(
+        month=TruncMonth('created_at')
+    ).values('month').annotate(
+        count=Count('id')
+    ).order_by('month')
+        
     return {
         'total': total,
         'auto_flagged': auto_flagged,
         'active': active,
         'by_type': by_type,
+        'by_model': by_model,
+        'by_month': by_month,
     }

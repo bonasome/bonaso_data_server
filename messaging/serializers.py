@@ -111,7 +111,7 @@ class ReplySerializer(serializers.ModelSerializer):
     recipients = MessageRecipientSerializer(read_only=True, many=True, source='recipient_links')
     class Meta:
         model=Message
-        fields = ['id', 'subject', 'body', 'sender', 'recipients']
+        fields = ['id', 'subject', 'body', 'sender', 'recipients', 'sent_on']
 
 class MessageSerializer(serializers.ModelSerializer):
     '''
@@ -218,3 +218,4 @@ class MessageSerializer(serializers.ModelSerializer):
                     mr.save()
                 else:
                     raise serializers.ValidationError('Cannot change participants in an active thread.')
+        return instance

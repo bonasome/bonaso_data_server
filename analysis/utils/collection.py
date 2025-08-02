@@ -126,8 +126,11 @@ def get_interaction_subcats(interactions, filter_ids=None):
     Small helper to prefetch valid subcats.
     '''
     interaction_ids = [ir.id for ir in interactions]
+    
     if filter_ids:
-        return InteractionSubcategory.objects.filter(interaction__id__in=interaction_ids).exclude(id__in=filter_ids)
+        filter_ids = [int(fid) for fid in filter_ids]
+        print(filter_ids)
+        return InteractionSubcategory.objects.filter(interaction__id__in=interaction_ids, subcategory_id__in=filter_ids)
     return InteractionSubcategory.objects.filter(interaction__id__in=interaction_ids)
 
 def get_event_counts_from_indicator(user, indicator, params, project, organization, start, end, filters, cascade=False):

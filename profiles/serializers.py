@@ -27,13 +27,20 @@ class ProfileSerializer(serializers.ModelSerializer):
     '''
     Slightly more inclusive serializer for profile pages.
     '''
+    display_name = serializers.SerializerMethodField(read_only=True)
     organization = OrganizationListSerializer(read_only=True)
     organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, source='organization')
 
+    def get_display_name(self, obj):
+        if obj.first_name and obj.last_name:
+            return f'{obj.first_name} {obj.last_name}'
+        else:
+            return f'{obj.username}'
+        
     class Meta:
         model=User
-        fields = ['id', 'username', 'first_name', 'last_name', 'email','organization', 
-                  'organization_id', 'role', 'is_active', 'client_organization']
+        fields = ['id', 'username', 'first_name', 'last_name', 'email','organization', 'display_name',
+                  'organization_id', 'role', 'is_active', 'client_organization', 'date_joined', 'last_login']
         read_only_fields = ['id']
 
     def get_fields(self):

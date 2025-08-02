@@ -33,7 +33,6 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
                 continue
             field = DemographicCount._meta.get_field(param)
             if field:
-                print(param)
                 fields_map[param] = [value for value, label in field.choices]
         
     period_func = get_quarter_string if split == 'quarter' else get_month_string
@@ -70,8 +69,6 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
 
     for interaction in interactions:
         keys = build_keys(interaction, pregnancies_map, hiv_status_map, subcats, include_subcats)
-        print('===keys===', keys)
-        print('===breakdowns===', cartesian_product)
         for key, value in keys.items():
             for breakdown in cartesian_product:
                 if frozenset(breakdown).issubset(key):
@@ -101,7 +98,6 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
 
 def event_no_aggregates(user, indicator, split, project, organization, start, end):
     events = get_events_from_indicator(user, indicator, project, organization, start, end)
-    print('event_no', len(events))
     aggregates = defaultdict(int)
 
     if split in ['month', 'quarter']:
@@ -124,7 +120,6 @@ def event_no_aggregates(user, indicator, split, project, organization, start, en
 
 def event_org_no_aggregates(user, indicator, split, project, organization, start, end):
     events = get_events_from_indicator(user, indicator, project, organization, start, end)
-    print('event_org_no', len(events))
     aggregates = defaultdict(int)
 
     if split in ['month', 'quarter']:

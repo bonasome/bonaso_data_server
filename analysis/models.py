@@ -33,15 +33,15 @@ class IndicatorChartSetting(models.Model):
     All charts can also be filtered by the fields above. All charts can also include a data table.
     '''
     class ChartType(models.TextChoices):
-        PIE = 'Pie', _('Pie Chart')
-        LINE = 'Line', _('Line Chart')
-        BAR = 'Bar', _('Bar Chart')
+        PIE = 'pie', _('Pie Chart')
+        LINE = 'line', _('Line Chart')
+        BAR = 'bar', _('Bar Chart')
     class AxisOptions(models.TextChoices):
         MONTH  = 'month', _('Month')
         QUARTER = 'quarter', _('Quarter')
     
     
-    indicator = models.ManyToManyField(Indicator, through='ChartIndicator')
+    indicators = models.ManyToManyField(Indicator, through='ChartIndicator')
     chart_type = models.CharField(max_length=25, choices=ChartType.choices, default=ChartType.BAR, null=True, blank=True)
     tabular = models.BooleanField(default=False) #also show a data table
     axis = models.CharField(max_length=25, choices=AxisOptions.choices, default=AxisOptions.QUARTER, null=True, blank=True)

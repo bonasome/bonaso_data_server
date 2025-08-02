@@ -146,7 +146,7 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
         Get labels for the front end to assure consistency.
         '''
         return Response({
-            "statuses": get_enum_choices(IndicatorChartSetting.ChartType),
+            "chart_types": get_enum_choices(IndicatorChartSetting.ChartType),
             "fields": get_enum_choices(ChartField.Field),
             "axes": get_enum_choices(IndicatorChartSetting.AxisOptions)
         })
@@ -163,6 +163,7 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
         #indicator(s) and chart type is required. It is a chart after all
         existing_id = request.data.get('chart_id')
         indicator_ids = request.data.get('indicators')
+
         if not indicator_ids:
             return Response(
                     {"detail": f'At least one indicator is required.'},
@@ -194,7 +195,7 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
         order = request.data.get('order', DashboardIndicatorChart.objects.filter(dashboard=dashboard).count())
         width = request.data.get('width')
         height = request.data.get('height')
-        filters_map = request.data.get('filters', []) #array map for creating filters
+        
         
         #if multiple indicators were provided, that's the legend, so remove an existing settings
         if len(indicators) > 1:
@@ -225,7 +226,6 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
             chart.legend = legend
             chart.stack = stack
             chart.tabular = tabular
-            ChartFilter.objects.filter(chart=chart).delete()
             chart.save()
 
             chart_link.width = width
@@ -259,22 +259,39 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
         ]
         ChartIndicator.objects.bulk_create(bulk_links)
 
-        #create filters
-        filters = []
-        if filters_map:
-            for field, values in filters_map.items():
-                for val in values:
-                    try:
-                        field_obj = ChartField.objects.get(name=field)
-                    except ChartField.DoesNotExist:
-                        return Response({"detail": f"Invalid filter field: '{field}'"}, status=status.HTTP_400_BAD_REQUEST)
-                    fil = ChartFilter.objects.create(field=field_obj, value=val, chart=chart)
-                    filters.append(fil)
-
         #serialize the data
         serializer = DashboardIndicatorChartSerializer(chart_link)
         msg = "Dashboard chart created." if not existing_id else "Dashboard chart updated."
         return Response({"detail": msg, "chart_data": serializer.data}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['patch'], url_path='filters/(?P<chart_link_id>[^/.]+)')
+    @transaction.atomic
+    def update_chart_filters(self, request, pk=None, chart_link_id=None):
+        chart_link = get_object_or_404(DashboardIndicatorChart, id=chart_link_id)
+        chart = chart_link.chart
+        filters_map = request.data.get('filters', {})
+        if not isinstance(filters_map, dict):
+            return Response({"detail": "Invalid filters format, expected an object."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Delete existing filters for this chart
+        ChartFilter.objects.filter(chart=chart).delete()
+
+        # Create new filters
+        for field_name, values in filters_map.items():
+            print(field_name, values)
+            try:
+                field_obj = ChartField.objects.get(name=field_name)
+            except ChartField.DoesNotExist:
+                return Response({"detail": f"Invalid filter field: '{field_name}'"}, status=status.HTTP_400_BAD_REQUEST)
+
+            if not isinstance(values, list):
+                return Response({"detail": f"Values for field '{field_name}' must be a list."}, status=status.HTTP_400_BAD_REQUEST)
+
+            for val in values:
+                ChartFilter.objects.create(field=field_obj, value=val, chart=chart)
+
+        return Response({"detail": "Filters updated."}, status=status.HTTP_200_OK)
+
 
     @action(detail=True, methods=['delete'], url_path='remove-chart/(?P<chart_link_id>[^/.]+)')
     def remove_chart(self, request, pk=None, chart_link_id=None):

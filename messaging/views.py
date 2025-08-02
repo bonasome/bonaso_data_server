@@ -37,7 +37,7 @@ class MessageViewSet(RoleRestrictedViewSet):
         '''
         user = self.request.user
         if self.action in ['update', 'partial_update', 'set_completed']:
-            queryset = Message.objects.filter(Q(sender=user) | Q(recipients=user))
+            queryset = Message.objects.filter(Q(sender=user) | Q(recipients=user)).distinct()
         else:
             #by default, exclude "replies" (with parent) from the queryset, since we prefer to work with these as nested data
             queryset = Message.objects.filter(Q(recipients=user) | Q(sender=user)).distinct().exclude(deleted_by_sender=True)
@@ -66,6 +66,20 @@ class MessageViewSet(RoleRestrictedViewSet):
 
         else:
             queryset = User.objects.filter(Q(organization__id=user.organization.id) | Q(role='admin') )
+
+        search_term = request.query_params.get('search')
+        if search_term:
+            queryset = queryset.filter(
+                Q(first_name__icontains=search_term) |
+                Q(last_name__icontains=search_term) |
+                Q(username__icontains=search_term)
+            )
+
+        page = self.paginate_queryset(queryset)
+
+        if page is not None:
+            serializer = ProfileListSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
 
         serializer = ProfileListSerializer(queryset, many=True)
         return Response(serializer.data)

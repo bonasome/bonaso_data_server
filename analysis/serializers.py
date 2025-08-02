@@ -4,7 +4,7 @@ from django.db import transaction
 from analysis.models import DashboardFilter, ChartField, IndicatorChartSetting, DashboardSetting, DashboardIndicatorChart, ChartFilter
 from analysis.utils.aggregates import  get_target_aggregates, aggregates_switchboard
 from projects.serializers import ProjectListSerializer, Target
-from indicators.serializers import IndicatorListSerializer
+from indicators.serializers import IndicatorSerializer
 from events.models import DemographicCount
 from collections import defaultdict
 
@@ -12,7 +12,7 @@ from collections import defaultdict
 class IndicatorChartSerializer(serializers.ModelSerializer):
     chart_data = serializers.SerializerMethodField(read_only=True)
     targets = serializers.SerializerMethodField(read_only=True)
-    indicator = IndicatorListSerializer(read_only=True)
+    indicators = IndicatorSerializer(read_only=True, many=True)
     filters = serializers.SerializerMethodField(read_only=True)
     allow_targets = serializers.SerializerMethodField(read_only=True) #simple helper var to help the frontend determine whether or not to shown the option, cause no one wants that crap where you select an option and its like screw you, there's not data here. Get pranked, nerd
     def get_chart_data(self, obj):
@@ -20,28 +20,34 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
         for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory']:
             params[cat] = (cat == obj.legend) or (cat == obj.stack)
         filters = self.get_filters(obj)
-        aggr  = get_indicator_aggregate(user=obj.created_by, indicator=obj.indicator, params=params, split=obj.axis, start=obj.start_date, end=obj.end_date, filters=filters)
-        return aggr
+        data=[]
+        for indicator in obj.indicators.all():
+            ind = aggregates_switchboard(obj.created_by, indicator=indicator, params=params, split=obj.axis, start=obj.start_date, end=obj.end_date, filters=filters)
+            data.append(ind)
+        return data
     
     def get_filters(self, obj):
         queryset = ChartFilter.objects.filter(chart=obj)
         filters = defaultdict(list)
         for fi in queryset:
             filters[fi.field.name].append(fi.value)
-        print(filters)
         return filters
     
     def get_allow_targets(self, obj):
-        return Target.objects.filter(task__indicator=obj.indicator).exists()
+        return Target.objects.filter(task__indicator__in=obj.indicators.all()).exists()
     
     def get_targets(self, obj):
         if not obj.use_target:
             return {}
-        targets = get_target_aggregates(obj.created_by, indicator=obj.indicator, split=obj.axis, start=obj.start_date, end=obj.end_date)
+        targets = []
+        for indicator in obj.indicator.all():
+            target = get_target_aggregates(obj.created_by, indicator=indicator, split=obj.axis, start=obj.start_date, end=obj.end_date)
+            targets.append(target)
         return targets
+    
     class Meta:
         model = IndicatorChartSetting
-        fields = ['id', 'indicator', 'created_by', 'tabular', 'axis', 'legend', 'stack', 'chart_type', 'use_target',
+        fields = ['id', 'indicators', 'created_by', 'tabular', 'axis', 'legend', 'stack', 'chart_type', 'use_target',
                   'start_date', 'end_date', 'chart_data', 'allow_targets', 'targets', 'filters']
 
 

@@ -57,6 +57,9 @@ class FavoriteObjectSerializer(serializers.ModelSerializer):
     '''
     Serializer for tracking favorited items.
     '''
+    display_name = serializers.SerializerMethodField()
+    def get_display_name(self, obj):
+        return str(obj.target)
     class Meta:
         model = FavoriteObject
-        fields = ['id', 'content_type', 'object_id', 'user']
+        fields = ['id', 'content_type', 'object_id', 'user', 'display_name']

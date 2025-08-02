@@ -266,13 +266,7 @@ def get_target_aggregates(user, indicator, split, start=None, end=None, project=
     for target in queryset:
         amount = target.amount
         if not amount and target.related_to and target.percentage_of_related:
-            amount = round(
-                Interaction.objects.filter(
-                    task=target.related_to,
-                    interaction_date__gte=target.start,
-                    interaction_date__lte=target.end
-                ).count() * (target.percentage_of_related / 100)
-            )
+            get_achievement(user, target, target.related_to)
 
         if not amount or not target.start or not target.end:
             continue

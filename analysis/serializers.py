@@ -59,9 +59,9 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
     
     def get_targets(self, obj):
         if not obj.use_target:
-            return {}
+            return []
         targets = []
-        for indicator in obj.indicator.all():
+        for indicator in obj.indicators.all():
             target = get_target_aggregates(obj.created_by, indicator=indicator, split=obj.axis, start=obj.start_date, end=obj.end_date)
             targets.append(target)
         return targets

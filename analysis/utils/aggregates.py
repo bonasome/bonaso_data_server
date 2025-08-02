@@ -36,7 +36,7 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
                 fields_map[param] = [value for value, label in field.choices]
         
     period_func = get_quarter_string if split == 'quarter' else get_month_string
-    periods = sorted({period_func(i.interaction_date) for i in interactions}) + sorted({period_func(count.event.end) for count in counts})
+    periods = set(sorted({period_func(i.interaction_date) for i in interactions}) + sorted({period_func(count.event.end) for count in counts}))
 
     if split in ['month', 'quarter']:
         fields_map['period'] = periods
@@ -71,11 +71,10 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
         keys = build_keys(interaction, pregnancies_map, hiv_status_map, subcats, include_subcats)
         for key, value in keys.items():
             for breakdown in cartesian_product:
-                if frozenset(breakdown).issubset(key):
+                if frozenset(breakdown).issubset(frozenset(key)):
                     pos = product_index_sets.get(frozenset(breakdown))
                     if pos is not None:
                         aggregates[pos]['count'] += value
-
     for count in counts:
         count_params = []
         for field in fields_map.keys():

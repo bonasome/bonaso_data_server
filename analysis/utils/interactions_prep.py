@@ -13,7 +13,7 @@ M2M_MAP = {
 }
 
 fields = ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy']
-
+from analysis.utils.periods import get_month_string, get_quarter_string
 def build_keys(interaction, pregnancies_map, hiv_status_map, interaction_subcats, include_subcats):
     """
     Returns dict mapping frozenset keys -> numeric values (default to 1 if no subcats/numeric)
@@ -45,7 +45,8 @@ def build_keys(interaction, pregnancies_map, hiv_status_map, interaction_subcats
             if field == 'citizenship':
                 val = 'citizen' if val and val.lower() == 'motswana' else 'non_citizen'
             base_keys.add(val)
-
+        base_keys.add(get_month_string(interaction.interaction_date))
+        base_keys.add(get_quarter_string(interaction.interaction_date))
     keys = {}
 
     # Case: no subcat split/subcat does not have a number, in either case returning one key works 

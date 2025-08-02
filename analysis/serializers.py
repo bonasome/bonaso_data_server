@@ -20,11 +20,32 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
         for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory']:
             params[cat] = (cat == obj.legend) or (cat == obj.stack)
         filters = self.get_filters(obj)
-        data=[]
+        data={}
+        if obj.indicators.count() == 1:
+            return aggregates_switchboard(obj.created_by, indicator=obj.indicators.first(), params=params, split=obj.axis, start=obj.start_date, end=obj.end_date, filters=filters)
+        data = []
+
         for indicator in obj.indicators.all():
-            ind = aggregates_switchboard(obj.created_by, indicator=indicator, params=params, split=obj.axis, start=obj.start_date, end=obj.end_date, filters=filters)
-            data.append(ind)
-        return data
+            ind = aggregates_switchboard(
+                obj.created_by,
+                indicator=indicator,
+                params=params,
+                split=obj.axis,
+                start=obj.start_date,
+                end=obj.end_date,
+                filters=filters,
+            )
+
+            for period, item in ind.items():
+                row = {
+                    'period': item.get('period', None),
+                    'count': item.get('count', 0),
+                    'indicator': str(indicator)
+                }
+                data.append(row)
+
+        return {i: item for i, item in enumerate(data)}
+
     
     def get_filters(self, obj):
         queryset = ChartFilter.objects.filter(chart=obj)

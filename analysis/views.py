@@ -290,7 +290,10 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
             for val in values:
                 ChartFilter.objects.create(field=field_obj, value=val, chart=chart)
 
-        return Response({"detail": "Filters updated."}, status=status.HTTP_200_OK)
+        #serialize the data
+        serializer = DashboardIndicatorChartSerializer(chart_link)
+        msg = "Filters updated!"
+        return Response({"detail": msg, "chart_data": serializer.data}, status=status.HTTP_200_OK)
 
 
     @action(detail=True, methods=['delete'], url_path='remove-chart/(?P<chart_link_id>[^/.]+)')

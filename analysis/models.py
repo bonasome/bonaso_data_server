@@ -19,7 +19,8 @@ class ChartField(models.Model):
         PREG = 'pregnancy', ('Pregnancy')
         ORG = 'organization', ('Organization')
         SC = 'subcategory', ('Indicator Subcategory')
-    
+        P = 'platform', ('Platform')
+        MET = 'metric', ('Metric')
     name = models.CharField(max_length=25, choices=Field.choices, unique=True)
     
 class IndicatorChartSetting(models.Model):

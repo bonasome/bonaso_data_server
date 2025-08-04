@@ -17,7 +17,7 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
     allow_targets = serializers.SerializerMethodField(read_only=True) #simple helper var to help the frontend determine whether or not to shown the option, cause no one wants that crap where you select an option and its like screw you, there's not data here. Get pranked, nerd
     def get_chart_data(self, obj):
         params = {}
-        for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory']:
+        for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory', 'platform', 'metric']:
             params[cat] = (cat == obj.legend) or (cat == obj.stack)
         filters = self.get_filters(obj)
         data={}

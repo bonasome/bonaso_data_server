@@ -29,7 +29,7 @@ class IndicatorListSerializer(serializers.ModelSerializer):
     
     class Meta:
         model=Indicator
-        fields = ['id', 'display_name', 'subcategories']
+        fields = ['id', 'display_name', 'subcategories', 'indicator_type']
 
 class IndicatorSerializer(serializers.ModelSerializer):
     '''

@@ -139,61 +139,56 @@ def event_org_no_aggregates(user, indicator, split, project, organization, start
     return dict(aggregates)
 
 
-def social_aggregates(user, indicator, split, project, organization, start, end, platform=False):
+def social_aggregates(user, indicator, params, split, project, organization, start, end):
     posts = get_posts_from_indicator(user, indicator, project, organization, start, end)
     aggregates = defaultdict(int)
-
+    #structure: pos: {platform: fb, metric: comments, count: 7}
+    include_platform = False
+    include_metric = False
+    metrics = ['comments', 'views', 'likes']
+    fields_map = {}
     if split in ['month', 'quarter']:
-        # Structure: { period: { platform: {metric: value} } }
-        by_period = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
         period_func = get_quarter_string if split == 'quarter' else get_month_string
+        fields_map['period'] = list({period_func(p.published_at) for p in posts})
+    for param, include in params.items():
+        if param not in ['platform', 'metric']:
+            continue #other params not supported
+        if include:
+            if param == 'platform':
+                include_platform = True
+                fields_map['platform'] = list({p.platform for p in posts})
+            elif param == 'metric':
+                include_metric = True
+                fields_map['metric'] = metrics 
 
-        for post in posts:
-            likes = post.likes or 0
-            views = post.views or 0
-            comments = post.comments or 0
+    
 
-            engagement = likes + views + comments
+    cartesian_keys = list(fields_map.keys())
+    cartesian_product = list(product(*fields_map.values()))
+    product_index = {tuple(comb): i for i, comb in enumerate(cartesian_product)}
 
-            period = period_func(post.published_at)
-            post_platform = post.platform or 'unknown'
+    aggregates = {}
+    for i, comb in enumerate(cartesian_product):
+        aggregates[i] = dict(zip(cartesian_keys, comb))
+        aggregates[i]['count'] = 0
 
-            by_period[period][post_platform]['likes'] += likes
-            by_period[period][post_platform]['views'] += views
-            by_period[period][post_platform]['comments'] += comments
-            by_period[period][post_platform]['total_engagement'] += engagement
+    for post in posts:
+        period = period_func(post.published_at) if split else None
+        for metric in metrics if include_metric else [None]:
+            key = []
+            if split:
+                key.append(period)
+            if include_platform:
+                key.append(post.platform)
+            if include_metric:
+                key.append(metric)
 
-            aggregates['likes'] += likes
-            aggregates['views'] += views
-            aggregates['comments'] += comments
-            aggregates['total_engagement'] += engagement
-
-        # Convert nested defaultdicts to regular dicts
-        aggregates['by_period'] = {
-            period: {plat: dict(metrics) for plat, metrics in plat_data.items()}
-            for period, plat_data in by_period.items()
-        }
-    else:
-        by_platform = defaultdict(lambda: defaultdict(int))
-
-        for post in posts:
-            likes = post.likes or 0
-            views = post.views or 0
-            comments = post.comments or 0
-            engagement = likes + views + comments
-            post_platform = post.platform or 'unknown'
-
-            by_platform[post_platform]['likes'] += likes
-            by_platform[post_platform]['views'] += views
-            by_platform[post_platform]['comments'] += comments
-            by_platform[post_platform]['total_engagement'] += engagement
-
-            aggregates['likes'] += likes
-            aggregates['views'] += views
-            aggregates['comments'] += comments
-            aggregates['total_engagement'] += engagement
-
-        aggregates['by_platform'] = {plat: dict(metrics) for plat, metrics in by_platform.items()}
+            key_tuple = tuple(key)
+            pos = product_index.get(key_tuple)
+            if pos is not None:
+                print(metric)
+                count = getattr(post, metric) or 0 if include_metric else (post.comments + post.likes + post.views)
+                aggregates[pos]['count'] += count
 
     return dict(aggregates)
 
@@ -206,7 +201,7 @@ def aggregates_switchboard(user, indicator, params, split=None, project=None, or
     if indicator.indicator_type == 'event_org_no':
         aggregates = event_org_no_aggregates(user, indicator, split, project, organization, start, end)
     if indicator.indicator_type == 'social':
-        aggregates = social_aggregates(user, indicator, split, project, organization, start, end, platform)
+        aggregates = social_aggregates(user, indicator, params, split, project, organization, start, end)
     return aggregates
 
 

@@ -341,8 +341,9 @@ class TaskViewSet(RoleRestrictedViewSet):
 
         type_param = self.request.query_params.get('indicator_type')
         if type_param:
+            print(type_param)
             queryset = queryset.filter(indicator__indicator_type=type_param)
-
+            print(queryset.count())
         event_param = self.request.query_params.get('event')
         if event_param:
             try:

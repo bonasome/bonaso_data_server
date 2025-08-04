@@ -455,7 +455,7 @@ class UploadViewSetTest(APITestCase):
         response = self.client.post('/api/record/interactions/upload/', {'file': file_obj}, format='multipart')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.conflicts), 1)
+        self.assertEqual(len(response.data['conflicts']), 1)
         response = self.client.get('/api/record/respondents/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 1)
@@ -778,7 +778,7 @@ class UploadViewSetTest(APITestCase):
 
         response = self.client.post('/api/record/interactions/upload/', {'file': file_obj}, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        respondent = Respondent.objects.get(id_no='T2')
+        respondent = Respondent.objects.get(id_no='T1')
         interactions = Interaction.objects.filter(respondent=respondent).count()
         self.assertEqual(interactions, 0)
 
@@ -800,7 +800,7 @@ class UploadViewSetTest(APITestCase):
         headers = self.headers +  ["SC: Subcat", "Comments"]
         ws.append(headers)
         #blank will not log
-        row = self.resp_headers ["", ""]
+        row = self.resp_headers + ["", ""]
         ws.append(row)
         #forgot the comma
         row2 = self.resp_headers_2 + ["cat1Cat1  ", ""]

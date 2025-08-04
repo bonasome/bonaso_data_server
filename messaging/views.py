@@ -19,7 +19,7 @@ from users.restrictviewset import RoleRestrictedViewSet
 
 from profiles.serializers import ProfileListSerializer
 from projects.models import Project, ProjectOrganization
-from messaging.models import Message, Announcement, MessageRecipient, Alert, AlertRecipient
+from messaging.models import Message, Announcement, MessageRecipient, Alert, AlertRecipient, AnnouncementRecipient
 from messaging.serializers import MessageSerializer, AnnouncementSerializer, AlertSerializer
 
 
@@ -142,7 +142,24 @@ class AnnouncementViewSet(RoleRestrictedViewSet):
                 Q(organizations=user.organization)     # Org-specific
             )
             return queryset
+    @action(detail=True, methods=['patch'], url_path='read')
+    def set_read(self, request, pk=None):
+        '''
+        Ping to mark as read when opened on the frontend.
+        '''
+        user = request.user
+        annc = self.get_object()
+        if AnnouncementRecipient.objects.filter(announcement=annc, recipient=user).exists():
+            return Response(
+                {'detail': 'Announcement already read.'},
+                status=status.HTTP_200_OK
+            )
 
+        recipient = AnnouncementRecipient.objects.create(announcement=annc, recipient=user)
+        return Response(
+            {'detail': 'Announcement read.', 'read_at': recipient.read_at},
+            status=status.HTTP_200_OK
+        )
 
 class AlertViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]

@@ -62,6 +62,11 @@ class AnnouncementOrganization(models.Model):
     announcement = models.ForeignKey(Announcement, on_delete=models.CASCADE)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
 
+class AnnouncementRecipient(models.Model):
+    announcement = models.ForeignKey(Announcement, on_delete=models.CASCADE)
+    recipient = models.ForeignKey(User, on_delete=models.CASCADE)
+    read_at = models.DateTimeField(auto_now_add=True)
+
 class Message(models.Model):
     '''
     Communication between two or more users in a thread style system. Includes subject/body.

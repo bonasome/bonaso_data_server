@@ -462,7 +462,7 @@ class RespondentBulkUploadTest(APITestCase):
                     {
                         "interaction_date": '2025-05-01',
                         "task": self.task.id,
-                        "subcategories_data": [{'name':'Cat 1', 'id': self.category.id}, {'name': 'Cat 2', 'id': self.category2.id}]
+                        "subcategories_data": [{'id': None, 'subcategory': {'name':'Cat 1', 'id': self.category.id}}, {'id': None, 'subcategory': {'name': 'Cat 2', 'id': self.category2.id}}]
                     },
                     {
                         "interaction_date": '2025-05-02',

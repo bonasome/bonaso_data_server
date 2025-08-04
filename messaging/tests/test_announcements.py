@@ -7,7 +7,7 @@ User = get_user_model()
 
 from projects.models import Project, Client, ProjectOrganization
 from organizations.models import Organization
-from messaging.models import Announcement, AnnouncementOrganization
+from messaging.models import Announcement, AnnouncementOrganization, AnnouncementRecipient
 from datetime import date
 
 class AnnouncementViewSetTest(APITestCase):
@@ -166,3 +166,10 @@ class AnnouncementViewSetTest(APITestCase):
         response = self.client.post('/api/messages/announcements/', invalid_payload_2, format='json')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+    
+    def test_read(self):
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.patch(f'/api/messages/announcements/{self.public_announcement.id}/read/')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(AnnouncementRecipient.objects.filter(recipient=self.admin, announcement=self.public_announcement).count(), 1)

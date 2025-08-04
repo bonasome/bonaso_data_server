@@ -91,7 +91,7 @@ class TestIndicatorValidation(APITestCase):
         '''
         Admins cannot delete indicators with a prereq.
         '''
-        #but not if they have a prerequisite
+        self.client.force_authenticate(user=self.admin)
         response = self.client.delete(f'/api/indicators/{self.indicator.id}/')
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
 

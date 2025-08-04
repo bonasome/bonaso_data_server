@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 
-from messaging.models import Message, MessageRecipient, Announcement, Alert, AnnouncementOrganization
+from messaging.models import Message, MessageRecipient, Announcement, Alert, AlertRecipient, AnnouncementOrganization, AnnouncementRecipient
 from projects.models import Project
 from projects.serializers import ProjectListSerializer
 from projects.utils import ProjectPermissionHelper
@@ -14,7 +14,10 @@ User = get_user_model()
 
 class AlertSerializer(serializers.ModelSerializer):
     content_object = serializers.SerializerMethodField()
-
+    read = serializers.SerializerMethodField(read_only=True)
+    def get_read(self, obj):
+        return AlertRecipient.objects.filter(alert=obj, recipient=self.context['request'].user, read=True).exists()
+    
     def get_content_object(self, obj):
         if obj.content_object:
             return str(obj.content_object)
@@ -22,21 +25,26 @@ class AlertSerializer(serializers.ModelSerializer):
     
     class Meta: 
         model=Alert
-        fields = ['id', 'alert_type', 'sent_on', 'subject', 'body', 'content_object', 'object_id']
+        fields = ['id', 'alert_type', 'sent_on', 'subject', 'body', 'content_object', 'object_id', 'read']
 
 class AnnouncementSerializer(serializers.ModelSerializer):
     project = ProjectListSerializer(read_only=True)
     project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True, required=False, allow_null=True, source='project')
     organization_ids = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, required=False, many=True, source='organizations')
     sent_by = ProfileListSerializer(read_only=True)
+    read = serializers.SerializerMethodField(read_only=True)
+    
+    def get_read(self, obj):
+        return AnnouncementRecipient.objects.filter(announcement=obj, recipient=self.context['request'].user).exists()
+    
     class Meta:
         model = Announcement
         fields = [
-            'id', 'subject', 'body', 'sent_by', 'sent_on',
+            'id', 'subject', 'body', 'sent_by', 'sent_on', 'read',
             'project', 'project_id', 'organizations', 'organization_ids',
             'cascade_to_children'
         ]
-        read_only_fields = ['sent_by', 'sent_on', 'id']
+        read_only_fields = ['sent_by', 'sent_on', 'id', 'read']
 
     def validate(self, attrs):
         user = self.context['request'].user
@@ -45,7 +53,6 @@ class AnnouncementSerializer(serializers.ModelSerializer):
             raise PermissionDenied('You do not have permission to write announcements.')
         if user.role == 'admin':
             return attrs
-        print(project)
         #admins can create any announcement
         if user.role != 'admin':
             #else it needs to be scoped to a project/org

@@ -191,7 +191,7 @@ class EventViewSetTest(APITestCase):
         response = self.client.patch(f'/api/activities/events/{self.event.id}/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.event.refresh_from_db()
-        self.assertEqual(self.event.event_date, date(2024, 3, 2))
+        self.assertEqual(self.event.start, date(2024, 7, 8))
         self.assertEqual(self.event.tasks.count(), 2)
     
     def test_date_validation(self):
@@ -360,6 +360,12 @@ class EventViewSetTest(APITestCase):
         This link should allow you to remove an org from an event.
         '''
         self.client.force_authenticate(user=self.admin)
+
+        response = self.client.delete(f'/api/activities/events/{self.other_event.id}/remove-task/{self.other_task.id}/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.other_event.refresh_from_db()
+        self.assertEqual(self.other_event.tasks.count(), 0)
+
         response = self.client.delete(f'/api/activities/events/{self.other_event.id}/remove-organization/{self.other_org.id}/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.other_event.refresh_from_db()

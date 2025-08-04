@@ -116,7 +116,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 return Response({'error': f'Missing interaction_date for task index {i}'}, status=status.HTTP_400_BAD_REQUEST)
             if not task_location: #but if there is neither, throw an error
                 return Response({'error': f'Missing interaction_location for task index {i}'}, status=status.HTTP_400_BAD_REQUEST)
-            if not all(k in task for k in ['task']):
+            if not all(k in task for k in ['task_id']):
                 return Response({'error': f'Missing required task fields at index {i}'}, status=status.HTTP_400_BAD_REQUEST)
         
             serializer = self.get_serializer(data={
@@ -124,7 +124,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 'interaction_date': task_date,
                 'interaction_location': task_location,
                 'event_id': event_id,
-                'task_id': task['task'],
+                'task_id': task['task_id'],
                 'numeric_component': task.get('numeric_component'),
                 'subcategories_data': task.get('subcategories_data', []),
                 'comments': task.get('comments', ''),
@@ -876,7 +876,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     for cat in subcats:
                         if cat['slug'] in valid_slugs:
                             isc = IndicatorSubcategory.objects.filter(slug=cat['slug']).first()
-                            sc_data = {'id': isc.id, 'name': isc.name}
+                            sc_data = {'id': None, 'subcategory': {'id': isc.id, 'name': isc.name}}
                             if task.indicator.require_numeric:
                                 sc_data['numeric_component'] = cat['numeric_component']
                             valid_subcats.append(sc_data)

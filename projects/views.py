@@ -139,7 +139,7 @@ class ProjectViewSet(RoleRestrictedViewSet):
         #get announcements
         announcements = Announcement.objects.filter(project=project)
         announcements = perm_manager.filter_queryset(announcements)
-        announcement_serializer = AnnouncementSerializer(announcements, many=True)
+        announcement_serializer = AnnouncementSerializer(announcements, many=True, context={'request': request})
 
         return Response({
             'activities': activity_serializer.data,
@@ -181,13 +181,13 @@ class ProjectViewSet(RoleRestrictedViewSet):
     @action(detail=True, methods=['patch'], url_path='assign-subgrantee')
     def assign_child(self, request, pk=None):
         '''
-        Allows a user (admin or higher role) to add an organization as a subgrantee, assuming a parent_id
-        and child_id is sent.
+        Allows a user (admin or higher role) to add an organization (or organizations) as a subgrantee, 
+        assuming a parent_id and a list of child_ids is sent.
         '''
         project = self.get_object()
         user = request.user
-        parent_org_id = request.data.get('parent_id')
-        child_org_id = request.data.get('child_id')
+        parent_org_id = request.data.get('parent_id') #send as a singular ID
+        child_org_ids = request.data.get('child_ids', []) #send as a list of ids
         
         if user.role not in ['meofficer', 'manager', 'admin']:
             return Response(
@@ -195,7 +195,7 @@ class ProjectViewSet(RoleRestrictedViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        if not parent_org_id or not child_org_id:
+        if not parent_org_id or not child_org_ids:
             return Response(
                 {"detail": "Parent ID and Child ID are both required."},
                 status=status.HTTP_403_FORBIDDEN
@@ -214,28 +214,37 @@ class ProjectViewSet(RoleRestrictedViewSet):
                 {"detail": "Parent organization not in the requested project."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        child_org = get_object_or_404(Organization, id=child_org_id)
+        added=[]
+        reassigned=[]
+        #loop through each id provided and runs some checks, then create
+        for child_org_id in child_org_ids:
+            child_org = get_object_or_404(Organization, id=child_org_id)
 
-        #disallow circular dependencies
-        if parent_org == child_org:
-            return Response({"detail": "An organization cannot be its own child."}, status=400)
+            #disallow circular dependencies
+            if parent_org == child_org:
+                return Response({"detail": "An organization cannot be its own child."}, status=400)
 
-        #prevent adding orgs that are already in the project if the user is not an admin 
-        existing_link = ProjectOrganization.objects.filter(organization=child_org, project=project).first()
-        if existing_link:
-            if user.role != 'admin':
-                return Response(
-                    {"detail": "This organization is already associated with this project. Only admins can change its role within the hierarchy."},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-            # an admin making this request will automatically reassign if they are with another parent or top level
-            existing_link.parent_organization = parent_org
-            existing_link.save()
-            return Response(status=status.HTTP_200_OK)
-        
-        ProjectOrganization.objects.create(organization=child_org, parent_organization=parent_org, project=project)
-        return Response(status=status.HTTP_204_NO_CONTENT)
+            #prevent adding orgs that are already in the project if the user is not an admin 
+            existing_link = ProjectOrganization.objects.filter(organization=child_org, project=project).first()
+            if existing_link:
+                if user.role != 'admin':
+                    return Response(
+                        {"detail": "This organization is already associated with this project. Only admins can change its role within the hierarchy."},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+                # an admin making this request will automatically reassign if they are with another parent or top level
+                existing_link.parent_organization = parent_org
+                existing_link.save()
+                reassigned.append({'id': existing_link.organization.id, 'name': existing_link.organization.name})
+            else:
+                new_link = ProjectOrganization.objects.create(organization=child_org, parent_organization=parent_org, project=project)
+                added.append({'id': new_link.organization.id, 'name': new_link.organization.name})
+        return Response(
+            {'added': added,
+            'reassigned': reassigned},
+            status=status.HTTP_200_OK
+        )
+    
     
     @action(detail=True, methods=['patch'], url_path='promote-org')
     def promote_org(self, request, pk=None):
@@ -411,7 +420,39 @@ class TaskViewSet(RoleRestrictedViewSet):
 
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)  
-      
+    @action(detail=False, methods=['post'], url_path='batch-create')
+    def batch_create_task(self, request):
+        organization_id = request.data.get('organization_id')
+        project_id = request.data.get('project_id')
+        indicator_ids = request.data.get('indicator_ids', [])
+        print(request.data, organization_id, project_id, indicator_ids)
+        if not organization_id or not project_id or not indicator_ids:
+            return Response(
+                {"detail": "You must provide an organization, project, and at least one indicator to create a task."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        created = []
+        skipped = []
+        for indicator_id in indicator_ids:
+            existing_task = Task.objects.filter(indicator_id=indicator_id, project_id=project_id, organization_id=organization_id).first()
+            if existing_task:
+                skipped.append(f'Task "{str(existing_task)}" already exists and was skipped.')
+                continue
+            serializer = self.get_serializer(data={
+                'organization_id': organization_id,
+                'indicator_id': indicator_id,
+                'project_id': project_id,
+            }, context={'request': request})
+
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            created.append(serializer.data)
+
+        return Response({
+            "created": created,
+            "skipped": skipped
+        }, status=status.HTTP_201_CREATED)
 
 class TargetViewSet(RoleRestrictedViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]

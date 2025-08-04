@@ -231,7 +231,7 @@ class ProjectViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.admin)
         respondent = Respondent.objects.create(
             is_anonymous=True,
-            age_range=Respondent.AgeRanges.ET_24,
+            age_range=Respondent.AgeRanges.T_24,
             village='Testingplace',
             district=Respondent.District.CENTRAL,
             citizenship='test',
@@ -328,6 +328,23 @@ class ProjectOrganizationViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.planned_project.refresh_from_db()
         self.assertEqual(self.planned_project.organizations.count(), 2)
+
+    def test_admin_add_org_multiple(self):
+        '''
+        Admins should be allowed to add an organizaiton to a project.
+        '''
+        self.client.force_authenticate(user=self.admin)
+        valid_payload ={
+            'parent_id': self.parent_org.id,
+            'child_ids': [self.other_org.id, self.child_org.id]
+        }
+        response = self.client.patch(f'/api/manage/projects/{self.project_2.id}/assign-subgrantee/', valid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        print(response.json())
+        self.assertEqual(len(response.data['reassigned']), 1)
+        self.assertEqual(len(response.data['added']), 1)
+        self.planned_project.refresh_from_db()
+        self.assertEqual(self.project_2.organizations.count(), 3)
     
     def test_me_mgr_add_org(self):
         '''
@@ -336,10 +353,10 @@ class ProjectOrganizationViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.manager)
         valid_payload ={
             'parent_id': self.parent_org.id,
-            'child_id': self.child_org.id,
+            'child_ids': [self.child_org.id],
         }
         response = self.client.patch(f'/api/manage/projects/{self.project.id}/assign-subgrantee/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.project.refresh_from_db()
         self.assertEqual(self.project.organizations.count(), 2)
 
@@ -357,7 +374,7 @@ class ProjectOrganizationViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.manager)
         valid_payload ={
             'parent_id': self.parent_org.id,
-            'child_id': self.other_org.id,
+            'child_ids': [self.other_org.id],
         }
         response = self.client.patch(f'/api/manage/projects/{self.project_2.id}/assign-subgrantee/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -370,10 +387,10 @@ class ProjectOrganizationViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.data_collector)
         valid_payload ={
             'parent_id': self.parent_org.id,
-            'child_id': self.other_org.id,
+            'child_ids': [self.other_org.id],
         }
         response = self.client.patch(f'/api/manage/projects/{self.project_2.id}/assign-subgrantee/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
     
     def test_remove_org_cleanup(self):
         '''
@@ -394,10 +411,10 @@ class ProjectOrganizationViewSetTest(APITestCase):
         #assing them
         valid_payload ={
             'parent_id': self.parent_org.id,
-            'child_id': self.child_org.id,
+            'child_ids': [self.child_org.id],
         }
         response = self.client.patch(f'/api/manage/projects/{self.project.id}/assign-subgrantee/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.project.refresh_from_db()
         self.assertEqual(self.project.organizations.count(), 2)
 

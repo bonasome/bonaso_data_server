@@ -79,7 +79,7 @@ class InteractionViewSetTest(APITestCase):
         self.req2 = RespondentAttributeType.objects.create(name='CHW')
 
         self.attr_indicator = Indicator.objects.create(code='5001', name='I NEED AN ATTRIBUTE')
-        self.attr_indicator.required_attribute.set([self.req1, self.req2])
+        self.attr_indicator.required_attributes.set([self.req1, self.req2])
 
         self.task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.indicator)
         self.prereq_task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.child_indicator)
@@ -154,7 +154,7 @@ class InteractionViewSetTest(APITestCase):
         '''
         self.client.force_authenticate(user=self.data_collector)
         valid_payload = {
-            'task': self.task.id,
+            'task_id': self.task.id,
             'interaction_date': '2025-06-15',
             'interaction_location': 'That place that sells chili',
             'respondent': self.respondent.id,
@@ -169,7 +169,7 @@ class InteractionViewSetTest(APITestCase):
         '''
         self.client.force_authenticate(user=self.officer)
         valid_payload = {
-            'task': self.child_task.id, #task linked to a child organization
+            'task_id': self.child_task.id, #task linked to a child organization
             'interaction_date': '2025-06-15',
             'interaction_location': 'That place that sells chili',
             'respondent': self.respondent.id,
@@ -184,7 +184,7 @@ class InteractionViewSetTest(APITestCase):
         '''
         self.client.force_authenticate(user=self.data_collector)
         valid_payload = {
-            'task': self.task.id, #task linked to a child organization
+            'task_id': self.task.id, #task linked to a child organization
             'interaction_date': '2025-04-15',
             'interaction_location': 'That place that sells chili',
             'event_id': self.event.id,
@@ -202,7 +202,7 @@ class InteractionViewSetTest(APITestCase):
         '''
         self.client.force_authenticate(user=self.officer)
         valid_payload = {
-            'task': self.child_task.id, #task linked to a child organization
+            'task_id': self.child_task.id, #task linked to a child organization
             'interaction_date': '2025-04-15',
             'interaction_location': 'That place that sells chili',
             'event_id': self.event.id,
@@ -220,7 +220,7 @@ class InteractionViewSetTest(APITestCase):
         '''
         self.client.force_authenticate(user=self.manager)
         valid_payload = {
-            'task': self.task.id, #task linked to a child organization
+            'task_id': self.task.id, #task linked to a child organization
             'interaction_date': '2025-04-15',
             'interaction_location': 'That place that sells chili',
             'event_id': self.other_event.id,
@@ -236,7 +236,7 @@ class InteractionViewSetTest(APITestCase):
         '''
         self.client.force_authenticate(user=self.data_collector)
         valid_payload = {
-            'task': self.child_task.id,
+            'task_id': self.child_task.id,
             'interaction_date': '2025-06-15',
             'interaction_location': 'That place that sells chili',
             'respondent': self.respondent.id,
@@ -251,7 +251,7 @@ class InteractionViewSetTest(APITestCase):
         '''
         self.client.force_authenticate(user=self.client_user)
         valid_payload = {
-            'task': self.child_task.id,
+            'task_id': self.child_task.id,
             'interaction_date': '2025-06-15',
             'interaction_location': 'That place that sells chili',
             'respondent': self.respondent.id,
@@ -372,7 +372,7 @@ class InteractionViewSetTest(APITestCase):
             'interaction_date': date(2025, 6, 5),
             'interaction_location': 'That place that sells chili',
             'respondent': self.respondent3.id,
-            'task': self.task.id
+            'task_id': self.task.id
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -384,7 +384,7 @@ class InteractionViewSetTest(APITestCase):
             'interaction_date': date(2025, 6, 7),
             'interaction_location': 'That place that sells chili',
             'respondent': self.respondent3.id,
-            'task': self.task.id
+            'task_id': self.task.id
         }, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -401,7 +401,7 @@ class InteractionViewSetTest(APITestCase):
         '''
         self.client.force_authenticate(user=self.data_collector)
         valid_payload = {
-            'task': self.attr_task.id,
+            'task_id': self.attr_task.id,
             'interaction_date': '2025-06-15',
             'interaction_location': 'That place that sells chili.',
             'respondent': self.respondent3.id,
@@ -440,7 +440,7 @@ class InteractionViewSetTest(APITestCase):
         '''
         self.client.force_authenticate(user=self.data_collector)
         valid_payload = {
-            'task': self.prereq_task.id,
+            'task_id': self.prereq_task.id,
             'interaction_date': '2025-06-15',
             'interaction_location': 'That place that sells chili.',
             'respondent': self.respondent3.id,
@@ -454,7 +454,7 @@ class InteractionViewSetTest(APITestCase):
 
         #upload prereq and it should be fine now
         valid_payload = {
-            'task': self.task.id,
+            'task_id': self.task.id,
             'interaction_date': '2025-06-15',
             'interaction_location': 'That place that sells chili.',
             'respondent': self.respondent3.id,
@@ -476,7 +476,7 @@ class InteractionViewSetTest(APITestCase):
         '''
         self.client.force_authenticate(user=self.data_collector)
         valid_payload = {
-            'task': self.task.id,
+            'task_id': self.task.id,
             'interaction_date': '2025-06-15',
             'interaction_location': 'That place that sells chili.',
             'respondent': self.respondent3.id,
@@ -487,7 +487,7 @@ class InteractionViewSetTest(APITestCase):
         #prereq has task, but date is before
         self.client.force_authenticate(user=self.data_collector)
         valid_payload = {
-            'task': self.prereq_task.id,
+            'task_id': self.prereq_task.id,
             'interaction_date': '2025-06-12',
             'interaction_location': 'That place that sells chili.',
             'respondent': self.respondent3.id,
@@ -537,8 +537,8 @@ class InteractionViewSetTest(APITestCase):
             'interaction_date': self.today,
             'interaction_location': 'That place that sells chili.',
             'respondent': self.respondent.id,
-            'task': task_parent.id,
-            'subcategories_data': [{'name': 'Cat 1', 'id': category.id}]
+            'task_id': task_parent.id,
+            'subcategories_data': [{'id': None, 'subcategory': {'name': 'Cat 1', 'id': category.id}}]
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -546,8 +546,8 @@ class InteractionViewSetTest(APITestCase):
             'interaction_date': self.today,
             'interaction_location': 'That place that sells chili.',
             'respondent': self.respondent.id,
-            'task': task_child.id,
-            'subcategories_data': [{'name': 'Cat 1', 'id': category.id}, {'name': 'Cat 2', 'id': category2.id}]
+            'task_id': task_child.id,
+            'subcategories_data': [{'id': None, 'subcategory': {'name': 'Cat 1', 'id': category.id}}, {'id': None, 'subcategory': {'name': 'Cat 2', 'id': category2.id}}]
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -559,7 +559,7 @@ class InteractionViewSetTest(APITestCase):
 
         #update with matched categories
         response = self.client.patch(f'/api/record/interactions/{ir.id}/', {
-            'subcategories_data': [{'name': 'Cat 1', 'id': category.id}]
+            'subcategories_data': [{'id': None, 'subcategory': {'name': 'Cat 1', 'id': category.id}}]
         }, format='json')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -578,7 +578,7 @@ class InteractionViewSetTest(APITestCase):
         ind1.subcategories.set([category])
         task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=ind1)
         valid_payload = {
-            'task': task.id,
+            'task_id': task.id,
             'interaction_location': 'That place that sells chili.',
             'interaction_date': '2025-06-15',
             'respondent': self.respondent3.id,
@@ -588,11 +588,11 @@ class InteractionViewSetTest(APITestCase):
 
         #try again with subcats
         valid_payload = {
-            'task': task.id,
+            'task_id': task.id,
             'interaction_location': 'That place that sells chili.',
             'interaction_date': '2025-06-15',
             'respondent': self.respondent3.id,
-            'subcategories_data': [{'name': 'Cat 1', 'id': category.id}]
+            'subcategories_data': [{'id': None, 'subcategory': {'name': 'Cat 1', 'id': category.id}}]
         }
         response = self.client.post('/api/record/interactions/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -605,7 +605,7 @@ class InteractionViewSetTest(APITestCase):
         ind = Indicator.objects.create(code='10', name='GimmeANummie', require_numeric=True)
         task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=ind)
         valid_payload = {
-            'task': task.id,
+            'task_id': task.id,
             'interaction_location': 'That place that sells chili.',
             'interaction_date': '2025-06-15',
             'respondent': self.respondent3.id,
@@ -615,7 +615,7 @@ class InteractionViewSetTest(APITestCase):
 
         #not quite there
         valid_payload = {
-            'task': task.id,
+            'task_id': task.id,
             'interaction_location': 'That place that sells chili.',
             'interaction_date': '2025-06-15',
             'respondent': self.respondent3.id,
@@ -626,7 +626,7 @@ class InteractionViewSetTest(APITestCase):
 
         #there we go
         valid_payload = {
-            'task': task.id,
+            'task_id': task.id,
             'interaction_location': 'That place that sells chili.',
             'interaction_date': '2025-06-15',
             'respondent': self.respondent3.id,
@@ -646,8 +646,8 @@ class InteractionViewSetTest(APITestCase):
             'interaction_date': self.today,
             'interaction_location': 'That place that sells chili.',
             'respondent': self.respondent.id,
-            'task': task_numsub.id,
-            'subcategories_data': [{'name': 'Cat 1', 'id': category.id, 'numeric_component': 5}, {'name': 'Cat 2', 'id': category2.id, 'numeric_component': 10}]
+            'task_id': task_numsub.id,
+            'subcategories_data': [{'id':None, 'subcategory': {'name': 'Cat 1', 'id': category.id}, 'numeric_component': 5}, {'id': None, 'subcategory': {'name': 'Cat 2', 'id': category2.id}, 'numeric_component': 10}]
         }, format='json')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -675,9 +675,9 @@ class InteractionViewSetTest(APITestCase):
             'interaction_location': 'That place that sells chili.',
             'respondent': self.respondent3.id,
             'tasks': [
-                {'task': self.task.id},
-                {'task': task_number.id, 'numeric_component': 10},
-                {'task': task_subcat.id, 'subcategories_data': [{'name': 'Cat 1', 'id': category.id}, {'name': 'Cat 2', 'id': category2.id}]}
+                {'task_id': self.task.id},
+                {'task_id': task_number.id, 'numeric_component': 10},
+                {'task_id': task_subcat.id, 'subcategories_data': [{'id': None, 'subcategory': {'name': 'Cat 1', 'id': category.id}}, {'id': None, 'subcategory': {'name': 'Cat 2', 'id': category2.id}}]}
             ]
         }, format='json')
         print(response.json())
@@ -701,10 +701,10 @@ class InteractionViewSetTest(APITestCase):
             'interaction_location': 'That place that sells chili.',
             'respondent': self.respondent3.id,
             'tasks': [
-                {'task': self.task.id},
-                {'task': task_number.id, 'numeric_component': 10},
-                {'task': task_subcat_prereq.id, 'subcategories_data': [{'name': 'Cat 1', 'id': category.id}, {'name': 'Cat 2', 'id': category2.id}]},
-                {'task': task_subcat.id, 'subcategories_data': [{'name': 'Cat 1', 'id': category.id}, {'name': 'Cat 2', 'id': category2.id}]}
+                {'task_id': self.task.id},
+                {'task_id': task_number.id, 'numeric_component': 10},
+                {'task_id': task_subcat_prereq.id, 'subcategories_data': [{'id': None, 'subcategory': {'name': 'Cat 1', 'id': category.id}}, {'id': None, 'subcategory': {'name': 'Cat 2', 'id': category2.id}}]},
+                {'task_id': task_subcat.id, 'subcategories_data': [{'id': None, 'subcateogry': {'name': 'Cat 1', 'id': category.id}}, {'id': None, 'subcategory': {'name': 'Cat 2', 'id': category2.id}}]}
             ]
         }, format='json')
         print(response.json())
@@ -728,10 +728,8 @@ class InteractionViewSetTest(APITestCase):
             'interaction_location': 'That place that sells chili.',
             'respondent': self.respondent3.id,
             'tasks': [
-                {'task': self.task.id},
-                {'task': task_number.id, 'numeric_component': 10},
-                {'task': task_subcat_prereq.id, 'subcategories_data': [{'name': 'Cat 1', 'id': category.id}, {'name': 'Cat 2', 'id': category2.id}]},
-                {'task': task_subcat.id, 'subcategories_data': [{'name': 'Cat 1', 'id': category.id}, {'name': 'Cat 2', 'id': category2.id}]}
+                {'task_id': self.task.id},
+                {'task_id': task_number.id, 'numeric_component': 10},
             ]
         }, format='json')
         print(response.json())

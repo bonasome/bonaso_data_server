@@ -71,7 +71,7 @@ class AlertViewSetTest(APITestCase):
         '''
         self.client.force_authenticate(user=self.data_collector)
         valid_payload = {
-            'task': self.prereq_task.id,
+            'task_id': self.prereq_task.id,
             'interaction_date': '2024-06-15',
             'interaction_location': 'That place that sells chili.',
             'respondent': self.respondent.id,

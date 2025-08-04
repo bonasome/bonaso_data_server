@@ -239,3 +239,21 @@ class TaskViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.admin)
         response = self.client.delete(f'/api/manage/tasks/{self.task.id}/')
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        
+    def test_batch_create(self):
+        '''
+        Allow users to create mutliple tasks at once
+        '''
+        random_ind = Indicator.objects.create(name='Random', code='R')
+        self.client.force_authenticate(user=self.admin)
+        valid_payload = {
+            'organization_id': self.other_org.id,
+            'indicator_ids': [self.child_indicator.id, random_ind.id],
+            'project_id': self.project.id,
+        }
+        response = self.client.post('/api/manage/tasks/batch-create/', valid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(response.data['created']), 2)
+        tasks = Task.objects.filter(organization=self.other_org)
+        self.assertEqual(tasks.count(), 3)
+

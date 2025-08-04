@@ -75,7 +75,7 @@ class MessageViewSetTest(APITestCase):
         response = self.client.get('/api/messages/dm/recipients/')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 6)
+        self.assertEqual(len(response.data['results']), 6)
     
     def test_higher_role_recip(self):
         '''
@@ -84,7 +84,7 @@ class MessageViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.manager)
         response = self.client.get('/api/messages/dm/recipients/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 5)
+        self.assertEqual(len(response.data['results']), 5)
     
     def test_lower_role_recip(self):
         '''

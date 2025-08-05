@@ -30,7 +30,15 @@ class ClientSerializer(serializers.ModelSerializer):
 
         if not user or user.role != 'admin':
             raise PermissionDenied('You do not have permission to manage clients.')
+        name = attrs.get('name', None)
+
+        if not name:
+            raise serializers.ValidationError('Name is required.')
+        
+        if Client.objects.filter(name=name).exclude(pk=getattr(self.instance, 'pk', None)).exists():
+            raise serializers.ValidationError('Name is already in use. Please check if this client is already in the system.')
         return attrs
+
 
 
 class ProjectListSerializer(serializers.ModelSerializer):
@@ -216,7 +224,8 @@ class TargetSerializer(serializers.ModelSerializer):
     related_to_id = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True, required=False, allow_null=True, source='related_to')
     related_as_number = serializers.SerializerMethodField()
     achievement = serializers.SerializerMethodField()
-    
+    display_name = serializers.SerializerMethodField()
+
     def get_related_as_number(self, obj):
         '''
         Get the actual numeric value that a related to percentage represents at a given moment.
@@ -232,11 +241,13 @@ class TargetSerializer(serializers.ModelSerializer):
         '''
         user = self.context.get('request').user
         return get_achievement(user, obj)
-
+    def get_display_name(self, obj):
+        return str(obj)
+    
     class Meta:
         model = Target
         fields = ['id', 'task', 'task_id', 'start', 'end', 'amount','related_to', 'related_to_id', 
-                'related_as_number', 'percentage_of_related', 'achievement']
+                'related_as_number', 'percentage_of_related', 'achievement', 'display_name']
 
     
     def validate(self, attrs):

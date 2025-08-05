@@ -381,7 +381,7 @@ class RespondentSerializer(serializers.ModelSerializer):
                         HIVStatus.objects.create(
                             respondent=instance, 
                             hiv_positive=hiv_positive, 
-                            date_positive=date_positive,
+                            date_positive=date_positive if hiv_positive else None,
                             created_by = user
                         )
 

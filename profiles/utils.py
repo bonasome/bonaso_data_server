@@ -10,7 +10,6 @@ from projects.models import Project, Task, ProjectActivity, ProjectDeadline, Tar
 from social.models import SocialMediaPost
 from uploads.models import NarrativeReport
 from flags.models import Flag
-
 def get_user_activity(user):
     '''
     Helper function to collect a list of all user activity. Not an exact science, but gives an idea of a users 

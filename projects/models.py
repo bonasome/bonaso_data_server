@@ -25,6 +25,8 @@ class Client(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='client_updated_by')
 
+    def __str__(self):
+        return self.name
 
 class Project(models.Model):
     '''
@@ -60,7 +62,7 @@ class Project(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f'Project {self.name} for {self.client}'
+        return f'{self.name} (for {self.client})'
 
 class ProjectOrganization(models.Model):
     '''
@@ -140,6 +142,8 @@ class Target(models.Model):
         if overlaps.exists():
             raise ValidationError("Target date range overlaps with an existing target.")
 
+    def __str__(self):
+        return f'Target for Task {self.task} ({self.start} - {self.end})'
 class ProjectActivity(models.Model):
     '''
     An organizational tool that can help admins/orgs track when events are and such. No real bearing on the data,
@@ -172,6 +176,8 @@ class ProjectActivity(models.Model):
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='activity_created_by')
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='activity_updated_by')
 
+    def __str__(self):
+        return f'{self.name} ({self.project})'
 
 class ProjectActivityOrganization(models.Model):
     '''
@@ -210,7 +216,9 @@ class ProjectDeadline(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='deadline_created_by')
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='deadline_updated_by')
-
+    
+    def __str__(self):
+        return f'{self.name} ({self.project})'
 class ProjectDeadlineOrganization(models.Model):
     '''
     Largely a through table, but also stores information about the specific org (maybe push the deadline back)

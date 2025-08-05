@@ -170,9 +170,24 @@ class ProjectViewSet(RoleRestrictedViewSet):
                 {"detail": "You do not have permission view this information."},
                 status=status.HTTP_403_FORBIDDEN
             )
+        
         #exclude already included
-        orgs = Organization.objects.exclude(id__in=ids)
-        return Response({'results': OrganizationListSerializer(orgs, many=True).data})
+        queryset = Organization.objects.exclude(id__in=ids)
+        search_term = request.query_params.get('search')
+        if search_term:
+            queryset = queryset.filter(
+                Q(name__icontains=search_term) |
+                Q(full_name__icontains=search_term)
+            )
+            
+        page = self.paginate_queryset(queryset)
+
+        if page is not None:
+            serializer = OrganizationListSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        
+        serializer = OrganizationListSerializer(queryset, many=True)
+        return Response(serializer.data)
 
 
     '''
@@ -458,6 +473,7 @@ class TaskViewSet(RoleRestrictedViewSet):
 class TargetViewSet(RoleRestrictedViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
     filterset_fields = ['task', 'task__organization', 'task__indicator', 'task__project']
+    search_fields = ['task__indicator__code', 'task__indicator__name']
     permission_classes = [IsAuthenticated]
     serializer_class = TargetSerializer
 

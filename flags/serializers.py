@@ -17,12 +17,14 @@ class FlagSerializer(serializers.ModelSerializer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # preload content types once
-        ct = ContentType.objects
-        self.ct_respondent = ct.get(app_label='respondents', model='respondent')
-        self.ct_interaction = ct.get(app_label='respondents', model='interaction')
-        self.ct_demo_count = ct.get(app_label='events', model='demographiccount')
-        self.ct_social_post = ct.get(app_label='social', model='socialmediapost')
-
+        try:
+            ct = ContentType.objects
+            self.ct_respondent = ct.get(app_label='respondents', model='respondent')
+            self.ct_interaction = ct.get(app_label='respondents', model='interaction')
+            self.ct_demo_count = ct.get(app_label='events', model='demographiccount')
+            self.ct_social_post = ct.get(app_label='social', model='socialmediapost')
+        except Exception:
+            self.ct_respondent = None
     def get_target(self, obj):
         try:
             if obj.content_type == self.ct_respondent:

@@ -42,7 +42,7 @@ class AnnouncementSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'subject', 'body', 'sent_by', 'sent_on', 'read',
             'project', 'project_id', 'organizations', 'organization_ids',
-            'cascade_to_children'
+            'cascade_to_children', 'visible_to_all'
         ]
         read_only_fields = ['sent_by', 'sent_on', 'id', 'read']
 

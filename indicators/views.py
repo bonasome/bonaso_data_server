@@ -29,6 +29,8 @@ class IndicatorViewSet(RoleRestrictedViewSet):
 
         if user.role != 'admin':
             queryset = queryset.filter(status=Indicator.Status.ACTIVE)
+            valid_ids = Task.objects.filter(organization=user.organization).values_list('indicator__id', flat=True)
+            queryset = queryset.filter(id__in=valid_ids)
 
         exclude_project_id = self.request.query_params.get('exclude_project')
         exclude_org_id = self.request.query_params.get('exclude_organization')

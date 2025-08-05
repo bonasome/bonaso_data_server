@@ -100,7 +100,7 @@ class RespondentSerializer(serializers.ModelSerializer):
     class Meta:
         model=Respondent
         fields = [
-            'id','id_no', 'uuid', 'is_anonymous', 'first_name', 'last_name', 'sex', 'ward',
+            'id','id_no', 'uuid', 'is_anonymous', 'first_name', 'last_name', 'sex', 'plot_no', 'ward',
             'village', 'district', 'citizenship', 'comments', 'email', 'phone_number', 'dob',
             'age_range', 'created_by', 'updated_by', 'created_at', 'updated_at', 'special_attribute', 
             'special_attribute_names', 'pregnancies', 'pregnancy_data', 'hiv_status', 'kp_status', 'kp_status_names', 'disability_status',
@@ -243,7 +243,7 @@ class RespondentSerializer(serializers.ModelSerializer):
             respondent.age_range = calculate_age_range(respondent.dob)
 
         #run some checks on the Omang --> check respondents.utils.respondent_flag_check for more information on the checks
-        if respondent.citizenship == 'Motswana' and not respondent.is_anonymous and respondent.id_no:
+        if respondent.citizenship == 'BW' and not respondent.is_anonymous and respondent.id_no:
             respondent_flag_check(respondent, user)
 
         #manually update the m2m fields (see respondents.utils.update_m2m_status)
@@ -324,7 +324,7 @@ class RespondentSerializer(serializers.ModelSerializer):
             instance.age_range = calculate_age_range(instance.dob)
 
         #run flag checks (for creating new flags and resolving old ones) --> more detail at respondents.utils.respondent_flag_check
-        if instance.citizenship == 'Motswana' and not instance.is_anonymous:
+        if instance.citizenship == 'BW' and not instance.is_anonymous:
             respondent_flag_check(instance, user)
         
         #set m2m fields if provided

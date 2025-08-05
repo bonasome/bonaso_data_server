@@ -313,7 +313,7 @@ class RespondentViewSetTest(APITestCase):
             'dob': '2000-01-01',
             'ward': 'Here',
             'village': 'Place', 
-            'citizenship': 'Motswana', #this should only work for citizens
+            'citizenship': 'BW', #this should only work for citizens
             'sex': Respondent.Sex.FEMALE,
             'district': Respondent.District.CENTRAL,
         }
@@ -452,7 +452,7 @@ class RespondentBulkUploadTest(APITestCase):
                 "sex": "M",
                 "village": 'here',
                 "district": "Central",
-                "citizenship": "Motswana",
+                "citizenship": "BW",
                 "is_anonymous": False,
                 "sensitive_info": {
                     "hiv_positive": True,
@@ -503,7 +503,7 @@ class RespondentBulkUploadTest(APITestCase):
                 "sex": "M",
                 "village": 'here',
                 "district": "Central",
-                "citizenship": "Motswana",
+                "citizenship": "BW",
                 "is_anonymous": False,
                 "sensitive_info": {
                     "hiv_positive": True,

@@ -549,8 +549,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
             #get the citizenship, if left blank, assume they are a citizen but throw a warning to make sure
             citizenship = get_cell_value(row, 'citizenship') or None
             if not citizenship:
-                citizenship = 'Motswana'
-                row_warnings.append(f"Citizenship at column: {get_column('citizenship')}, row: {i} is required for all respondents. This value will default to Motswana. If this is incorrect, please check this field again.")
+                citizenship = 'BW'
+                row_warnings.append(f"Citizenship at column: {get_column('citizenship')}, row: {i} is required for all respondents. This value will default to BW. If this is incorrect, please check this field again.")
             
             #get/validate email and phone if provided
             email = get_cell_value(row, 'email') or None

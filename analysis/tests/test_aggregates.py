@@ -116,7 +116,7 @@ class AggregatesViewSetTest(APITestCase):
             age_range=Respondent.AgeRanges.T_24,
             village='Testingplace',
             district= Respondent.District.CENTRAL,
-            citizenship='Motswana',
+            citizenship='BW',
             sex = Respondent.Sex.MALE,
         )
         #mark as HIV positive

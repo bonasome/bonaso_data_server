@@ -1,12 +1,14 @@
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 
+from datetime import date
+
 from profiles.serializers import ProfileListSerializer
 from projects.serializers import TaskSerializer
 from projects.models import Task, ProjectOrganization
 from social.models import SocialMediaPost, SocialMediaPostTasks
 from flags.serializers import FlagSerializer
-
+from indicators.models import Indicator
 
 
 class SocialMediaPostSerializer(serializers.ModelSerializer):
@@ -51,7 +53,8 @@ class SocialMediaPostSerializer(serializers.ModelSerializer):
                 if org and task.organization != org:
                     raise serializers.ValidationError('All tasks must belong to the same organization.')
                 org = task.organization
-
+                if task.indicator.indicator_type != Indicator.IndicatorType.SOCIAL:
+                    raise serializers.ValidationError(f'Task "{str(task)}" may not be assigned to a social media post.')
                 #check that task is associated with the organization or their child
                 if user.role != 'admin':
                     if task.organization != user.organization and not ProjectOrganization.objects.filter(
@@ -67,7 +70,19 @@ class SocialMediaPostSerializer(serializers.ModelSerializer):
             other = attrs.get('other_platform') or getattr(self.instance, 'other_platform', None)
             if not other:
                 raise serializers.ValidationError({'other_platform': 'Please specify the platform.'})
+            
+        published_at = attrs.get('published_at') or getattr(self.instance, 'published_at', None)
+        # Parse string to date if needed
+        if isinstance(published_at, str):
+            published_at = date.fromisoformat(published_at)
 
+        # Ensure published_at is a date
+        if not isinstance(published_at, date):
+            raise serializers.ValidationError({'published_at': 'Invalid or missing published date.'})
+
+        # Check if any metrics are provided for a future post
+        if any(attrs.get(field) for field in ['likes', 'comments', 'views']) and date.today() < published_at:
+            raise serializers.ValidationError('You may not provide metrics for a post that has not happened yet.')
         return attrs
 
     def create(self, validated_data):

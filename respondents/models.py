@@ -126,6 +126,7 @@ class Respondent(models.Model):
     dob = models.DateField(verbose_name='Date of Birth', blank=True, null=True)
     dummy_dob = models.DateField(verbose_name='Estimated DOB from Age Range', blank=True, null=True)
     sex = models.CharField(max_length=2, choices=Sex.choices, verbose_name='Sex')
+    plot_no = models.TextField(verbose_name='Plot Number', blank=True, null=True)
     ward = models.CharField(max_length=255, verbose_name='Ward', blank=True, null=True)
     village = models.CharField(max_length=255, verbose_name='Village')
     district = models.CharField(max_length=25, choices=District.choices, verbose_name='District')

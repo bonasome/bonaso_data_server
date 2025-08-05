@@ -6,7 +6,7 @@ User = get_user_model()
 from organizations.serializers import OrganizationListSerializer
 from organizations.models import Organization
 from profiles.models import FavoriteObject
-
+from projects.models import Client
 class ProfileListSerializer(serializers.ModelSerializer):
     '''
     Lightweight serializer used quite a bit for getting created by/updated by
@@ -29,8 +29,18 @@ class ProfileSerializer(serializers.ModelSerializer):
     '''
     display_name = serializers.SerializerMethodField(read_only=True)
     organization = OrganizationListSerializer(read_only=True)
-    organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, source='organization')
-
+    client_organization =serializers.SerializerMethodField(read_only=True)
+    organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, source='organization', required=False, allow_null=True)
+    client_id = serializers.PrimaryKeyRelatedField(queryset=Client.objects.all(), write_only=True, source='client_organization', required=False, allow_null=True)
+    
+    def get_client_organization(self, obj):
+        if obj.client_organization:
+            return {
+                'id': obj.client_organization.id,
+                'name': obj.client_organization.name
+            }
+        else:
+            return None
     def get_display_name(self, obj):
         if obj.first_name and obj.last_name:
             return f'{obj.first_name} {obj.last_name}'
@@ -39,7 +49,7 @@ class ProfileSerializer(serializers.ModelSerializer):
         
     class Meta:
         model=User
-        fields = ['id', 'username', 'first_name', 'last_name', 'email','organization', 'display_name',
+        fields = ['id', 'username', 'first_name', 'last_name', 'email','organization', 'display_name', 'client_id',
                   'organization_id', 'role', 'is_active', 'client_organization', 'date_joined', 'last_login']
         read_only_fields = ['id']
 

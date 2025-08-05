@@ -107,9 +107,9 @@ def get_interactions_from_indicator(user, indicator, project=None, organization=
                 if len(values) == 2 or len(values) == 0:
                     continue
                 if values[0] == 'citizen': #simple bool check since we store citizenship as a string
-                    queryset = queryset.filter(respondent__citizenship='Motswana')
+                    queryset = queryset.filter(respondent__citizenship='BW')
                 elif values[0] == 'non_citizen':
-                    queryset = queryset.exclude(respondent__citizenship='Motswana')
+                    queryset = queryset.exclude(respondent__citizenship='BW')
             else:
                 field_name = FILTERS_MAP.get(field, field)
                 if isinstance(values, list):

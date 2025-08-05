@@ -88,12 +88,12 @@ class UploadViewSetTest(APITestCase):
             "Pregnancy Ended (Date)", "Date of Interaction", "Interaction Location", ]
 
         self.resp_headers = ["FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
+            "Central District", "BW", "test@website.com", "71234567", "Transgender, Intersex", 
             "Hearing Impaired, Visually Impaired", "Community Health Worker, Community Leader", 
             "Yes", date(2023,2,1), "", "", date(2024, 5, 1), "Mochudi",]
         
         self.resp_headers_2 = ["FALSE", "T2", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
+            "Central District", "BW", "test@website.com", "71234567", "Transgender, Intersex", 
             "Hearing Impaired, Visually Impaired", "Community Health Worker, Community Leader", 
             "Yes", date(2023,2,1), "", "", date(2024, 5, 1), "Mochudi",]
 
@@ -231,7 +231,7 @@ class UploadViewSetTest(APITestCase):
         #ideal upload 
         row = [
             "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
+            "Central District", "BW", "test@website.com", "71234567", "Transgender, Intersex", 
             "Hearing Impaired, Visually Impaired", "Community Health Worker, Community Leader", 
             "Yes", date(2023,2,1), "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
@@ -239,7 +239,7 @@ class UploadViewSetTest(APITestCase):
         #this is about as far of deviation as the function can handle, but should still upload
         row2 = [
             "FALSE", "T2", "Test", "Testerson", "", '6/25/2000', "male", "Wardplace", "Testington",
-            "Central District", "Motswana", "", "", "transgender, Intersex", 
+            "Central District", "BW", "", "", "transgender, Intersex", 
             "hearing   Impaired, Visually Impaired", " communityHealthworker,community   leader", "yes", "45447", "", "", 
             '45447', "Mochudi", "Yes", "Yes", ""
         ]
@@ -247,7 +247,7 @@ class UploadViewSetTest(APITestCase):
         #test anon
         row3 = [
             "TRUE", "", "", "", "20–24", "", "Female", "", "Testington",
-            "Central District", "Motswana", "", "", "", 
+            "Central District", "BW", "", "", "", 
             "", "", "", "", date(2023, 1, 1), date(2023, 9, 1), date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row3)
@@ -320,7 +320,7 @@ class UploadViewSetTest(APITestCase):
         #invalid options selected
         row = [
             "TRUE", "", "", "", "somewhere around 30, id say", "", "a guy", "Wardplace", "Testington",
-            "you know that place, right?", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
+            "you know that place, right?", "BW", "test@website.com", "71234567", "Transgender, Intersex", 
             "Hearing Impaired, Visually Impaired", "", "", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row)
@@ -328,7 +328,7 @@ class UploadViewSetTest(APITestCase):
         #missing values
         row2 = [
             "FALSE","T2", "Test", "", "", 'yesterday', "", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
+            "Central District", "BW", "test@website.com", "71234567", "Transgender, Intersex", 
             "Hearing Impaired, Visually Impaired", "", "", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row2)  
@@ -336,7 +336,7 @@ class UploadViewSetTest(APITestCase):
         #an non anon without a dob should also flag
         row3 = [
             "FALSE", "T2", "Test", "Testerson", "Under 18", "", "male", "Wardplace", "Testington",
-            "Central District", "Motswana", "", "", "transgender, Intersex", 
+            "Central District", "BW", "", "", "transgender, Intersex", 
             "hearing   Impaired; Visually Impaired", "", "", "", "", "", '45447', "Mochudi" "Yes", "Yes", ""
         ]
         ws.append(row3) 
@@ -368,7 +368,7 @@ class UploadViewSetTest(APITestCase):
         #future dates should block
         row = [
             "FALSE", "T1", "Test", "Testerson", "", date(2028, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
+            "Central District", "BW", "test@website.com", "71234567", "Transgender, Intersex", 
             "Hearing Impaired, Visually Impaired", "","", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row)
@@ -376,7 +376,7 @@ class UploadViewSetTest(APITestCase):
         #as should unworkable dates
         row2 = [
             "FALSE","T2", "Test", "Testerson", "", 'yesterday', "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
+            "Central District", "BW", "test@website.com", "71234567", "Transgender, Intersex", 
             "Hearing Impaired, Visually Impaired", "","", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row2)  
@@ -407,7 +407,7 @@ class UploadViewSetTest(APITestCase):
         #this date is outside of the project range
         row = [
             "FALSE", "T1", "Test", "Testerson", "", date(2000, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
+            "Central District", "BW", "test@website.com", "71234567", "Transgender, Intersex", 
             "Hearing Impaired, Visually Impaired", "", "","", "", "", date(2000, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row)
@@ -441,7 +441,7 @@ class UploadViewSetTest(APITestCase):
         #if respondent already exists/has interactions, these should be edited but not duplicated. 
         row = [
             "FALSE", "1234567", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
+            "Central District", "BW", "test@website.com", "71234567", "Transgender, Intersex", 
             "Hearing Impaired, Visually Impaired", "","", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
         ]
         ws.append(row)
@@ -492,7 +492,7 @@ class UploadViewSetTest(APITestCase):
         #if respondent already exists/has interactions, these should be edited but not duplicated. 
         row = [
             "FALSE", "1234567", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
-            "Central District", "Motswana", "test@website.com", "71234567", "Transgender, Intersex", 
+            "Central District", "BW", "test@website.com", "71234567", "Transgender, Intersex", 
             "Hearing Impaired, Visually Impaired", "","", "", "", "", date(2024, 5, 1), "Mochudi", "10", "Cat 1, Cat 2", ""
         ]
         ws.append(row)

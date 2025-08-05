@@ -11,7 +11,7 @@ from organizations.serializers import OrganizationListSerializer
 from projects.models import ProjectOrganization,Task
 from projects.serializers import TaskSerializer
 from flags.serializers import FlagSerializer
-
+from indicators.models import Indicator
 
 
 class DCSerializer(serializers.ModelSerializer):
@@ -76,6 +76,8 @@ class EventSerializer(serializers.ModelSerializer):
         new_links = []
         for task in tasks:
             org = task.organization
+            if task.indicator.indicator_type == Indicator.IndicatorType.SOCIAL:
+                raise serializers.ValidationError(f"Task '{task.indicator.name}' may not be assigned to an event. Please consider creating a social post instead.")
             if user.role != 'admin':
                  if not org == user.organization and not ProjectOrganization.objects.filter(organization=org, parent_organization=user.organization, project=task.project).exists():
                     raise PermissionDenied(

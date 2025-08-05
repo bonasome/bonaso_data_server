@@ -13,6 +13,7 @@ class FlagSerializer(serializers.ModelSerializer):
     updated_by = ProfileListSerializer(read_only=True)
     caused_by = ProfileListSerializer(read_only=True)
     target = serializers.SerializerMethodField(read_only=True)
+    model_string = serializers.SerializerMethodField(read_only=True)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -25,6 +26,10 @@ class FlagSerializer(serializers.ModelSerializer):
             self.ct_social_post = ct.get(app_label='social', model='socialmediapost')
         except Exception:
             self.ct_respondent = None
+    def get_model_string(self, obj):
+        content_type = ContentType.objects.get(id=obj.content_type.id)
+        return f"{content_type.app_label}.{content_type.model}"
+    
     def get_target(self, obj):
         try:
             if obj.content_type == self.ct_respondent:
@@ -73,5 +78,5 @@ class FlagSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'content_type', 'object_id', 'target', 'reason_type', 'reason', 'auto_flagged', 'created_by',
             'created_at', 'resolved', 'auto_resolved', 'resolved_reason', 'resolved_by', 'resolved_at', 'updated_at',
-            'updated_by', 'caused_by'
+            'updated_by', 'caused_by', 'model_string'
         ]

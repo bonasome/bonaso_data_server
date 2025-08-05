@@ -117,6 +117,7 @@ def current_user(request):
         'username': user.username,
         'role': user.role,
         'organization_id': user.organization.id if user.organization else None,
+        'client_organization_id': user.client_organization.id if user.client_organization else None
     })
 
 @api_view(['POST'])

@@ -1,4 +1,4 @@
-from django.db.models import Q
+from django.db.models import Q, Count
 from respondents.models import Interaction
 from projects.models import Target, ProjectOrganization
 from events.models import DemographicCount, Event
@@ -17,13 +17,23 @@ FIELD_MAP = {
     # others as needed
 }
 
-def demographic_aggregates(user, indicator, params, split=None, project=None, organization=None, start=None, end=None, filters=None):
+def demographic_aggregates(user, indicator, params, split=None, project=None, organization=None, start=None, end=None, filters=None, repeat_only=False, n=2):
+    #get a list of interactions prefiltered based on user role/filters
     interactions = get_interactions_from_indicator(user, indicator, project, organization, start, end, filters)
-    counts = get_event_counts_from_indicator(user, indicator, params, project, organization, start, end, filters)
+    if repeat_only:
+        #NOTE: This track respondents that have had the interaction repeatedly (i.e., the number of respondents reached with NCD messages at least three times or number of respondents who have received condoms more than once)
+        #Selecting this will ignore any numeric component to the interaction and just raw count unique respondents
+        interactions = get_repeats(interactions, n)
+    counts=[] #default counts to empty list
+    if not repeat_only: #only collect counts if repear is disabled
+        #get list of prefiltered counts
+        counts = get_event_counts_from_indicator(user, indicator, params, project, organization, start, end, filters)
+    #build a map  of all requested fields that need to be aggregated by
     fields_map = {}
     include_subcats=False
     for param, include in params.items():
         if include:
+            #get list of subcats from indicator
             if param == 'subcategory' and indicator.subcategories.exists():
                 include_subcats = True
                 fields_map['subcategory'] = [cat.name for cat in indicator.subcategories.all()]
@@ -31,34 +41,40 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
             elif param == 'subcategory':
                 print('WARNING: This indicator has no subcategories.')
                 continue
+            #this model contains all supported demographic fields, pull the list of options from it
             field = DemographicCount._meta.get_field(param)
             if field:
                 fields_map[param] = [value for value, label in field.choices]
-        
-    period_func = get_quarter_string if split == 'quarter' else get_month_string
-    periods = set(sorted({period_func(i.interaction_date) for i in interactions}) + sorted({period_func(count.event.end) for count in counts}))
-
+      
+    #if time split is required, add an additional 'field' deonting the time period
     if split in ['month', 'quarter']:
+        period_func = get_quarter_string if split == 'quarter' else get_month_string
+        periods = set(sorted({period_func(i.interaction_date) for i in interactions}) + sorted({period_func(count.event.end) for count in counts}))
         fields_map['period'] = periods
     #fields_map = {age_range: [18-24, 25-34...], sex: ['Male', 'Female]}
 
+    #create a cartsial product of all possible combos
     cartesian_product = list(product(*[bd for bd in fields_map.values()]))
     #[(18-24, M), (18-24, F)]
 
+    #use an index based key system to track this
     product_index = {tuple(p): i for i, p in enumerate(cartesian_product)}
- 
+    
+    #prepare the aggregates dict
     aggregates = {}
     for pos, arr in enumerate(cartesian_product):
-        aggregates[pos] = {}
+        aggregates[pos] = {} #use the index as a key
         for i, field in enumerate(fields_map.keys()):
             aggregates[pos][field] = arr[i]
-        aggregates[pos]['count'] = 0
+        aggregates[pos]['count'] = 0 #set default count to 0
     #{1: {age_range: 18-24, sex: M}, 2: {age_range: 18-24, sex: F}}
 
+    #prefetch related information for breakdowns
     respondent_ids = {i.respondent_id for i in interactions}
     hiv_status_map = get_hiv_statuses(respondent_ids=respondent_ids)
     pregnancies_map = get_pregnancies(respondent_ids=respondent_ids)
 
+    #also look fetch related subcategories now if required
     subcat_filter = None
     if filters:
         subcat_filter = filters.get('subcategory', None)
@@ -67,6 +83,8 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
 
     product_index_sets = {frozenset(k): v for k, v in product_index.items()}
 
+    seen_respondents = set()
+    #loop through each interaction and add the appropriate value
     for interaction in interactions:
         keys = build_keys(interaction, pregnancies_map, hiv_status_map, subcats, include_subcats)
         for key, value in keys.items():
@@ -74,26 +92,44 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
                 if frozenset(breakdown).issubset(frozenset(key)):
                     pos = product_index_sets.get(frozenset(breakdown))
                     if pos is not None:
-                        aggregates[pos]['count'] += value
-    for count in counts:
-        count_params = []
-        for field in fields_map.keys():
-            if field == 'period':   
-                field_val=None
-            else:
-                field_val = getattr(count, field)
-            if field == 'subcategory':
-                field_val = field_val.name 
-            if field_val is not None:
-                count_params.append(field_val)
-        if split in ['month', 'quarter']:
-            count_params.append(period_func(count.event.end))
+                        #add the value (1 default, else depends on numeric inputs, unless repeat only is enabled, in which case just add 1 unless the respondent has already been seen)
+                        if not repeat_only:
+                            aggregates[pos]['count'] += value
+                        else:
+                            if interaction.respondent_id not in seen_respondents:
+                                aggregates[pos]['count'] += 1
+                                seen_respondents.add(interaction.respondent_id)
+    if counts: #only perform this if counts are available (and not expressly disabled by the repeat_only arg)
+        for count in counts:
+            count_params = []
+            for field in fields_map.keys():
+                if field == 'period':   
+                    field_val=None
+                else:
+                    field_val = getattr(count, field)
+                if field == 'subcategory':
+                    field_val = field_val.name 
+                if field_val is not None:
+                    count_params.append(field_val)
+            if split in ['month', 'quarter']:
+                count_params.append(period_func(count.event.end))
 
-        param_set = frozenset(count_params)
-        pos = product_index_sets.get(param_set)
-        if pos is not None:
-            aggregates[pos]['count'] += count.count
+            param_set = frozenset(count_params)
+            pos = product_index_sets.get(param_set)
+            if pos is not None:
+                aggregates[pos]['count'] += count.count
     return aggregates
+
+def get_repeats(interactions, n):
+    repeat_respondents = list(
+        interactions
+            .values('respondent')
+            .annotate(total=Count('id'))
+            .filter(total__gte=n)
+            .values_list('respondent', flat=True)
+    )
+    repeat_only = interactions.filter(respondent_id__in=repeat_respondents)
+    return repeat_only
 
 def event_no_aggregates(user, indicator, split, project, organization, start, end):
     events = get_events_from_indicator(user, indicator, project, organization, start, end)
@@ -114,8 +150,6 @@ def event_no_aggregates(user, indicator, split, project, organization, start, en
         aggregates['count'] = len(events)
 
     return dict(aggregates)
-
-    
 
 def event_org_no_aggregates(user, indicator, split, project, organization, start, end):
     events = get_events_from_indicator(user, indicator, project, organization, start, end)
@@ -192,10 +226,10 @@ def social_aggregates(user, indicator, params, split, project, organization, sta
 
     return dict(aggregates)
 
-def aggregates_switchboard(user, indicator, params, split=None, project=None, organization=None, start=None, end=None, filters=None, platform=None):
+def aggregates_switchboard(user, indicator, params, split=None, project=None, organization=None, start=None, end=None, filters=None, repeat_only=False, n=2):
     aggregates = {}
-    if indicator.indicator_type == 'respondent' or indicator.indicator_type=='count':
-        aggregates = demographic_aggregates(user, indicator, params, split, project, organization, start, end, filters)
+    if indicator.indicator_type == 'respondent':
+        aggregates = demographic_aggregates(user, indicator, params, split, project, organization, start, end, filters, repeat_only, n)
     if indicator.indicator_type == 'event_no':
         aggregates = event_no_aggregates(user, indicator, split, project, organization, start, end)
     if indicator.indicator_type == 'event_org_no':
@@ -203,155 +237,4 @@ def aggregates_switchboard(user, indicator, params, split=None, project=None, or
     if indicator.indicator_type == 'social':
         aggregates = social_aggregates(user, indicator, params, split, project, organization, start, end)
     return aggregates
-
-
-def prep_csv(aggregates, params):
-    column_field = next((k for k, v in params.items() if v), None)
-    column_field_choices = sorted({cell[column_field] for cell in aggregates.values()})
-
-    # Dynamically extract all fields that are not 'count' or column_field
-    fields = [f for f in list(aggregates.values())[0].keys() if f not in ['count', column_field]]
-    row1 = fields + column_field_choices  # CSV header: breakdown fields + dynamic columns
-
-    rows_map = {}
-    for cell in aggregates.values():
-        breakdowns = tuple(cell[k] for k in fields)  # Tuple of breakdown values in defined order
-        column_field_value = cell[column_field]
-        count = cell['count']
-
-        if breakdowns not in rows_map:
-            rows_map[breakdowns] = {}
-
-        rows_map[breakdowns][column_field_value] = count
-
-    # Build final rows
-    rows = [row1]
-    for breakdown_values, counts_dict in rows_map.items():
-        row = list(breakdown_values)
-        for col_val in column_field_choices:
-            row.append(counts_dict.get(col_val, 0))  # default to 0 if missing
-        rows.append(row)
-
-    return rows
-
-def get_target_aggregates(user, indicator, split, start=None, end=None, project=None, organization=None):
-    queryset = Target.objects.filter(task__indicator=indicator)
-
-    if user.role not in ['admin', 'client']:
-        child_orgs = ProjectOrganization.objects.filter(
-                parent_organization=user.organization,
-            ).values_list('organization', flat=True)
-        queryset = queryset.filter(
-                Q(task__organization=user.organization) | Q(task__organization__in=child_orgs)
-            )
-
-    if project:
-        queryset = queryset.filter(task__project=project)
-    if organization:
-        queryset = queryset.filter(task__organization=organization)
-    if start:
-        queryset = queryset.filter(interaction_date__gte=start)
-    if end:
-        queryset = queryset.filter(interaction_date__lte=end)
-
-    targets_map = defaultdict(float)
-
-    range_func = get_quarter_strings_between if split == 'quarter' else get_month_strings_between
-
-    for target in queryset:
-        amount = target.amount
-        if not amount and target.related_to and target.percentage_of_related:
-            get_achievement(user, target, target.related_to)
-
-        if not amount or not target.start or not target.end:
-            continue
-
-        periods = range_func(target.start, target.end)
-        for period in periods:
-            targets_map[period] += round(amount / len(periods))
-
-    return dict(targets_map)
-        
-def get_achievement(user, target, related=None):
-    '''
-    Slightly lighter weight helper that ignores demographics and just gets the raw totals for comparisons against
-    targets.
-
-    Note that we cascade all of these so that child organizations achievement is included when viewing parents.
-    '''
-    task = related if related else target.task
-    start = target.start
-    end = target.end
-    indicator = task.indicator
-
-    total = 0
-    #respondent and count both use event counts
-    if indicator.indicator_type in [Indicator.IndicatorType.RESPONDENT, Indicator.IndicatorType.COUNT]:
-        valid_counts  = get_event_counts_from_indicator(
-            user=user,
-            indicator=indicator, 
-            project=task.project,
-            start=start,
-            end=end, 
-            cascade=True,
-            params={},
-            organization=task.organization,
-            filters=None
-        )
-        total += sum(count.count or 0 for count in valid_counts)
-        #respondent also pulls interactions
-        if indicator.indicator_type == Indicator.IndicatorType.RESPONDENT:
-            valid_irs = get_interactions_from_indicator(
-                user=user,
-                indicator=indicator,
-                project=task.project,
-                start=start,
-                end=end,
-                cascade=True,
-                organization=task.organization,
-                filters=None
-            )
-            if indicator.require_numeric:
-                if indicator.subcategories.exists():
-                    # Prefetch all subcategories once
-                    subcats = get_interaction_subcats(valid_irs)
-                    # Filter for relevant interactions only
-                    subcats = subcats.filter(interaction__in=valid_irs)
-                    total += sum(cat.numeric_component or 0 for cat in subcats)
-                else:
-                    total += sum(ir.numeric_component or 0 for ir in valid_irs)
-            else:
-                total += valid_irs.count()
-
-    #pull event numbers for raw event count/org count tests
-    elif indicator.indicator_type in [Indicator.IndicatorType.EVENT_NO, Indicator.IndicatorType.ORG_EVENT_NO]:
-        valid_events = get_events_from_indicator(
-            user=user,
-            indicator=indicator,
-            organization=task.organization,
-            project=task.project,
-            start=start,
-            end=end, 
-            cascade=True,
-        )
-        if indicator.indicator_type == Indicator.IndicatorType.EVENT_NO:
-            total += len(valid_events)
-        elif indicator.indicator_type == Indicator.IndicatorType.ORG_EVENT_NO:
-            total += sum(e.organizations.count() for e in valid_events)
-    #pull posts for social. Using total engagement for now
-    elif indicator.indicator_type == Indicator.IndicatorType.SOCIAL:
-        valid_posts = get_posts_from_indicator(
-            user=user,
-            indicator=indicator,
-            project=task.project,
-            organization=task.organization,
-            start=start,
-            end=end, 
-            cascade=True,
-            filters=None,
-        )
-        total += sum(((p.likes or 0) + (p.comments or 0) + (p.views or 0)) for p in valid_posts)
-    return total
-
-
 

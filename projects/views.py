@@ -33,7 +33,7 @@ today = date.today().isoformat()
 class ProjectViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
-    filterset_fields = ['client', 'start', 'end', 'status', 'organizations']
+    filterset_fields = ['client', 'status', 'organizations']
     ordering_fields = ['name','start', 'end', 'client']
     search_fields = ['name', 'description'] 
 
@@ -136,15 +136,9 @@ class ProjectViewSet(RoleRestrictedViewSet):
         deadlines = perm_manager.filter_queryset(deadlines)
         deadline_serializer = ProjectDeadlineSerializer(deadlines, many=True)
 
-        #get announcements
-        announcements = Announcement.objects.filter(project=project)
-        announcements = perm_manager.filter_queryset(announcements)
-        announcement_serializer = AnnouncementSerializer(announcements, many=True, context={'request': request})
-
         return Response({
             'activities': activity_serializer.data,
             'deadlines': deadline_serializer.data,
-            'announcements': announcement_serializer.data,
         })
 
     @action(detail=True, methods=['get'], url_path='get-orgs')
@@ -583,7 +577,7 @@ class ClientViewSet(RoleRestrictedViewSet):
 
 class ProjectActivityViewSet(RoleRestrictedViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
-    filterset_fields = ['category', 'project']
+    filterset_fields = ['category', 'project', 'organizations', 'visible_to_all', 'status']
     search_fields = ['name', 'description', 'category'] 
     permission_classes = [IsAuthenticated]
     serializer_class = ProjectActivitySerializer
@@ -594,7 +588,19 @@ class ProjectActivityViewSet(RoleRestrictedViewSet):
         queryset = ProjectActivity.objects.all()
         perm_manager = ProjectPermissionHelper(user)
 
-        return perm_manager.filter_queryset(queryset)
+        queryset = perm_manager.filter_queryset(queryset)
+
+
+        start_param = self.request.query_params.get('start')
+        if start_param:
+            print(start_param)
+            queryset = queryset.filter(start__gte=start_param)
+
+        end_param = self.request.query_params.get('end')
+        if end_param:
+            queryset = queryset.filter(end__lte=end_param)
+            
+        return queryset
 
     def destroy(self, request, *args, **kwargs):
         '''
@@ -612,9 +618,10 @@ class ProjectActivityViewSet(RoleRestrictedViewSet):
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    
 class ProjectDeadlineViewSet(RoleRestrictedViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
-    filterset_fields = ['project']
+    filterset_fields = ['project', 'organizations', 'visible_to_all']
     search_fields = ['name', 'description'] 
     permission_classes = [IsAuthenticated]
     serializer_class = ProjectDeadlineSerializer
@@ -624,6 +631,14 @@ class ProjectDeadlineViewSet(RoleRestrictedViewSet):
         queryset = ProjectDeadline.objects.all()
         perm_manager = ProjectPermissionHelper(user)
         queryset = perm_manager.filter_queryset(queryset)
+
+        start = self.request.query_params.get('start')
+        if start:
+            queryset = queryset.filter(deadline_date__gte=start)
+
+        end = self.request.query_params.get('end')
+        if end:
+            queryset = queryset.filter(deadline_date__lte=end)
 
         # Add optimized prefetching of through table with related organization
         return queryset.prefetch_related(

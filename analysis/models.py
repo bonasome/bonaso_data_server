@@ -51,6 +51,10 @@ class IndicatorChartSetting(models.Model):
     use_target = models.BooleanField(default=False) #determines whether or not to show targets (will disable legend/stack)
     filters = models.ManyToManyField(ChartField, through='ChartFilter', blank=True, related_name='chart_filters')
     
+    #for mapping repeated only
+    repeat_only = models.BooleanField(default=False)
+    repeat_n = models.PositiveIntegerField(null=True, blank=True)
+
     #seperate date filters not linked to fields
     start_date = models.DateField(null=True, blank=True)
     end_date = models.DateField(null=True, blank=True)

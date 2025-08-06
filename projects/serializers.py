@@ -12,7 +12,7 @@ from organizations.serializers import OrganizationListSerializer
 from indicators.models import Indicator
 from indicators.serializers import IndicatorSerializer
 from profiles.serializers import ProfileListSerializer
-from analysis.utils.aggregates import get_achievement
+from analysis.utils.targets import get_achievement
 
 class ClientSerializer(serializers.ModelSerializer):
     '''

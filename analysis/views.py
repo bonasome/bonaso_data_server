@@ -1,35 +1,33 @@
 from django.shortcuts import render, redirect
 from django.http import HttpResponse
-from django.views import View
-from django.db.models import Q
-from rest_framework.viewsets import ModelViewSet
-from rest_framework import filters
+from django.db import transaction
+from django.shortcuts import get_object_or_404
+from datetime import date
+import csv
+from django.utils.timezone import now
+
 from rest_framework.response import Response
-from rest_framework.filters import SearchFilter, OrderingFilter
-from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.exceptions import PermissionDenied
-from rest_framework import generics
 from rest_framework.decorators import action
 from rest_framework import status
-from django.db import transaction
+
 from users.restrictviewset import RoleRestrictedViewSet
+from django.contrib.auth import get_user_model
+User = get_user_model()
+
 from organizations.models import Organization
 from projects.models import Project
-from django.shortcuts import get_object_or_404
 from indicators.models import Indicator
-from django.contrib.auth import get_user_model
+
 from analysis.serializers import DashboardSettingSerializer, DashboardSettingListSerializer, DashboardIndicatorChartSerializer
 from analysis.models import DashboardSetting, IndicatorChartSetting, ChartField, DashboardIndicatorChart, ChartFilter, ChartIndicator
 from events.models import DemographicCount
 from respondents.utils import get_enum_choices
-from datetime import date
-import csv
-from django.utils.timezone import now
+
 from datetime import datetime
-from analysis.utils.aggregates import aggregates_switchboard, prep_csv
+from analysis.utils.aggregates import aggregates_switchboard
+from analysis.utils.csv import prep_csv
 from io import StringIO
-User = get_user_model()
+
 
 #we may potentially need to rethink the user perms if we have to link this to other sites
 class AnalysisViewSet(RoleRestrictedViewSet):
@@ -72,8 +70,21 @@ class AnalysisViewSet(RoleRestrictedViewSet):
         
         #split, i.e. time period
         split = request.query_params.get('split')
+
+        repeat_param = request.query_params.get('repeat_only')
+        repeat_only = False
+        n = None
+        if repeat_param:
+            try:
+                n = int(repeat_param)
+                repeat_only = True
+            except ValueError:
+                # Optional: handle 'true' or 'false' strings if needed
+                if repeat_param.lower() in ['true', 'yes']:
+                    n = 2  # Default value
+                    repeat_only = True
         #aggregator function from anlysis.utils
-        aggregate = aggregates_switchboard(user, indicator, params, split, project, organization, start, end, None, platform)
+        aggregate = aggregates_switchboard(user, indicator, params, split, project, organization, start, end, None, repeat_only, n)
         return Response(
                 {"counts": aggregate},
                 status=status.HTTP_200_OK
@@ -166,9 +177,9 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
 
         if not indicator_ids:
             return Response(
-                    {"detail": f'At least one indicator is required.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+                {"detail": f'At least one indicator is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         #get indicator objects and make sure no bad IDs were provided
         indicators = []
         for ii in indicator_ids:
@@ -192,6 +203,9 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
         stack = request.data.get('stack') #stack (for bar charts)
         use_target = str(request.data.get('use_target')).lower() in ['true', '1'] #show targets if provided
         tabular = str(request.data.get('tabular')).lower() in ['true', '1'] #show a data table underneath
+        
+        repeat = str(request.data.get('re')).lower() in ['true', '1']
+        
         order = request.data.get('order', DashboardIndicatorChart.objects.filter(dashboard=dashboard).count())
         width = request.data.get('width')
         height = request.data.get('height')

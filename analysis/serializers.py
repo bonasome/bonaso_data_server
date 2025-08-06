@@ -4,6 +4,9 @@ from django.db import transaction
 from analysis.models import DashboardFilter, ChartField, IndicatorChartSetting, DashboardSetting, DashboardIndicatorChart, ChartFilter
 from analysis.utils.aggregates import  aggregates_switchboard
 from analysis.utils.targets import get_target_aggregates
+from organizations.models import Organization
+from organizations.serializers import OrganizationListSerializer
+from projects.models import Project
 from projects.serializers import ProjectListSerializer, Target
 from indicators.serializers import IndicatorSerializer
 from events.models import DemographicCount
@@ -21,9 +24,24 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
         for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory', 'platform', 'metric']:
             params[cat] = (cat == obj.legend) or (cat == obj.stack)
         filters = self.get_filters(obj)
+        project = self.context.get('project')
+        organization = self.context.get('organization')
+        cascade = self.context.get('cascade_organization', False)
         data={}
         if obj.indicators.count() == 1:
-            return aggregates_switchboard(obj.created_by, indicator=obj.indicators.first(), params=params, split=obj.axis, start=obj.start_date, end=obj.end_date, filters=filters)
+            return aggregates_switchboard(obj.created_by, 
+                indicator=obj.indicators.first(), 
+                params=params, 
+                split=obj.axis, 
+                project=project,
+                organization=organization,
+                start=obj.start, 
+                end=obj.end, 
+                filters=filters, 
+                repeat_only=obj.repeat_only, 
+                n=obj.repeat_n,
+                cascade=cascade
+            )
         data = []
 
         for indicator in obj.indicators.all():
@@ -32,9 +50,12 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
                 indicator=indicator,
                 params=params,
                 split=obj.axis,
-                start=obj.start_date,
-                end=obj.end_date,
+                project=project,
+                organization=organization,
+                start=obj.start,
+                end=obj.end,
                 filters=filters,
+                cascade=cascade
             )
 
             for period, item in ind.items():
@@ -62,15 +83,17 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
         if not obj.use_target:
             return []
         targets = []
+        project = self.context.get('project')
+        organization = self.context.get('organization')
         for indicator in obj.indicators.all():
-            target = get_target_aggregates(obj.created_by, indicator=indicator, split=obj.axis, start=obj.start_date, end=obj.end_date)
+            target = get_target_aggregates(obj.created_by, indicator=indicator, split=obj.axis, project=project, organization=organization, start=obj.start, end=obj.end)
             targets.append(target)
         return targets
     
     class Meta:
         model = IndicatorChartSetting
         fields = ['id', 'indicators', 'created_by', 'tabular', 'axis', 'legend', 'stack', 'chart_type', 'use_target',
-                  'start_date', 'end_date', 'chart_data', 'allow_targets', 'targets', 'filters']
+                  'start', 'end', 'chart_data', 'allow_targets', 'targets', 'filters', 'repeat_only', 'repeat_n']
 
 
 class DashboardFilterSerializer(serializers.ModelSerializer):
@@ -81,7 +104,18 @@ class DashboardFilterSerializer(serializers.ModelSerializer):
         fields = ['field', 'value']
 
 class DashboardIndicatorChartSerializer(serializers.ModelSerializer):
-    chart = IndicatorChartSerializer(read_only=True)
+    chart = serializers.SerializerMethodField()
+
+    def get_chart(self, obj):
+        return IndicatorChartSerializer(
+            obj.chart,
+            context={
+                **self.context,
+                'organization': obj.dashboard.organization,
+                'cascade_organization': obj.dashboard.cascade_organization,
+                'project': obj.dashboard.project,
+            }
+        ).data
 
     class Meta:
         model = DashboardIndicatorChart
@@ -96,10 +130,14 @@ class DashboardSettingListSerializer(serializers.ModelSerializer):
 class DashboardSettingSerializer(serializers.ModelSerializer):
     filters = DashboardFilterSerializer(source='dashboardfilter_set', many=True, required=False, allow_null=True)
     indicator_charts = DashboardIndicatorChartSerializer(source='dashboardindicatorchart_set', required=False, many=True, allow_null=True)
-
+    organization = OrganizationListSerializer(read_only=True)
+    organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, source='organization', allow_null=True, required=False)
+    project = ProjectListSerializer(read_only=True)
+    project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True, source='project', allow_null=True, required=False)
     class Meta:
         model = DashboardSetting
-        fields = ['id', 'name', 'description', 'created_by', 'filters','created_at', 'updated_at','indicator_charts']
+        fields = ['id', 'name', 'description', 'created_by', 'filters','created_at', 'updated_at','indicator_charts', 'project', 
+                  'organization', 'cascade_organization', 'project_id', 'organization_id']
         read_only_fields = ['created_by', 'created_at', 'updated_at']
 
     def create(self, validated_data):

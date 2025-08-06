@@ -17,9 +17,9 @@ FIELD_MAP = {
     # others as needed
 }
 
-def demographic_aggregates(user, indicator, params, split=None, project=None, organization=None, start=None, end=None, filters=None, repeat_only=False, n=2):
+def demographic_aggregates(user, indicator, params, split=None, project=None, organization=None, start=None, end=None, filters=None, repeat_only=False, n=2, cascade=False):
     #get a list of interactions prefiltered based on user role/filters
-    interactions = get_interactions_from_indicator(user, indicator, project, organization, start, end, filters)
+    interactions = get_interactions_from_indicator(user, indicator, project, organization, start, end, filters, cascade)
     if repeat_only:
         #NOTE: This track respondents that have had the interaction repeatedly (i.e., the number of respondents reached with NCD messages at least three times or number of respondents who have received condoms more than once)
         #Selecting this will ignore any numeric component to the interaction and just raw count unique respondents
@@ -27,7 +27,7 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
     counts=[] #default counts to empty list
     if not repeat_only: #only collect counts if repear is disabled
         #get list of prefiltered counts
-        counts = get_event_counts_from_indicator(user, indicator, params, project, organization, start, end, filters)
+        counts = get_event_counts_from_indicator(user, indicator, params, project, organization, start, end, filters, cascade)
     #build a map  of all requested fields that need to be aggregated by
     fields_map = {}
     include_subcats=False
@@ -131,8 +131,8 @@ def get_repeats(interactions, n):
     repeat_only = interactions.filter(respondent_id__in=repeat_respondents)
     return repeat_only
 
-def event_no_aggregates(user, indicator, split, project, organization, start, end):
-    events = get_events_from_indicator(user, indicator, project, organization, start, end)
+def event_no_aggregates(user, indicator, split, project, organization, start, end, cascade):
+    events = get_events_from_indicator(user, indicator, project, organization, start, end, cascade)
     aggregates = defaultdict(int)
 
     if split in ['month', 'quarter']:
@@ -151,8 +151,8 @@ def event_no_aggregates(user, indicator, split, project, organization, start, en
 
     return dict(aggregates)
 
-def event_org_no_aggregates(user, indicator, split, project, organization, start, end):
-    events = get_events_from_indicator(user, indicator, project, organization, start, end)
+def event_org_no_aggregates(user, indicator, split, project, organization, start, end, cascade):
+    events = get_events_from_indicator(user, indicator, project, organization, start, end, cascade)
     aggregates = defaultdict(int)
 
     if split in ['month', 'quarter']:
@@ -173,8 +173,8 @@ def event_org_no_aggregates(user, indicator, split, project, organization, start
     return dict(aggregates)
 
 
-def social_aggregates(user, indicator, params, split, project, organization, start, end):
-    posts = get_posts_from_indicator(user, indicator, project, organization, start, end)
+def social_aggregates(user, indicator, params, split, project, organization, start, end, filters, cascade):
+    posts = get_posts_from_indicator(user, indicator, project, organization, start, end, filters, cascade)
     aggregates = defaultdict(int)
     #structure: pos: {platform: fb, metric: comments, count: 7}
     include_platform = False
@@ -226,15 +226,15 @@ def social_aggregates(user, indicator, params, split, project, organization, sta
 
     return dict(aggregates)
 
-def aggregates_switchboard(user, indicator, params, split=None, project=None, organization=None, start=None, end=None, filters=None, repeat_only=False, n=2):
+def aggregates_switchboard(user, indicator, params, split=None, project=None, organization=None, start=None, end=None, filters=None, repeat_only=False, n=2, cascade=False):
     aggregates = {}
     if indicator.indicator_type == 'respondent':
-        aggregates = demographic_aggregates(user, indicator, params, split, project, organization, start, end, filters, repeat_only, n)
+        aggregates = demographic_aggregates(user, indicator, params, split, project, organization, start, end, filters, repeat_only, n, cascade)
     if indicator.indicator_type == 'event_no':
-        aggregates = event_no_aggregates(user, indicator, split, project, organization, start, end)
+        aggregates = event_no_aggregates(user, indicator, split, project, organization, start, end, cascade)
     if indicator.indicator_type == 'event_org_no':
-        aggregates = event_org_no_aggregates(user, indicator, split, project, organization, start, end)
+        aggregates = event_org_no_aggregates(user, indicator, split, project, organization, start, end, cascade)
     if indicator.indicator_type == 'social':
-        aggregates = social_aggregates(user, indicator, params, split, project, organization, start, end)
+        aggregates = social_aggregates(user, indicator, params, split, project, organization, start, end, filters, cascade)
     return aggregates
 

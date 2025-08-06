@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from django.contrib.contenttypes.models import ContentType
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
@@ -68,8 +69,12 @@ class FavoriteObjectSerializer(serializers.ModelSerializer):
     Serializer for tracking favorited items.
     '''
     display_name = serializers.SerializerMethodField()
+    model_string = serializers.SerializerMethodField()
     def get_display_name(self, obj):
         return str(obj.target)
+    def get_model_string(self, obj):
+        content_type = ContentType.objects.get(id=obj.content_type.id)
+        return f"{content_type.app_label}.{content_type.model}"
     class Meta:
         model = FavoriteObject
-        fields = ['id', 'content_type', 'object_id', 'user', 'display_name']
+        fields = ['id', 'content_type', 'object_id', 'user', 'display_name', 'model_string']

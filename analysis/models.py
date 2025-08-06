@@ -3,6 +3,7 @@ from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
 from indicators.models import Indicator
 from projects.models import Project
+from organizations.models import Organization
 User = get_user_model()
 class ChartField(models.Model):
     '''
@@ -56,8 +57,8 @@ class IndicatorChartSetting(models.Model):
     repeat_n = models.PositiveIntegerField(null=True, blank=True)
 
     #seperate date filters not linked to fields
-    start_date = models.DateField(null=True, blank=True)
-    end_date = models.DateField(null=True, blank=True)
+    start = models.DateField(null=True, blank=True)
+    end = models.DateField(null=True, blank=True)
 
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='chart_settings_created_by')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -83,6 +84,8 @@ class DashboardSetting(models.Model):
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
     project = models.ForeignKey(Project, on_delete=models.CASCADE, null=True)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, null=True)
+    cascade_organization = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

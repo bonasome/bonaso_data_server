@@ -204,8 +204,19 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
         use_target = str(request.data.get('use_target')).lower() in ['true', '1'] #show targets if provided
         tabular = str(request.data.get('tabular')).lower() in ['true', '1'] #show a data table underneath
         
-        repeat = str(request.data.get('re')).lower() in ['true', '1']
-        
+        n=None
+        repeat = str(request.data.get('repeat_only')).lower() in ['true', '1']
+        if repeat:
+            raw_n=request.data.get('repeat_n')
+            try:
+                n = int(raw_n)
+            except ValueError:
+                return Response(
+                    {"N": "A valid integer is required."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        start = request.data.get('start')
+        end = request.data.get('end')
         order = request.data.get('order', DashboardIndicatorChart.objects.filter(dashboard=dashboard).count())
         width = request.data.get('width')
         height = request.data.get('height')
@@ -240,6 +251,10 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
             chart.legend = legend
             chart.stack = stack
             chart.tabular = tabular
+            chart.repeat_only = repeat
+            chart.repeat_n = n
+            chart.start = start
+            chart.end = end
             chart.save()
 
             chart_link.width = width
@@ -255,6 +270,10 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
                 legend = legend,
                 stack=stack,
                 use_target = use_target,
+                repeat_only=repeat,
+                repeat_n=n,
+                start=start,
+                end=end,
                 created_by=user,
             )
             chart_link = DashboardIndicatorChart.objects.create(
@@ -290,12 +309,14 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
         # Delete existing filters for this chart
         ChartFilter.objects.filter(chart=chart).delete()
 
+        valid_fields = [field.value for field in ChartField.Field]
         # Create new filters
         for field_name, values in filters_map.items():
             print(field_name, values)
-            try:
-                field_obj = ChartField.objects.get(name=field_name)
-            except ChartField.DoesNotExist:
+            
+            if field_name in valid_fields:
+                field_obj = ChartField.objects.get_or_create(name=field_name)[0] 
+            else:
                 return Response({"detail": f"Invalid filter field: '{field_name}'"}, status=status.HTTP_400_BAD_REQUEST)
 
             if not isinstance(values, list):

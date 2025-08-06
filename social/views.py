@@ -60,4 +60,9 @@ class SocialMediaPostViewSet(RoleRestrictedViewSet):
         '''
         return Response({
             "platforms": get_enum_choices(SocialMediaPost.Platform),
+            "metrics": [
+                {'value': 'comments', 'label': 'Comments'},
+                {'value': 'likes', 'label': 'Likes'},
+                {'value': 'views', 'label': 'Views'},
+            ]
         })

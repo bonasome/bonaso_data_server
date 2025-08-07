@@ -19,6 +19,7 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
     indicators = IndicatorSerializer(read_only=True, many=True)
     filters = serializers.SerializerMethodField(read_only=True)
     allow_targets = serializers.SerializerMethodField(read_only=True) #simple helper var to help the frontend determine whether or not to shown the option, cause no one wants that crap where you select an option and its like screw you, there's not data here. Get pranked, nerd
+    display_name = serializers.SerializerMethodField(read_only=True)
     def get_chart_data(self, obj):
         params = {}
         for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory', 'platform', 'metric']:
@@ -89,11 +90,16 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
             target = get_target_aggregates(obj.created_by, indicator=indicator, split=obj.axis, project=project, organization=organization, start=obj.start, end=obj.end)
             targets.append(target)
         return targets
-    
+    def get_display_name(self, obj):
+        if obj.name:
+            return obj.name
+        plural = 'Indicators' if obj.indicators.count() > 1 else 'Indicator'
+        return f'Tracking {plural} {', '.join([str(ind) for ind in obj.indicators.all()])}'
     class Meta:
         model = IndicatorChartSetting
         fields = ['id', 'indicators', 'created_by', 'tabular', 'axis', 'legend', 'stack', 'chart_type', 'use_target',
-                  'start', 'end', 'chart_data', 'allow_targets', 'targets', 'filters', 'repeat_only', 'repeat_n']
+                  'start', 'end', 'chart_data', 'allow_targets', 'targets', 'filters', 'repeat_only', 'repeat_n', 'name',
+                  'display_name']
 
 
 class DashboardFilterSerializer(serializers.ModelSerializer):

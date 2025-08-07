@@ -25,6 +25,7 @@ from openpyxl import load_workbook
 from io import BytesIO
 import os
 import re
+import pycountry
 
 from users.restrictviewset import RoleRestrictedViewSet
 
@@ -551,6 +552,12 @@ class InteractionViewSet(RoleRestrictedViewSet):
             if not citizenship:
                 citizenship = 'BW'
                 row_warnings.append(f"Citizenship at column: {get_column('citizenship')}, row: {i} is required for all respondents. This value will default to BW. If this is incorrect, please check this field again.")
+            #if not blank, verify a proper country name was provided
+            else:
+                try:
+                    citizenship = pycountry.countries.lookup(citizenship).alpha_2
+                except LookupError:
+                    row_errors.append(f"Citizenship {citizenship} at column: {get_column('citizenship')}, row: {i} is not a valid country name/code.")
             
             #get/validate email and phone if provided
             email = get_cell_value(row, 'email') or None

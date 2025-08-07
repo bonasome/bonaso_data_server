@@ -42,7 +42,7 @@ class IndicatorChartSetting(models.Model):
         MONTH  = 'month', _('Month')
         QUARTER = 'quarter', _('Quarter')
     
-    
+    name = models.CharField(max_length=255, blank=True, null=True)
     indicators = models.ManyToManyField(Indicator, through='ChartIndicator')
     chart_type = models.CharField(max_length=25, choices=ChartType.choices, default=ChartType.BAR, null=True, blank=True)
     tabular = models.BooleanField(default=False) #also show a data table

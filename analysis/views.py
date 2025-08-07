@@ -203,7 +203,8 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
         stack = request.data.get('stack') #stack (for bar charts)
         use_target = str(request.data.get('use_target')).lower() in ['true', '1'] #show targets if provided
         tabular = str(request.data.get('tabular')).lower() in ['true', '1'] #show a data table underneath
-        
+        name = request.data.get('name')
+
         n=None
         repeat = str(request.data.get('repeat_only')).lower() in ['true', '1']
         if repeat:
@@ -255,6 +256,7 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
             chart.repeat_n = n
             chart.start = start
             chart.end = end
+            chart.name = name
             chart.save()
 
             chart_link.width = width
@@ -274,6 +276,7 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
                 repeat_n=n,
                 start=start,
                 end=end,
+                name=name,
                 created_by=user,
             )
             chart_link = DashboardIndicatorChart.objects.create(

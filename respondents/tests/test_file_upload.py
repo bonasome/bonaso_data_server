@@ -463,6 +463,53 @@ class UploadViewSetTest(APITestCase):
         interactions = Interaction.objects.filter(respondent=self.respondent_full).count()
         self.assertEqual(interactions, 2)
     
+    def test_citizenship(self):
+        '''
+        Test that the same respondent is caught and not recreated. The frontend will give a display for this.
+        '''
+        self.client.force_authenticate(user=self.officer)
+        wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
+        ws = wb['Data']
+        # Missing 'First Name' on purpose
+        headers = self.headers + ["TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"]
+        ws.append(headers)
+        #name should work 
+        row = [
+            "FALSE", "000010000", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
+            "Central District", "botswana", "test@website.com", "71234567", "Transgender, Intersex", 
+            "Hearing Impaired, Visually Impaired", "","", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
+        ]
+        ws.append(row)
+
+
+        row2 = [
+            "FALSE", "100010000", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
+            "Central District", "USA", "test@website.com", "71234567", "Transgender, Intersex", 
+            "Hearing Impaired, Visually Impaired", "","", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
+        ]
+        ws.append(row2)
+
+        row3 = [
+            "FALSE", "200010000", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
+            "Central District", "pxQw2", "test@website.com", "71234567", "Transgender, Intersex", 
+            "Hearing Impaired, Visually Impaired", "","", "", "", "", date(2024, 5, 1), "Mochudi", "Yes", "Yes", ""
+        ]
+        ws.append(row3)
+
+        file_obj = BytesIO()
+        wb.save(file_obj)
+        file_obj.name = 'template.xlsx'
+        file_obj.seek(0)
+
+        #both of these should fail 
+        response = self.client.post('/api/record/interactions/upload/', {'file': file_obj}, format='multipart')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        r1 = Respondent.objects.filter(id_no='000010000').first()
+        self.assertEqual(r1.citizenship, 'BW')
+        r2 = Respondent.objects.filter(id_no='100010000').first()
+        self.assertEqual(r2.citizenship, 'US')
+
 
     def test_upload_same_respondent_update(self):
         '''
@@ -517,6 +564,7 @@ class UploadViewSetTest(APITestCase):
         int_detail = Interaction.objects.filter(respondent=self.respondent_full, task=subcat_task).first()
         self.assertEqual(int_detail.subcategories.count(), 2)
     
+
     def test_upload_interactions(self):
         '''
         Check that file upload system successfuly creates interactions.

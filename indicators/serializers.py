@@ -248,7 +248,6 @@ class IndicatorSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
 
         instance.save()
-        print(prerequisites)
         if 'prerequisite_ids' in self.initial_data:
             if prerequisites is None:
                 prerequisites = []

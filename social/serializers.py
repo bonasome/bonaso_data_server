@@ -95,7 +95,6 @@ class SocialMediaPostSerializer(serializers.ModelSerializer):
         )
 
         for task in task_ids:
-            print(task)
             SocialMediaPostTasks.objects.create(post=post, task=task)
 
         return post

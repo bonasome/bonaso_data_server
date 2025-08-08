@@ -315,7 +315,6 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
         valid_fields = [field.value for field in ChartField.Field]
         # Create new filters
         for field_name, values in filters_map.items():
-            print(field_name, values)
             
             if field_name in valid_fields:
                 field_obj = ChartField.objects.get_or_create(name=field_name)[0] 

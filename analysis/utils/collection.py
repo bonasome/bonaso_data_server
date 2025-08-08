@@ -129,7 +129,6 @@ def get_interaction_subcats(interactions, filter_ids=None):
     
     if filter_ids:
         filter_ids = [int(fid) for fid in filter_ids]
-        print(filter_ids)
         return InteractionSubcategory.objects.filter(interaction__id__in=interaction_ids, subcategory_id__in=filter_ids)
     return InteractionSubcategory.objects.filter(interaction__id__in=interaction_ids)
 
@@ -195,6 +194,7 @@ def get_event_counts_from_indicator(user, indicator, params, project, organizati
                 queryset = queryset.filter(**{field: values})
 
     queryset = queryset.exclude(flags__resolved=False).distinct()
+    print(queryset.count())
     return queryset
 
 def get_events_from_indicator(user, indicator, project, organization, start, end, cascade=False):

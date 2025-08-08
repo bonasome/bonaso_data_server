@@ -116,6 +116,7 @@ class AnnouncementViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = AnnouncementSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
+    filterset_fields = ['project']
     ordering_fields = ['sent_on']
     search_fields = ['subject', 'body', 'project__name', 'organizations__name']
 

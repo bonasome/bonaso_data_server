@@ -94,9 +94,7 @@ class EventSerializer(serializers.ModelSerializer):
             if task.id not in existing_task_ids:
                 new_links.append(EventTask(event=event, task=task, added_by=user))
             else:
-                raise serializers.ValidationError(
-                    f"Task '{task.indicator.name} is already in this project"
-                )
+                continue
 
         EventTask.objects.bulk_create(new_links)
 

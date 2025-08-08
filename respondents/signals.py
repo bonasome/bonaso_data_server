@@ -17,7 +17,6 @@ def update_attribute(respondent, attribute_enum, should_add):
     try:
         #make sure that the attribute type is valid
         attr_type, _ = RespondentAttributeType.objects.get_or_create(name=attribute_enum)
-        print(attr_type)
         if should_add:
             RespondentAttribute.objects.update_or_create(
                 respondent=respondent,

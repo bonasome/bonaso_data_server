@@ -312,8 +312,8 @@ class ProjectViewSet(RoleRestrictedViewSet):
                         status=status.HTTP_403_FORBIDDEN
                     )
             #prevent removal if there is data associated with this org for this project
-            if Interaction.objects.filter(task__organization__id = org_link.organization.id
-                ).exists() or DemographicCount.objects.filter(task__organization__id=org_link.organization.id
+            if Interaction.objects.filter(task__organization__id = org_link.organization.id, task__project=project
+                ).exists() or DemographicCount.objects.filter(task__organization__id=org_link.organization.id, task__project=project
                 ).exists():
                  return Response(
                         {"detail": "You cannot remove an organization from a project when they have active tasks."},
@@ -438,7 +438,6 @@ class TaskViewSet(RoleRestrictedViewSet):
         organization_id = request.data.get('organization_id')
         project_id = request.data.get('project_id')
         indicator_ids = request.data.get('indicator_ids', [])
-        print(request.data, organization_id, project_id, indicator_ids)
         if not organization_id or not project_id or not indicator_ids:
             return Response(
                 {"detail": "You must provide an organization, project, and at least one indicator to create a task."},
@@ -593,7 +592,6 @@ class ProjectActivityViewSet(RoleRestrictedViewSet):
 
         start_param = self.request.query_params.get('start')
         if start_param:
-            print(start_param)
             queryset = queryset.filter(start__gte=start_param)
 
         end_param = self.request.query_params.get('end')

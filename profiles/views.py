@@ -149,7 +149,6 @@ class ProfileViewSet(RoleRestrictedViewSet):
         model = response.get('data')
 
         is_favorited = FavoriteObject.objects.filter(user=user, content_type=ContentType.objects.get_for_model(model), object_id=obj_id).exists()
-        print(is_favorited)
         return Response({'favorited': is_favorited}, status=status.HTTP_200_OK)
 
 

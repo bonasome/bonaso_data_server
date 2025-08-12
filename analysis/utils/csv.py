@@ -1,6 +1,6 @@
 def prep_csv(aggregates, params):
     column_field = next((k for k, v in params.items() if v), None)
-    column_field_choices = sorted({cell[column_field] for cell in aggregates.values()})
+    column_field_choices = sorted({cell.get(column_field) for cell in aggregates.values()})
 
     # Dynamically extract all fields that are not 'count' or column_field
     fields = [f for f in list(aggregates.values())[0].keys() if f not in ['count', column_field]]
@@ -9,7 +9,7 @@ def prep_csv(aggregates, params):
     rows_map = {}
     for cell in aggregates.values():
         breakdowns = tuple(cell[k] for k in fields)  # Tuple of breakdown values in defined order
-        column_field_value = cell[column_field]
+        column_field_value = cell.get(column_field)
         count = cell['count']
 
         if breakdowns not in rows_map:

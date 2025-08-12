@@ -18,8 +18,8 @@ from organizations.models import Organization
 from projects.models import Project
 from indicators.models import Indicator
 
-from analysis.serializers import DashboardSettingSerializer, DashboardSettingListSerializer, DashboardIndicatorChartSerializer
-from analysis.models import DashboardSetting, IndicatorChartSetting, ChartField, DashboardIndicatorChart, ChartFilter, ChartIndicator
+from analysis.serializers import DashboardSettingSerializer, DashboardSettingListSerializer, DashboardIndicatorChartSerializer, PivotTableListSerializer, PivotTableSerializer, LineListSerializer, LineListListSerializer
+from analysis.models import DashboardSetting, IndicatorChartSetting, ChartField, DashboardIndicatorChart, ChartFilter, ChartIndicator, PivotTable, LineList
 from events.models import DemographicCount
 from respondents.utils import get_enum_choices
 
@@ -30,7 +30,113 @@ from io import StringIO
 
 
 #we may potentially need to rethink the user perms if we have to link this to other sites
-class AnalysisViewSet(RoleRestrictedViewSet):
+class LineListViewSet(RoleRestrictedViewSet):
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return LineListListSerializer #for panel showing list of line lists
+        else:
+            return LineListSerializer #for dedicated views
+        
+    def get_queryset(self):
+        return LineList.objects.filter(created_by=self.request.user) #only see your linelists
+    
+    @action(detail=True, methods=['get'], url_path='download')
+    def download_csv(self, request, pk=None):
+        user = request.user
+        if user.role not in ['client', 'admin', 'meofficer', 'manager']:
+            return Response(
+                {"detail": "You do not have permission to view aggregated counts."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        ll = self.get_object()
+        timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        filename = f'{ll.name}_{timestamp}.csv'
+        #convert to csv
+        serialized = self.get_serializer(ll).data
+        rows = serialized.get('data', [])
+
+        def serialize_value(value):
+            if isinstance(value, date):
+                return value.isoformat()
+            elif isinstance(value, list):
+                return ','.join(str(x) for x in value)  # join list items with commas
+            elif value is None:
+                return ''
+            else:
+                return str(value)
+
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+        writer = csv.DictWriter(response, fieldnames=rows[0].keys())
+        writer.writeheader()
+        for row in rows:
+            serialized_row = {k: serialize_value(v) for k, v in row.items()}
+            writer.writerow(serialized_row)
+
+        return response
+
+#we may potentially need to rethink the user perms if we have to link this to other sites
+class TablesViewSet(RoleRestrictedViewSet):
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return PivotTableListSerializer #for panel showing list of pivot tables
+        else:
+            return PivotTableSerializer #for dedicated views
+        
+    def get_queryset(self):
+        return PivotTable.objects.filter(created_by=self.request.user) #only see your tables
+    
+
+    @action(detail=True, methods=['get'], url_path='download')
+    def download_csv(self, request, pk=None):
+        user = request.user
+        if user.role not in ['client', 'admin', 'meofficer', 'manager']:
+            return Response(
+                {"detail": "You do not have permission to view aggregated counts."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        table = self.get_object()
+        params = {}
+        table_params = [param.name for param in table.params.all()]
+        params = {}
+        for cat in ['id', 'age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory', 'platform', 'metric']:
+            params[cat] = cat in table_params
+        aggregates = aggregates_switchboard(
+            user=user,
+            indicator=table.indicator,
+            params=params,
+            organization=table.organization,
+            project=table.project,
+            start=table.start,
+            end=table.end,
+            repeat_only=table.repeat_only,
+            n=table.repeat_n,
+            cascade=table.cascade_organization
+        )
+
+        if not aggregates:
+            return Response(
+                {"detail": "No aggregate data found for this indicator."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        filename = f'aggregates_{table.indicator.code}_{timestamp}.csv'
+        #convert to csv
+        rows = prep_csv(aggregates, params)
+        fieldnames = rows[0]
+        buffer = StringIO()
+        writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for row in rows[1:]:
+            row_dict = dict(zip(fieldnames, row))
+            writer.writerow(row_dict)
+
+        response = HttpResponse(buffer.getvalue(), content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+    
     @action(detail=False, methods=["get"], url_path='aggregate/(?P<indicator_id>[^/.]+)')
     def indicator_aggregate(self, request, indicator_id=None):
         '''
@@ -65,8 +171,6 @@ class AnalysisViewSet(RoleRestrictedViewSet):
         params = {}
         for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory']:
             params[cat] = request.query_params.get(cat) in ['true', '1']
-        #special social media param
-        platform = request.query_params.get('platform') in ['true', '1']
         
         #split, i.e. time period
         split = request.query_params.get('split')

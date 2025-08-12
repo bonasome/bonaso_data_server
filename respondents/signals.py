@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 
 
-def update_attribute(respondent, attribute_enum, should_add):
+def update_attribute(respondent_id, attribute_enum, should_add):
     '''
     Helper function that helps automatic attribute syncs set the correct respondent and attribute.
         -should_add -> determines if this attribute is new and should be added or was removed and should be deleted
@@ -19,13 +19,13 @@ def update_attribute(respondent, attribute_enum, should_add):
         attr_type, _ = RespondentAttributeType.objects.get_or_create(name=attribute_enum)
         if should_add:
             RespondentAttribute.objects.update_or_create(
-                respondent=respondent,
+                respondent_id=respondent_id,
                 attribute=attr_type,
                 defaults={'auto_assigned': True}
             )
         else:
             RespondentAttribute.objects.filter(
-                respondent=respondent,
+                respondent_id=respondent_id,
                 attribute=attr_type,
                 auto_assigned=True
             ).delete()
@@ -43,9 +43,9 @@ def sync_kp_attribute(sender, instance, **kwargs):
     '''
     If a respondent KP status is edited, automatically update their attribute status as a KP.
     '''
-    respondent = instance.respondent
+    respondent = instance.respondent_id
     def after_commit():
-        should_add = KeyPopulationStatus.objects.filter(respondent=respondent).exists()
+        should_add = KeyPopulationStatus.objects.filter(respondent_id=respondent).exists()
         update_attribute(respondent, RespondentAttributeType.Attributes.KP, should_add)
 
     transaction.on_commit(after_commit)
@@ -58,9 +58,9 @@ def sync_disability_attribute(sender, instance, **kwargs):
     '''
     If a respondent KP status is edited, automatically update their attribute status to PWD.
     '''
-    respondent = instance.respondent
+    respondent = instance.respondent_id
     def after_commit():
-        should_add = DisabilityStatus.objects.filter(respondent=respondent).exists()
+        should_add = DisabilityStatus.objects.filter(respondent_id=respondent).exists()
         update_attribute(respondent, RespondentAttributeType.Attributes.PWD, should_add)
     transaction.on_commit(after_commit)
 
@@ -72,9 +72,9 @@ def sync_hiv_attribute(sender, instance, **kwargs):
     '''
     If a respondent's HIV status changes, update the corresponding attribute.
     '''
-    respondent = instance.respondent
+    respondent = instance.respondent_id
     def after_commit():
-        should_add = HIVStatus.objects.filter(respondent=respondent, hiv_positive=True).exists()
+        should_add = HIVStatus.objects.filter(respondent_id=respondent, hiv_positive=True).exists()
         update_attribute(respondent, RespondentAttributeType.Attributes.PLWHIV, should_add)
     transaction.on_commit(after_commit)
 

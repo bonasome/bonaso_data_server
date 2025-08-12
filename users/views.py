@@ -251,7 +251,8 @@ class MobileRefreshView(TokenRefreshView):
     Mobile does not support HTTP cookies, so send this via JSON.
     '''
     def post(self, request, *args, **kwargs):
-        refresh_token = request.data.get('refresh_token')
+        refresh_token = request.data.get('refresh')
+        print(refresh_token)
         if not refresh_token:
             return Response({'detail': 'Refresh token missing.'}, status=status.HTTP_400_BAD_REQUEST)
 

@@ -83,8 +83,8 @@ class DashboardSetting(models.Model):
     charts = models.ManyToManyField(IndicatorChartSetting, through='DashboardIndicatorChart', blank=True)
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
-    project = models.ForeignKey(Project, on_delete=models.CASCADE, null=True)
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, null=True)
+    project = models.ForeignKey(Project, on_delete=models.SET_NULL, null=True)
+    organization = models.ForeignKey(Organization, on_delete=models.SET_NULL, null=True)
     cascade_organization = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -106,3 +106,44 @@ class DashboardIndicatorChart(models.Model):
     height = models.CharField(max_length=50, blank=True, null=True)
     class Meta:
         unique_together = ('dashboard', 'chart')
+
+class PivotTable(models.Model):
+    '''
+    Model for storing pivot table settings that a user can return to. Supports unlimited breakdowns and 
+    scoping by period, project, organization, and filtering repeat onlys (for respondent indicators).
+    '''
+    name = models.CharField(max_length=255, null=True, blank=True)
+    indicator = models.ForeignKey(Indicator, on_delete=models.CASCADE)
+    project = models.ForeignKey(Project, on_delete=models.SET_NULL, null=True)
+    organization = models.ForeignKey(Organization, on_delete=models.SET_NULL, null=True)
+    cascade_organization = models.BooleanField(default=False) #will also include child organizations of the selected organization
+
+    params = models.ManyToManyField(ChartField, through='PivotTableParam', blank=True)
+    start = models.DateField(null=True, blank=True)
+    end = models.DateField(null=True, blank=True)
+    repeat_only = models.BooleanField(default=False)
+    repeat_n = models.PositiveIntegerField(blank=True, null=True)
+
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='pivot_tables')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+class PivotTableParam(models.Model):
+    '''
+    Through table for m2m field pivot table params.
+    '''
+    pivot_table = models.ForeignKey(PivotTable, on_delete=models.CASCADE)
+    field = models.ForeignKey(ChartField, on_delete=models.CASCADE)
+
+class LineList(models.Model):
+    name = models.CharField(max_length=255, null=True, blank=True)
+    indicator = models.ForeignKey(Indicator, on_delete=models.CASCADE, null=True)
+    project = models.ForeignKey(Project, on_delete=models.SET_NULL, null=True)
+    organization = models.ForeignKey(Organization, on_delete=models.SET_NULL, null=True)
+    cascade_organization = models.BooleanField(default=False) #will also include child organizations of the selected organization
+    start = models.DateField(null=True, blank=True)
+    end = models.DateField(null=True, blank=True)
+    
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='line_lists')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)

@@ -1,18 +1,150 @@
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 from django.db import transaction
-from analysis.models import DashboardFilter, ChartField, IndicatorChartSetting, DashboardSetting, DashboardIndicatorChart, ChartFilter
+from analysis.models import DashboardFilter, ChartField, IndicatorChartSetting, DashboardSetting, DashboardIndicatorChart, ChartFilter, PivotTable, PivotTableParam, LineList
 from analysis.utils.aggregates import  aggregates_switchboard
 from analysis.utils.targets import get_target_aggregates
+from analysis.utils.csv import prep_csv
+from analysis.utils.line_list import prep_line_list
 from organizations.models import Organization
 from organizations.serializers import OrganizationListSerializer
 from projects.models import Project
 from projects.serializers import ProjectListSerializer, Target
+from indicators.models import Indicator
 from indicators.serializers import IndicatorSerializer
 from events.models import DemographicCount
 from collections import defaultdict
+from respondents.models import Interaction
 
+class LineListListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LineList
+        fields = ['id', 'name']
 
+class LineListSerializer(serializers.ModelSerializer):
+    indicator = IndicatorSerializer(read_only=True)
+    indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True, source='indicator', allow_null=True, required=False)
+    organization = OrganizationListSerializer(read_only=True)
+    organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, source='organization', allow_null=True, required=False)
+    project = ProjectListSerializer(read_only=True)
+    project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True, source='project', allow_null=True, required=False)
+    data = serializers.SerializerMethodField()
+
+    def get_data(self, obj):
+        return prep_line_list(
+            user=obj.created_by,
+            indicator=obj.indicator,
+            project=obj.project,
+            organization=obj.organization,
+            start=obj.start, 
+            end=obj.end, 
+            cascade=obj.cascade_organization,
+        )
+    class Meta:
+        model=LineList
+        fields = [
+            'id', 'name', 'project', 'project_id', 'organization', 'organization_id',
+            'indicator', 'indicator_id', 'start', 'end', 'cascade_organization', 'data'
+        ]
+    def create(self, validated_data):
+        user = self.context.get('request').user if self.context.get('request') else None
+        ll = LineList.objects.create(created_by=user, **validated_data)
+        return ll
+    
+
+class PivotTableListSerializer(serializers.ModelSerializer):
+    display_name = serializers.SerializerMethodField()
+    def get_display_name(self, obj):
+        if obj.name:
+            return obj.name
+        params = [str(ChartField.Field(param.name).label) for param in obj.params.all()]
+        clause = f' by '+', '.join(params) if params else ''
+        return f'Pivot Table for Indicator {str(obj.indicator)}{clause}'
+
+    class Meta:
+        model = PivotTable
+        fields = ['id', 'display_name',]
+
+class PivotTableSerializer(serializers.ModelSerializer):
+    indicator = IndicatorSerializer(read_only=True)
+    indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True, source='indicator', allow_null=True, required=False)
+    organization = OrganizationListSerializer(read_only=True)
+    organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, source='organization', allow_null=True, required=False)
+    project = ProjectListSerializer(read_only=True)
+    project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True, source='project', allow_null=True, required=False)
+    params = serializers.SerializerMethodField()
+    param_names = serializers.ListField(
+        child=serializers.CharField(),
+        write_only=True,
+        allow_empty=True,
+        required=False
+    )
+    display_name = serializers.SerializerMethodField()
+    data = serializers.SerializerMethodField()
+
+    def get_data(self, obj):
+        table_params = [param.name for param in obj.params.all()]
+        params = {}
+        for cat in ['id', 'age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory', 'platform', 'metric']:
+            params[cat] = cat in table_params
+
+        data = aggregates_switchboard(
+            obj.created_by, 
+            indicator=obj.indicator, 
+            params=params, 
+            project=obj.project,
+            organization=obj.organization,
+            start=obj.start, 
+            end=obj.end, 
+            repeat_only=obj.repeat_only, 
+            n=obj.repeat_n,
+            cascade=obj.cascade_organization
+        )
+        return prep_csv(aggregates=data, params=params)
+
+    def get_params(self, obj):
+        return [param.name for param in obj.params.all()]
+    
+    def get_display_name(self, obj):
+        if obj.name:
+            return obj.name
+        params = [str(ChartField.Field(param.name).label) for param in obj.params.all()]
+        clause = f' by '+', '.join(params) if params else ''
+        return f'Pivot Table for Indicator {str(obj.indicator)}{clause}'
+    
+    class Meta:
+        model = PivotTable
+        fields = [
+            'id', 'name', 'display_name', 'project', 'project_id', 'organization', 'organization_id', 'start', 'end', 'params', 
+            'param_names', 'data', 'repeat_only', 'repeat_n', 'cascade_organization', 'indicator', 'indicator_id'
+        ]
+
+    def _update_params(self, table, params):
+        fields = []
+        valid_names = [choice[0] for choice in ChartField.Field.choices]
+        for param in params:
+            if param in valid_names:
+                field, created = ChartField.objects.get_or_create(name=param)
+                fields.append(field)
+        table.params.set(fields)
+        table.save()
+        return table
+    
+    def create(self, validated_data):
+        param_names = validated_data.pop('param_names', [])
+        user = self.context.get('request').user if self.context.get('request') else None
+        table = PivotTable.objects.create(created_by=user, **validated_data)
+        self._update_params(table, param_names)
+        return table
+    
+    def update(self, instance, validated_data):
+        param_names = validated_data.pop('param_names', [])
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        self._update_params(instance, param_names)
+        return instance
+    
 class IndicatorChartSerializer(serializers.ModelSerializer):
     chart_data = serializers.SerializerMethodField(read_only=True)
     targets = serializers.SerializerMethodField(read_only=True)

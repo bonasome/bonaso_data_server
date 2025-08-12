@@ -137,6 +137,42 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
         return Response(created, status=status.HTTP_201_CREATED)
 
+    @action(detail=False, methods=['post'], url_path='mobile')
+    def mobile_upload(self, request):
+        if request.user.role == 'client':
+                raise PermissionDenied('You do not have permission to perform this action.')
+        data = request.data
+        if not isinstance(data, list):
+            return Response({"detail": "Expected a list of interactions."}, status=400)
+        ids_map = []
+        errors = []
+        for item in data:
+            try:
+                server_id = item.get('server_id')
+                existing = None
+                if server_id:
+                    existing = Interaction.objects.filter(id=server_id).first()
+                if existing: #auto update existing respondents (matched by ID no)
+                    interaction_serializer = InteractionSerializer(
+                        existing, data=item, context={'request': request}, partial=True
+                    )
+                else: #otherwise create new
+                    interaction_serializer = InteractionSerializer(
+                        data=item, context={'request': request}
+                    )
+                interaction_serializer.is_valid(raise_exception=True)
+                interaction = interaction_serializer.save()
+                ids_map.append({'local_id': item.get('local_id'), 'server_id': interaction.id })
+
+            except Exception as err:
+                errors.append({
+                    'local_id': item.get('local_id'),
+                    'message': str(err),
+                })  
+        return Response({
+            "mappings": ids_map,
+            "errors": errors
+        }, status=status.HTTP_200_OK)
 
 
     ###=== FILE UPLOAD VIEWS ===###
@@ -185,7 +221,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
         for field in Respondent._meta.get_fields():
             if field.auto_created:
                 continue
-            if field.name in ['uuid', 'created_by', 'created_at', 'updated_at', 'updated_by', 'flags']:
+            if field.name in ['uuid', 'created_by', 'created_at', 'updated_at', 'updated_by', 'flags', 'dummy_dob']:
                 continue
             if hasattr(field, 'verbose_name'):
                 verbose = field.verbose_name

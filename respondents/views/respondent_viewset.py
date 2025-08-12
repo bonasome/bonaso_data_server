@@ -99,6 +99,47 @@ class RespondentViewSet(RoleRestrictedViewSet):
             "special_attributes": get_enum_choices(RespondentAttributeType.Attributes)
         })
     
+
+    @action(detail=False, methods=['post'], url_path='mobile')
+    def mobile_upload(self, request):
+        if request.user.role == 'client':
+                raise PermissionDenied('You do not have permission to perform this action.')
+        data = request.data
+        if not isinstance(data, list):
+            return Response({"detail": "Expected a list of respondents."}, status=400)
+        ids_map = []
+        errors = []
+        for item in data:
+            try:
+                server_id = item.get('server_id')
+                id_no = item.get('id_no')
+                existing = None
+                if server_id:
+                    existing = Respondent.objects.filter(id=server_id).first()
+                elif id_no is not None: #skip for anon respondents that have no id_no
+                    existing = Respondent.objects.filter(id_no=id_no).first()
+                if existing: #auto update existing respondents (matched by ID no)
+                    respondent_serializer = RespondentSerializer(
+                        existing, data=item, context={'request': request}, partial=True
+                    )
+                else: #otherwise create new
+                    respondent_serializer = RespondentSerializer(
+                        data=item, context={'request': request}
+                    )
+                respondent_serializer.is_valid(raise_exception=True)
+                respondent = respondent_serializer.save()
+                ids_map.append({'local_id': item.get('local_id'), 'server_id': respondent.id })
+
+            except Exception as err:
+                errors.append({
+                    'local_id': item.get('local_id'),
+                    'message': str(err),
+                })  
+        return Response({
+            "mappings": ids_map,
+            "errors": errors
+        }, status=status.HTTP_200_OK)
+
     @action(detail=False, methods=['post'], url_path='bulk')
     def bulk_upload(self, request):
         '''

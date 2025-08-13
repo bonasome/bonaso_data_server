@@ -29,6 +29,9 @@ class OrganizationViewSet(RoleRestrictedViewSet):
         org = getattr(user, 'organization', None)
         if role == 'admin':
             queryset = Organization.objects.all()
+        elif role == 'client':
+            valid_ids = Task.objects.filter(project__client=user.client_organization).values_list('organization_id', flat=True)
+            queryset = Organization.objects.filter(id__in=valid_ids)
         elif role in ['meofficer', 'manager']:
             child_orgs = ProjectOrganization.objects.filter(
                 parent_organization=user.organization

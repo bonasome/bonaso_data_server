@@ -41,7 +41,7 @@ def respondent_flag_check(respondent, user):
         # Rule 3: Fifth digit must match declared sex
         if (respondent.sex == 'M' and fifth != '1') or (respondent.sex == 'F' and fifth != '2'):
             if respondent.sex == 'NB' or respondent.kp_status.filter(
-                Q(key_population__name='TG') | Q(key_population__name='INTERSEX')
+                Q(name='TG') | Q(name='INTERSEX')
             ).exists():
                 resolve_flag(flags, sex_reason)
             else:

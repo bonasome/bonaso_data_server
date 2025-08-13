@@ -26,8 +26,11 @@ class IndicatorViewSet(RoleRestrictedViewSet):
     def get_queryset(self):
         queryset = Indicator.objects.all()
         user = self.request.user
-
-        if user.role != 'admin':
+        if user.role == 'client':
+            queryset = queryset.filter(status=Indicator.Status.ACTIVE)
+            valid_ids = Task.objects.filter(project__client=user.client_organization).values_list('indicator__id', flat=True)
+            queryset = queryset.filter(id__in=valid_ids)
+        if user.role in ['meofficer', 'manager']:
             queryset = queryset.filter(status=Indicator.Status.ACTIVE)
             valid_ids = Task.objects.filter(organization=user.organization).values_list('indicator__id', flat=True)
             queryset = queryset.filter(id__in=valid_ids)

@@ -1,6 +1,6 @@
 from django.utils.timezone import now
 from datetime import date, datetime, timedelta
-
+from django.db.models import Q
 from respondents.models import Interaction, InteractionSubcategory, Respondent
 from flags.utils import create_flag, resolve_flag
 from projects.models import ProjectOrganization
@@ -40,7 +40,12 @@ def respondent_flag_check(respondent, user):
 
         # Rule 3: Fifth digit must match declared sex
         if (respondent.sex == 'M' and fifth != '1') or (respondent.sex == 'F' and fifth != '2'):
-            _maybe_create_flag(flags, respondent, sex_reason, user)
+            if respondent.sex == 'NB' or respondent.kp_status.filter(
+                Q(key_population__name='TG') | Q(key_population__name='INTERSEX')
+            ).exists():
+                resolve_flag(flags, sex_reason)
+            else:
+                _maybe_create_flag(flags, respondent, sex_reason, user)
         else:
             resolve_flag(flags, sex_reason)
     else:

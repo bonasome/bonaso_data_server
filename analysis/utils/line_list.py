@@ -98,7 +98,8 @@ def prep_line_list(user, start=None, end=None, indicator=None, project=None, org
             'organization': str(ir.task.organization),
             'project': str(ir.task.project),
             'numeric_component': ir.numeric_component or None,
-            'subcategory': None
+            'subcategory': None,
+            'flagged': (ir.flags.filter(resolved=False).count() > 0 or respondent.flags.filter(resolved=False).count() > 0)
         }
         hiv_status_list = hiv_status_map.get(ir.respondent.id, [])
         row['hiv_status'] = any(hs.date_positive <= ir.interaction_date for hs in hiv_status_list)

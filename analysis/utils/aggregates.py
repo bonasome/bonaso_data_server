@@ -41,6 +41,9 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
             elif param == 'subcategory':
                 print('WARNING: This indicator has no subcategories.')
                 continue
+            elif param == 'organization':
+                fields_map['organization'] = set(sorted({i.task.organization.name for i in interactions}) + sorted({count.task.organization.name for count in counts}))
+                continue
             #this model contains all supported demographic fields, pull the list of options from it
             field = DemographicCount._meta.get_field(param)
             if field:
@@ -131,13 +134,18 @@ def get_repeats(interactions, n):
     repeat_only = interactions.filter(respondent_id__in=repeat_respondents)
     return repeat_only
 
-def event_no_aggregates(user, indicator, split, project, organization, start, end, cascade):
+def event_no_aggregates(user, indicator, split, project, organization, start, end, cascade, params):
     events = get_events_from_indicator(user, indicator, project, organization, start, end, cascade)
     aggregates = defaultdict(int)
     fields_map = {}
     if split in ['month', 'quarter']:
         period_func = get_quarter_string if split == 'quarter' else get_month_string
         fields_map['period'] = list({period_func(e.end) for e in events})
+    for param, include in params.items():
+        if include:
+            if param == 'organization':
+                fields_map['organization'] = set(sorted({e.host.name for e in events}))
+                continue
 
     cartesian_keys = list(fields_map.keys())
     cartesian_product = list(product(*fields_map.values()))
@@ -153,16 +161,15 @@ def event_no_aggregates(user, indicator, split, project, organization, start, en
         if split:
             period = period_func(event.end) if split else None
             key.append(period)
-
+        if fields_map.get('organization'):
+            key.append(event.host.name)
         key_tuple = tuple(key)
         pos = product_index.get(key_tuple)
         if pos is not None:
-
             aggregates[pos]['count'] += 1
-
     return dict(aggregates)
 
-def event_org_no_aggregates(user, indicator, split, project, organization, start, end, cascade):
+def event_org_no_aggregates(user, indicator, split, project, organization, start, end, cascade, params):
     events = get_events_from_indicator(user, indicator, project, organization, start, end, cascade)
     aggregates = defaultdict(int)
 
@@ -170,6 +177,12 @@ def event_org_no_aggregates(user, indicator, split, project, organization, start
     if split in ['month', 'quarter']:
         period_func = get_quarter_string if split == 'quarter' else get_month_string
         fields_map['period'] = list({period_func(e.end) for e in events})
+
+    for param, include in params.items():
+        if include:
+            if param == 'organization':
+                fields_map['organization'] = set(sorted({e.host.name for e in events}))
+                continue
 
     cartesian_keys = list(fields_map.keys())
     cartesian_product = list(product(*fields_map.values()))
@@ -181,16 +194,15 @@ def event_org_no_aggregates(user, indicator, split, project, organization, start
         aggregates[i]['count'] = 0
 
     for event in events:
-        
         key = []
         if split:
             period = period_func(event.end) if split else None
             key.append(period)
-
+        if fields_map.get('organization'):
+            key.append(event.host.name)
         key_tuple = tuple(key)
         pos = product_index.get(key_tuple)
         if pos is not None:
-
             aggregates[pos]['count'] += event.organizations.count()
 
     return dict(aggregates)
@@ -202,13 +214,15 @@ def social_aggregates(user, indicator, params, split, project, organization, sta
     #structure: pos: {platform: fb, metric: comments, count: 7}
     include_platform = False
     include_metric = False
+    include_organization = False
     metrics = ['comments', 'views', 'likes']
     fields_map = {}
     if split in ['month', 'quarter']:
         period_func = get_quarter_string if split == 'quarter' else get_month_string
         fields_map['period'] = list({period_func(p.published_at) for p in posts})
+
     for param, include in params.items():
-        if param not in ['platform', 'metric']:
+        if param not in ['platform', 'metric', 'organization']:
             continue #other params not supported
         if include:
             if param == 'platform':
@@ -217,9 +231,9 @@ def social_aggregates(user, indicator, params, split, project, organization, sta
             elif param == 'metric':
                 include_metric = True
                 fields_map['metric'] = metrics 
-
-    
-
+            elif param == 'organization':
+                include_organization = True
+                fields_map['organization'] = set(sorted({p.tasks.first().organization.name for p in posts}))
     cartesian_keys = list(fields_map.keys())
     cartesian_product = list(product(*fields_map.values()))
     product_index = {tuple(comb): i for i, comb in enumerate(cartesian_product)}
@@ -239,6 +253,8 @@ def social_aggregates(user, indicator, params, split, project, organization, sta
                 key.append(post.platform)
             if include_metric:
                 key.append(metric)
+            if include_organization:
+                key.append(post.tasks.first().organization.name)
 
             key_tuple = tuple(key)
             pos = product_index.get(key_tuple)
@@ -253,9 +269,9 @@ def aggregates_switchboard(user, indicator, params, split=None, project=None, or
     if indicator.indicator_type == 'respondent':
         aggregates = demographic_aggregates(user, indicator, params, split, project, organization, start, end, filters, repeat_only, n, cascade)
     if indicator.indicator_type == 'event_no':
-        aggregates = event_no_aggregates(user, indicator, split, project, organization, start, end, cascade)
+        aggregates = event_no_aggregates(user, indicator, split, project, organization, start, end, cascade, params)
     if indicator.indicator_type == 'org_event_no':
-        aggregates = event_org_no_aggregates(user, indicator, split, project, organization, start, end, cascade)
+        aggregates = event_org_no_aggregates(user, indicator, split, project, organization, start, end, cascade, params)
     if indicator.indicator_type == 'social':
         aggregates = social_aggregates(user, indicator, params, split, project, organization, start, end, filters, cascade)
     return aggregates

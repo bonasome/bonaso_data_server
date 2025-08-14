@@ -154,7 +154,7 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
     display_name = serializers.SerializerMethodField(read_only=True)
     def get_chart_data(self, obj):
         params = {}
-        for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory', 'platform', 'metric']:
+        for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory', 'platform', 'metric', 'organization']:
             params[cat] = (cat == obj.legend) or (cat == obj.stack)
         filters = self.get_filters(obj)
         project = self.context.get('project')

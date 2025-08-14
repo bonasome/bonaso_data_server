@@ -12,7 +12,7 @@ M2M_MAP = {
     'special_attribute': 'special_attribute__name',
 }
 
-fields = ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy']
+fields = ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'organization']
 from analysis.utils.periods import get_month_string, get_quarter_string
 def build_keys(interaction, pregnancies_map, hiv_status_map, interaction_subcats, include_subcats):
     """
@@ -22,8 +22,10 @@ def build_keys(interaction, pregnancies_map, hiv_status_map, interaction_subcats
 
     for field in fields:
         get_field = FIELD_MAP.get(field, field)
-
-        if field == 'pregnancy':
+        
+        if field == 'organization':
+            base_keys.add(interaction.task.organization.name)
+        elif field == 'pregnancy':
             is_pregnant = any(
                 p.term_began <= interaction.interaction_date <= (p.term_ended or date.today())
                 for p in pregnancies_map.get(interaction.respondent.id, [])

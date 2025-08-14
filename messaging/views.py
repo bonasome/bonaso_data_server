@@ -125,7 +125,7 @@ class AnnouncementViewSet(RoleRestrictedViewSet):
         valid_ps = Project.objects.filter(organizations=user.organization, status=Project.Status.ACTIVE)
         if user.role == 'admin':
             return Announcement.objects.all()
-        if user.role == ['client']:
+        if user.role == 'client':
             return Announcement.objects.filter(Q(visible_to_all=True) | Q(project__client=user.client_organization))
         if user.role in ['meofficer', 'manager']:
             child_org_links = ProjectOrganization.objects.filter(parent_organization=user.organization)

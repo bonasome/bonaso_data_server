@@ -343,7 +343,13 @@ class TaskViewSet(RoleRestrictedViewSet):
         org_param = self.request.query_params.get('organization')
         if org_param:
             queryset = queryset.filter(organization__id=org_param)
-            
+
+        #expects organizations=1,2,3,4
+        orgs_param = self.request.query_params.get('organizations') 
+        if orgs_param:
+            ids = orgs_param.split(',') 
+            queryset = queryset.filter(organization_id__in=ids)
+
         project_param = self.request.query_params.get('project')
         if project_param:
             queryset = queryset.filter(project__id=project_param)

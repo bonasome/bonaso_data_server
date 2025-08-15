@@ -54,7 +54,7 @@ def get_flag_metadata(queryset):
         .annotate(count=Count("id"))
     )
 
-    by_month = Flag.objects.annotate(
+    by_month = queryset.annotate(
         month=TruncMonth('created_at')
     ).values('month').annotate(
         count=Count('id')

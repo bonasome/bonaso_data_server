@@ -193,7 +193,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
             raise serializers.ValidationError('Template requires a project and organization.')
         if user.role != 'admin':
             #non admins cannot access templates from projects they are not a part of
-            if not ProjectOrganization.objects(project__id=project_id, organization=user.organization).exists():
+            if not ProjectOrganization.objects.filter(project__id=project_id, organization=user.organization).exists():
                 raise PermissionDenied('You do not have permission to access this template.')
             #non admins should only have access to their org and child orgs
             if org_id != user.organization.id and not ProjectOrganization.objects.filter(parent_organization=user.organization, project__id=project_id, organization__id=org_id).exists():
@@ -447,9 +447,9 @@ class InteractionViewSet(RoleRestrictedViewSet):
             errors.append('Template is missing Pregnant Ended column.')
         
         #get associated tasks
-        tasks = Task.objects.filter(organization__id=org_id, project__id=project_id).order_by('indicator__code')
+        tasks = Task.objects.filter(organization__id=org_id, project__id=project_id, indicator__indicator_type=Indicator.IndicatorType.RESPONDENT).order_by('indicator__code')
         if not tasks:
-           errors.append('No tasks associted with project.')
+           errors.append('There are no appropriate tasks associated with this project for this organization.')
            return Response({'errors': errors, 'warnings': warnings,  }, status=status.HTTP_400_BAD_REQUEST)
         
         #tasks aren't strictly required to match exactly, but throw a warning since the template may be out of date

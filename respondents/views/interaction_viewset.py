@@ -376,8 +376,18 @@ class InteractionViewSet(RoleRestrictedViewSet):
         except (ValueError, TypeError):
             event_id = None #gracefully fail if no event id or a wrong event ID is provided, since this isn't critical
         
-        # Check that this user has permission to upload for this organization (admin or org is their org or a child org)
+        # make sure project/organization match
+        if not ProjectOrganization.objects.filter(project_id=project_id, organization_id=org_id).exists():
+            raise PermissionDenied('This organization is not a part of this project.')
         if user.role != 'admin':
+            #non admins should only have access to their org and child orgs
+            if str(org_id) != str(user.organization_id): #if not their org then...
+                if not ProjectOrganization.objects.filter(parent_organization=user.organization, project_id=project_id, organization_id=org_id).exists(): #check if its a valid child for the project
+                    raise PermissionDenied('You do not have permission to access this template.')
+            if event_id:
+                event = get_object_or_404(Event, id=event_id)
+                if not check_event_perm(user, event, project_id):
+                    raise PermissionDenied('You do not have permission to access this template.')
             if org_id != user.organization.id and org_id not in [co.organization.id for co in ProjectOrganization.objects.filter(parent_organization=user.organization, project__id=project_id)]:
                 raise PermissionDenied('You do not have permission to access this template.')
 

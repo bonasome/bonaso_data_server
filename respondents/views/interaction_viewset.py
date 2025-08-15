@@ -191,14 +191,15 @@ class InteractionViewSet(RoleRestrictedViewSet):
         event_id = request.GET.get('event') #event is optional
         if not project_id or not org_id:
             raise serializers.ValidationError('Template requires a project and organization.')
+        if not ProjectOrganization.objects.filter(project_id=project_id, organization_id=org_id).exists():
+            raise PermissionDenied('This organization is not a part of this project.')
         if user.role != 'admin':
             #non admins cannot access templates from projects they are not a part of
-            if not ProjectOrganization.objects.filter(project__id=project_id, organization=user.organization).exists():
-                raise PermissionDenied('You do not have permission to access this template.')
             #non admins should only have access to their org and child orgs
-            if org_id != user.organization.id and not ProjectOrganization.objects.filter(parent_organization=user.organization, project__id=project_id, organization__id=org_id).exists():
-                raise PermissionDenied('You do not have permission to access this template.')
-        
+            if str(org_id) != str(user.organization_id): #if not their org then...
+                if not ProjectOrganization.objects.filter(parent_organization=user.organization, project_id=project_id, organization_id=org_id).exists(): #check if its a valid child for the project
+                    raise PermissionDenied('You do not have permission to access this template.')
+
             if event_id:
                 event = get_object_or_404(Event, id=event_id)
                 if not check_event_perm(user, event, project_id):

@@ -99,8 +99,8 @@ class Respondent(models.Model):
         SE = 'South East', _('South East District')
         SOUTHERN = 'Southern', _('Southern District')
         CHOBE = 'Chobe', _('Chobe District')
-        GG = 'Greater Gaborone', _('Greater Gaborone Area')
-        GF = 'Greater Francistown', _('Greater Francistown Area')
+        GG = 'Gaborone', _('Greater Gaborone Area')
+        GF = 'Francistown', _('Greater Francistown Area')
 
     class AgeRanges(models.TextChoices):
         U1 = 'under_1', _('Less Than One Year Old')

@@ -340,6 +340,10 @@ class TaskViewSet(RoleRestrictedViewSet):
         user_client = getattr(user, 'client_organization', None)
         queryset = Task.objects.all()
 
+        indicator_param = self.request.query_params.get('indicator')
+        if indicator_param:
+            queryset = queryset.filter(indicator_id=indicator_param)
+
         org_param = self.request.query_params.get('organization')
         if org_param:
             queryset = queryset.filter(organization__id=org_param)

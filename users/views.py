@@ -220,7 +220,7 @@ class ApplyForNewUser(APIView):
             client_organization=client_org,
             is_active=False,
         )
-        return Response({'message': 'User created successfully. They must be activated before they may log in.', 'id': new_user.username}, status=status.HTTP_201_CREATED)
+        return Response({'message': 'User created successfully. They must be activated before they may log in.', 'id': new_user.id}, status=status.HTTP_201_CREATED)
 
 class AdminResetPasswordView(APIView):
     '''

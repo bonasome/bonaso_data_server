@@ -548,12 +548,14 @@ class ClientViewSet(RoleRestrictedViewSet):
 
     def get_queryset(self):
         '''
-        Only admins should be managing this.
+        Only admins/clients should be managing this.
         '''
         user = self.request.user
         role = getattr(user, 'role', None)
         queryset = Client.objects.all()
-        if role != 'admin':
+        if user.role == 'client':
+            queryset = Client.objects.filter(id=user.client_organization.id)
+        elif role != 'admin':
             queryset= Client.objects.none()
         return queryset
 

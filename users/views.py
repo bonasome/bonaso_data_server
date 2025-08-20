@@ -151,45 +151,64 @@ class ApplyForNewUser(APIView):
     '''
     permission_classes = [IsAuthenticated]
     def post(self, request):
+        ROLE_PERMISSIONS = {
+            'admin': {'can_create': ['admin','meofficer','manager','data_collector','supervisor','view_only','client']},
+            'manager': {'can_create': ['meofficer','manager','data_collector','supervisor','view_only']},
+            'meofficer': {'can_create': ['meofficer','manager','data_collector','supervisor','view_only']},
+            'client': {'can_create': ['client']},
+        }
         from organizations.models import Organization
         from projects.models import Client
         user = request.user
-        if not user or user.role not in ['meofficer', 'manager', 'admin'] or not user.organization:
+        if not user or user.role not in ROLE_PERMISSIONS.keys():
             return Response({'detail': 'You do not have permission to perform this action.'}, status=status.HTTP_403_FORBIDDEN)
+        
         data = request.data
-        org_id = data.get('organization_id', user.organization.id)
         role = data.get('role')
         if not role: 
-            role ='view_only'
-
-        org = Organization.objects.filter(id=org_id).first()
-        if user.role != 'admin':
-            valid_orgs = get_valid_orgs(user)
-            if not org or org.id not in valid_orgs:
-                return Response({'detail': 'You do not have permission to create this user.'}, status=403)
+             return Response({'detail': 'A role is required to create a user.'}, status=status.HTTP_400_BAD_REQUEST)
+        if role not in ROLE_PERMISSIONS[user.role]['can_create']:
+            return Response({'detail': 'You do not have permission to create a user of this role.'}, status=status.HTTP_403_FORBIDDEN)
         
+        #most roles require an organization, and should be createable by managers/me/admins
+        org = None
+        if role != 'client':
+            org_id = data.get('organization_id')
+            try:
+                org = Organization.objects.get(id=org_id)
+            except Organization.DoesNotExist:
+                return Response({'detail': 'A valid organization is required for this role.'}, status=status.HTTP_400_BAD_REQUEST)
+            if user.role !=  'admin':
+                valid_orgs = get_valid_orgs(user)
+                if not org or org.id not in valid_orgs:
+                    return Response({'detail': 'You do not have permission to create this user.'}, status=status.HTTP_403_FORBIDDEN)
+                
+        #for segementation, the client role has its own organization (and should only be createable by clients/admins)
+        client_org = None
+        if role == 'client':
+            #allow admins/clients to create clients with a client org
+            client_id = data.get('client_id')
+            try:
+                client_org = Client.objects.get(id=client_id)
+            except Client.DoesNotExist:
+                return Response({'detail': 'A valid client organization is required for this role.'}, status=status.HTTP_400_BAD_REQUEST)
+            if user.role != 'admin' and client_org != user.client_organization:
+                return Response({'detail': 'You may not create users for other client organizations.'}, status=status.HTTP_403_FORBIDDEN)
+        
+        #get basic information
         username = data.get('username')
         password = data.get('password')
-
         if not username or not password:
             return Response({'detail': 'Insufficient information provided.'}, status=status.HTTP_400_BAD_REQUEST)
-        
         #must have unique username
         if User.objects.filter(username=username).exists():
             return Response({'detail': 'A user with that username already exists.'}, status=status.HTTP_409_CONFLICT)
-        
         try:
             validate_password(password)
         except ValidationError as e:
-            return Response({'detail': e.messages}, status=400)
+            return Response({'detail': e.messages}, status=status.HTTP_400_BAD_REQUEST)
         
-        #allow admins to create clients with a client org
-        client_id = data.get('client_id')
-        if user.role=='admin' and client_id:
-            client = Client.objects.get(id=client_id)
-        else:
-            client = None
-        
+        #now create the user, they are inactive by default (only admins can activate)
         new_user = User.objects.create_user(
             username=username,
             password=password,
@@ -197,10 +216,11 @@ class ApplyForNewUser(APIView):
             last_name = data.get('last_name', ''),
             email=data.get('email', ''),
             organization=org,
-            role='view_only' if user.role !='admin' else role, #default to view-only
-            client_organization=client,
+            role=role,
+            client_organization=client_org,
+            is_active=False,
         )
-        return Response({'message': 'User created successfuly. An admin will activate them shortly.', 'id': new_user.id}, status=status.HTTP_201_CREATED)
+        return Response({'message': 'User created successfully. They must be activated before they may log in.', 'id': new_user.username}, status=status.HTTP_201_CREATED)
 
 class AdminResetPasswordView(APIView):
     '''

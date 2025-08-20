@@ -46,17 +46,13 @@ class UserCreationTest(APITestCase):
             'email': 'test@user.com',
             'first_name': 'James',
             'last_name': 'LeBron',
-            'organization': self.org.id,
+            'organization_id': self.org.id,
+            'role': 'meofficer',
         })
+        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        response =self.client.post('/api/users/request-token/', {
-            'username': 'testnewuser',
-            'password': 'testpass123'
-        })
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response = self.client.get('/api/manage/targets/')
-        self.assertEqual(response.status_code, 200)
+        new_user = User.objects.get(username='testnewuser')
+        self.assertEqual(new_user.is_active, False)
     
     def test_apply_for_user_wrong_org(self):
         '''
@@ -69,24 +65,44 @@ class UserCreationTest(APITestCase):
             'email': 'test@user.com',
             'first_name': 'James',
             'last_name': 'LeBron',
-            'organization': self.other_org.id,
+            'organization_id': self.other_org.id,
+            'role': 'manager',
         })
+        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_admin_client(self):
         '''
         Admins should be able to create client users like this.
         '''
-        self.client.force_authenticate(user=self.officer)
+        self.client.force_authenticate(user=self.admin)
         response = self.client.post('/api/users/create-user/', {
-            'username': 'testnewuser',
+            'username': 'testnewclient',
             'password': 'testpass123',
             'email': 'test@user.com',
             'first_name': 'James',
             'last_name': 'LeBron',
             'role': 'client',
-            'client_id': self.client_obj,
+            'client_id': self.client_obj.id,
         })
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+    
+    def test_client_client(self):
+        '''
+        Admins should be able to create client users like this.
+        '''
+        self.client.force_authenticate(user=self.client_user)
+        response = self.client.post('/api/users/create-user/', {
+            'username': 'testnewclient',
+            'password': 'testpass123',
+            'email': 'test@user.com',
+            'first_name': 'James',
+            'last_name': 'LeBron',
+            'role': 'client',
+            'client_id': self.client_obj.id,
+        })
+        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
     
     def test_apply_for_user_no_org(self):
@@ -98,7 +114,9 @@ class UserCreationTest(APITestCase):
             'username': 'testnewuser2',
             'password': 'testpass123',
             'email': 'test@user.com',
+            'role': 'admin',
         })
+        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
     
     def test_apply_for_user_no_perm(self):
@@ -110,5 +128,8 @@ class UserCreationTest(APITestCase):
             'username': 'testnewuser3',
             'password': 'testpass123',
             'email': 'test@user.com',
+            'role': 'admin',
+            'organization_id': self.org.id,
         })
+        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

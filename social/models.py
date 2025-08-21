@@ -28,9 +28,12 @@ class SocialMediaPost(models.Model):
     other_platform = models.CharField(max_length=255, blank=True)
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
+    
     likes = models.PositiveIntegerField(blank=True, null=True)
     views = models.PositiveIntegerField(blank=True, null=True)
     comments = models.PositiveIntegerField(blank=True, null=True)
+    reach = models.PositiveIntegerField(blank=True, null=True)
+
     link_to_post = models.URLField(blank=True)
     published_at = models.DateField(blank=True, null=True)
     flags = GenericRelation('flags.Flag', related_query_name='flags')

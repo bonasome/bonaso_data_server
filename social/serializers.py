@@ -81,7 +81,7 @@ class SocialMediaPostSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'published_at': 'Invalid or missing published date.'})
 
         # Check if any metrics are provided for a future post
-        if any(attrs.get(field) for field in ['likes', 'comments', 'views']) and date.today() < published_at:
+        if any(attrs.get(field) for field in ['likes', 'comments', 'views', 'reach']) and date.today() < published_at:
             raise serializers.ValidationError('You may not provide metrics for a post that has not happened yet.')
         return attrs
 

@@ -412,7 +412,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
         dis_labels = [dis.label.lower().replace(' ', '')  for dis in DisabilityType.DisabilityTypes]
         auto_attr = [RespondentAttributeType.Attributes.PLWHIV, RespondentAttributeType.Attributes.KP, RespondentAttributeType.Attributes.PWD]
         special_attribute_labels = [attr.label.lower().replace(' ', '') for attr in RespondentAttributeType.Attributes if attr not in auto_attr]
-        
+        print(age_range_labels)
         def get_verbose(field_name):
             return Respondent._meta.get_field(field_name).verbose_name
         
@@ -630,7 +630,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
             district = get_choice_key_from_label(Respondent.District.choices, district)
             if age_range and not dob:
                 age_range = get_choice_key_from_label(Respondent.AgeRanges.choices, age_range)
-            
+            elif dob:
+                age_range = None
             #validate our m2m fields
             kp_types = []
             kp_status_names_raw = get_cell_value(row, 'kp_status') or ''

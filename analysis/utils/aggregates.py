@@ -215,7 +215,7 @@ def social_aggregates(user, indicator, params, split, project, organization, sta
     include_platform = False
     include_metric = False
     include_organization = False
-    metrics = ['comments', 'views', 'likes']
+    metrics = ['comments', 'views', 'likes', 'reach']
     fields_map = {}
     if split in ['month', 'quarter']:
         period_func = get_quarter_string if split == 'quarter' else get_month_string
@@ -259,7 +259,7 @@ def social_aggregates(user, indicator, params, split, project, organization, sta
             key_tuple = tuple(key)
             pos = product_index.get(key_tuple)
             if pos is not None:
-                count = getattr(post, metric) or 0 if include_metric else (post.comments + post.likes + post.views)
+                count = getattr(post, metric) or 0 if include_metric else (post.comments + post.likes + post.views + post.reach)
                 aggregates[pos]['count'] += count
 
     return dict(aggregates)

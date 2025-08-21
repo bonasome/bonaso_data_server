@@ -64,5 +64,6 @@ class SocialMediaPostViewSet(RoleRestrictedViewSet):
                 {'value': 'comments', 'label': 'Comments'},
                 {'value': 'likes', 'label': 'Likes'},
                 {'value': 'views', 'label': 'Views'},
+                {'value': 'reach', 'label': 'Reach'},
             ]
         })

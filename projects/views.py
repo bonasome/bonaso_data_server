@@ -399,6 +399,14 @@ class TaskViewSet(RoleRestrictedViewSet):
         else:
             return Task.objects.none()
 
+    @action(detail=False, methods=["get"], url_path="mobile")
+    def mobile_list(self, request):
+        queryset = self.filter_queryset(self.get_queryset())
+        queryset = queryset.filter(indicator__status='active', project__status='active')
+        # No pagination
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+    
     def destroy(self, request, *args, **kwargs):
         '''
         Allow deleting tasks if its for a child org/the user is an admin and the task does not have any 

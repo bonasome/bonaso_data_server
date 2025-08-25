@@ -497,7 +497,8 @@ class InteractionSerializer(serializers.ModelSerializer):
         interaction_date = data.get('interaction_date') or getattr(self.instance, 'interaction_date', None)
         interaction_location = data.get('interaction_location') or getattr(self.instance, 'interaction_location', None)
         number = data.get('numeric_component')
-
+        if number == '':
+            number = None
         ### ===check permissions==== ###
         #clients cannot create
         if user.role == 'client':
@@ -593,7 +594,7 @@ class InteractionSerializer(serializers.ModelSerializer):
             subcat_id = subcat.get('subcategory').get('id')
             numeric_value = None
             if interaction.task.indicator.require_numeric:
-                numeric_value = subcat.get('numeric_component')
+                numeric_value = int(subcat.get('numeric_component'))
             
 
             try:

@@ -148,6 +148,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
         errors = []
         for item in data:
             try:
+
                 server_id = item.get('server_id')
                 existing = None
                 if server_id:

@@ -11,7 +11,11 @@ from indicators.models import IndicatorSubcategory
 from projects.models import Task
 from events.models import Event
 
-
+'''
+The respondent model relies on a variety of TextChoices. These are both used to control inputs but also
+are used during analysis for demographic splits. IF YOU MAKE ANY CHANGES TO ANY OF THE CATEGORIES HERE, MAKE
+SURE YOU MIRROR THEM IN events/models --> DemographicCount.
+'''
 
 
 class DisabilityType(models.Model):
@@ -76,12 +80,11 @@ class Respondent(models.Model):
         3) Village (or town or whatever)
         4)District
         5) Citizenship
-            - We will automatically wipe any dob/id/email/phones in the serialization process.
+            - We will automatically wipe any dob/id/email/phones/ward/plot_no in the serialization process.
+                (these could all be considered PII)
             - We also track a uuid, which is kind of a reference for anonymous respondents.
     Otherwise, all fields are required except for Email and Phone Number (optional), and Age Range (which 
     we can calcualte from DOB).
-
-
     '''
     class Sex(models.TextChoices):
         FEMALE = 'F', _('Female')
@@ -132,7 +135,18 @@ class Respondent(models.Model):
     ward = models.CharField(max_length=255, verbose_name='Ward', blank=True, null=True)
     village = models.CharField(max_length=255, verbose_name='Village')
     district = models.CharField(max_length=25, choices=District.choices, verbose_name='District')
-    citizenship = models.CharField(max_length=255, verbose_name='Citizenship/Nationality')
+    '''
+    CITIZENSHIP:
+    For similicity, this is a text field but the frontend will expect the 2 digit country code (ex. 'BW').
+    This field's only use in the codebase is checking if it equals 'BW' for creating 'Is Citizen' boolean.
+    If for some reason you change this field, references to ='BW' are hardcoded into
+        - respondents/serializers --> RespondentSerializer (the create and update check for citizenship 
+         when validating ids)
+        - respondents/interaction_viewset --> InteractionViewSet --> post_template will set to BW by default
+        - analysis/utils/collection (for filtering citizen vs. non-citizen)
+        -analysus/utils/interactions_prep --> build_keys (for creating citizenship boolean).
+    '''
+    citizenship = models.CharField(max_length=255, verbose_name='Citizenship/Nationality') 
     special_attribute = models.ManyToManyField(RespondentAttributeType, through='RespondentAttribute', blank=True, verbose_name='Special Respondent Attributes')
     kp_status = models.ManyToManyField(KeyPopulation, through='KeyPopulationStatus', blank=True, verbose_name='Key Population Status')
     disability_status = models.ManyToManyField(DisabilityType, through='DisabilityStatus', blank=True, verbose_name='Disability Status')

@@ -29,6 +29,12 @@ class SocialMediaPost(models.Model):
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     
+    '''
+    Likes, comments, views, reach, are sometimes called 'metrics.' It is important to note that if you add/
+    remove metrics, you need to edit the metrics list on analysis/utils/aggregates --> social_aggregates
+    and a similar list in social/serializers --> SocialMediaPostSerializer --> validate (both of these
+    check the list of metrics to determine what fields to check/use for the function)
+    '''
     likes = models.PositiveIntegerField(blank=True, null=True)
     views = models.PositiveIntegerField(blank=True, null=True)
     comments = models.PositiveIntegerField(blank=True, null=True)

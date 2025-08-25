@@ -27,7 +27,7 @@ class SocialMediaPostSerializer(serializers.ModelSerializer):
     class Meta:
         model = SocialMediaPost
         fields = [
-            'id', 'name', 'description', 'likes', 'comments', 'views',
+            'id', 'name', 'description', 'likes', 'comments', 'views', 'reach',
             'platform', 'other_platform', 'link_to_post', 'published_at',
             'tasks', 'task_ids', 'created_at', 'flags', 'updated_at', 'created_by',
             'updated_by',

@@ -45,7 +45,7 @@ def build_keys(interaction, pregnancies_map, hiv_status_map, interaction_subcats
         else:
             val = getattr(interaction.respondent, get_field)
             if field == 'citizenship':
-                val = 'citizen' if val and val.lower() == 'motswana' else 'non_citizen'
+                val = 'citizen' if val and val.lower() == 'bw' else 'non_citizen'
             base_keys.add(val)
         base_keys.add(get_month_string(interaction.interaction_date))
         base_keys.add(get_quarter_string(interaction.interaction_date))

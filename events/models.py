@@ -91,6 +91,12 @@ class DemographicCount(models.Model):
     We also have a business logic rule that one task can only have one set of counts (visualize it like a table).
     There's a nascent idea to allow organizations breakdowns (for training maybe) but right now that field is dormant.
     '''
+
+    '''
+    Counts rely on a variety of TextChoices. These are both used to control inputs but also
+    are used during analysis for demographic splits. IF YOU MAKE ANY CHANGES TO ANY OF THE CATEGORIES HERE, MAKE
+    SURE YOU MIRROR THEM IN respondents/models (if applicable).
+    '''
     class Sex(models.TextChoices):
         FEMALE = 'F', _('Female')
         MALE = 'M', _('Male')

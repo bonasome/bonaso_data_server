@@ -143,6 +143,7 @@ class RespondentViewSet(RoleRestrictedViewSet):
     @action(detail=False, methods=['post'], url_path='bulk')
     def bulk_upload(self, request):
         '''
+        !!DEPRECATED!!
         This is specifically designed for the mobile app, which for offline sync uploads in batches
         from a table.
         '''

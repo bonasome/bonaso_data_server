@@ -6,7 +6,11 @@
 **Environments:** dev, prod 
 
 ## 1. PROJECT OVERVIEW
-The BONASO Data Portal is a tool that seeks to enable community health workers and their coordinators capture and analyze various types of client and project data from across the country in real time. The portal is a network of several different tools which work together to collect and retrieve data on the web or on mobile applications. The following information specifically overviews the backend server. Please also read the documentation for the frontend (BONASO Data Portal Website) and the mobile application (BONASO Data Portal Mobile).
+The BONASO Data Portal is a tool that seeks to enable community health workers and their coordinators capture and analyze various types of client and project data from across the country in real time. The portal is a network of several different tools which work together to collect and retrieve data on the web or on mobile applications. 
+
+This document specifically describes the **frontend website**. For additional context, please also read the documentation for:  
+- **Frontend:** BONASO Data Portal Website (Django + PostgreSQL)  
+- **Mobile:** BONASO Data Portal Mobile (React Native + Expo)  
 
 The BONASO Data Portal Server is the backend server that controls the flow of information into and out of the database to the end user. Whenever a user records or analyzes data, the backend retrieves it from the database, processes it, and returns it in a format the frontend (web or mobile) can display.
 

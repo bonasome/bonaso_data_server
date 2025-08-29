@@ -455,6 +455,8 @@ class InteractionSerializer(serializers.ModelSerializer):
     event = EventSerializer(read_only=True)
     event_id = serializers.PrimaryKeyRelatedField(queryset=Event.objects.all(), write_only=True, source='event', required=False, allow_null=True)
     display_name = serializers.SerializerMethodField()
+    parent_organization = serializers.SerializerMethodField() #return the id of the parent organization (if applicable) for frontend permissions checks
+    
     def get_display_name(self, obj):
         return str(obj)  # Uses obj.__str__()
 
@@ -471,13 +473,15 @@ class InteractionSerializer(serializers.ModelSerializer):
                 'numeric_component': subcat.numeric_component
             })
         return data
-    
+    def get_parent_organization(self, obj):
+        org = ProjectOrganization.objects.filter(organization=obj.task.organization, project=obj.task.project).first().parent_organization
+        return org.id if org else None
     class Meta:
         model=Interaction
         fields = [
             'id', 'display_name', 'respondent', 'subcategories', 'subcategories_data', 'task_id', 'task',
             'interaction_date', 'numeric_component', 'created_by', 'updated_by', 'created_at', 'updated_at',
-            'comments', 'interaction_location', 'event','event_id', 'flags'
+            'comments', 'interaction_location', 'event','event_id', 'flags', 'parent_organization'
         ]
     
     def to_internal_value(self, data):

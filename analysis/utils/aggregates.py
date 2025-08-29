@@ -18,6 +18,22 @@ FIELD_MAP = {
 }
 
 def demographic_aggregates(user, indicator, params, split=None, project=None, organization=None, start=None, end=None, filters=None, repeat_only=False, n=2, cascade=False):
+    '''
+    Function that finds interactions/demographic counts that match the criteria and aggregates them. Can split by 
+    timer period/param if requested. 
+    - user (instance): the user making the request for permissions
+    - indicator (instance): the indicator whose data is to be aggregated
+    - params (dict): a dictionary of params with true or false values denoting whether this aggregates should be split by that param (metric, platform, organization)
+    - split (string): split the data into periods (month, quarter)
+    - project (instance): scope data to specific project
+    - organization (instance): scope data to specific organization
+    - start (ISO date string): only collect data after this point
+    - end (ISO date string): only collect data before this point
+    - filters (dict): filter to only inlcude values that match certain criteria
+    - repeat_only (boolean): for respondent indicators, count respondents that have had this interaction n number of times
+    - n (integer): for use with repeat _only, the number of times this repsondent should have had an interaction with this indicator before being counted
+    - cascade (boolean): if organization and project is selected, also include data from child organizations
+    '''
     #get a list of interactions prefiltered based on user role/filters
     interactions = get_interactions_from_indicator(user, indicator, project, organization, start, end, filters, cascade)
     if repeat_only:
@@ -82,6 +98,7 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
     if filters:
         subcat_filter = filters.get('subcategory', None)
 
+    #get prefetched list of all subcategories in the queryset
     subcats = get_interaction_subcats(interactions, subcat_filter)
 
     product_index_sets = {frozenset(k): v for k, v in product_index.items()}
@@ -118,12 +135,17 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
                 count_params.append(period_func(count.event.end))
 
             param_set = frozenset(count_params)
-            pos = product_index_sets.get(param_set)
+            pos = product_index_sets.get(param_set) #find correct spot to add the count to
             if pos is not None:
-                aggregates[pos]['count'] += count.count
+                aggregates[pos]['count'] += count.count #add the count in the correct button
     return aggregates
 
 def get_repeats(interactions, n):
+    '''
+    Helper function to only get repeats.
+    - interactions (queryset): interactions to check in
+    - n (integer): number of interactions a respondent needs within the queryset to be counted
+    '''
     repeat_respondents = list(
         interactions
             .values('respondent')
@@ -131,12 +153,30 @@ def get_repeats(interactions, n):
             .filter(total__gte=n)
             .values_list('respondent', flat=True)
     )
+    #return queryset of only repeats
     repeat_only = interactions.filter(respondent_id__in=repeat_respondents)
     return repeat_only
 
 def event_no_aggregates(user, indicator, split, project, organization, start, end, cascade, params):
+    '''
+    Function that collects events that match the criteria and sums the number of events, splitting them
+    by time or params if requested. 
+    - user (instance): the user making the request for permissions
+    - indicator (instance): the indicator whose data is to be aggregated
+    - params (dict): a dictionary of params with true or false values denoting whether this aggregates should be split by that param (metric, platform, organization)
+    - split (string): split the data into periods (month, quarter)
+    - project (instance): scope data to specific project
+    - organization (instance): scope data to specific organization
+    - start (ISO date string): only collect data after this point
+    - end (ISO date string): only collect data before this point
+    - filters (dict): filter to only inlcude values that match certain criteria
+    - cascade (boolean): if organization and project is selected, also include data from child organizations
+    '''
+    #get list of events that match criteria
     events = get_events_from_indicator(user, indicator, project, organization, start, end, cascade)
     aggregates = defaultdict(int)
+
+    #get list of ways the user wants the data broken down by
     fields_map = {}
     if split in ['month', 'quarter']:
         period_func = get_quarter_string if split == 'quarter' else get_month_string
@@ -146,18 +186,21 @@ def event_no_aggregates(user, indicator, split, project, organization, start, en
             if param == 'organization':
                 fields_map['organization'] = set(sorted({e.host.name for e in events}))
                 continue
-
+    
+    #based on the breakdowns the user wants, generate list of all possible combinations
     cartesian_keys = list(fields_map.keys())
     cartesian_product = list(product(*fields_map.values()))
     product_index = {tuple(comb): i for i, comb in enumerate(cartesian_product)}
 
+    #set counts to 0 for each positon by default
     aggregates = {}
     for i, comb in enumerate(cartesian_product):
         aggregates[i] = dict(zip(cartesian_keys, comb))
         aggregates[i]['count'] = 0
 
+    #loop through each event and add it to the correct position
     for event in events:
-        key = []
+        key = [] #key that will match one of the cartesian products
         if split:
             period = period_func(event.end) if split else None
             key.append(period)
@@ -166,13 +209,29 @@ def event_no_aggregates(user, indicator, split, project, organization, start, en
         key_tuple = tuple(key)
         pos = product_index.get(key_tuple)
         if pos is not None:
-            aggregates[pos]['count'] += 1
+            aggregates[pos]['count'] += 1 #update correct count
     return dict(aggregates)
 
 def event_org_no_aggregates(user, indicator, split, project, organization, start, end, cascade, params):
+    '''
+    Function that collects events that match the criteria and sums the number of participants for each event,
+    splitting them by time or params if requested. 
+    - user (instance): the user making the request for permissions
+    - indicator (instance): the indicator whose data is to be aggregated
+    - params (dict): a dictionary of params with true or false values denoting whether this aggregates should be split by that param (metric, platform, organization)
+    - split (string): split the data into periods (month, quarter)
+    - project (instance): scope data to specific project
+    - organization (instance): scope data to specific organization
+    - start (ISO date string): only collect data after this point
+    - end (ISO date string): only collect data before this point
+    - filters (dict): filter to only inlcude values that match certain criteria
+    - cascade (boolean): if organization and project is selected, also include data from child organizations
+    '''
+    #get list of events that fit the conditions
     events = get_events_from_indicator(user, indicator, project, organization, start, end, cascade)
     aggregates = defaultdict(int)
 
+    #add period/organization splits
     fields_map = {}
     if split in ['month', 'quarter']:
         period_func = get_quarter_string if split == 'quarter' else get_month_string
@@ -183,18 +242,20 @@ def event_org_no_aggregates(user, indicator, split, project, organization, start
             if param == 'organization':
                 fields_map['organization'] = set(sorted({e.host.name for e in events}))
                 continue
-
+    #create cartesian product of all combinations based on params/time period
     cartesian_keys = list(fields_map.keys())
     cartesian_product = list(product(*fields_map.values()))
     product_index = {tuple(comb): i for i, comb in enumerate(cartesian_product)}
 
+    #set each count to 0 by default
     aggregates = {}
     for i, comb in enumerate(cartesian_product):
         aggregates[i] = dict(zip(cartesian_keys, comb))
         aggregates[i]['count'] = 0
 
+    #loop through each event and add it to the correct position of aggregates
     for event in events:
-        key = []
+        key = [] #key that stores breakdown information that can be matched to the cartesian products
         if split:
             period = period_func(event.end) if split else None
             key.append(period)
@@ -203,24 +264,44 @@ def event_org_no_aggregates(user, indicator, split, project, organization, start
         key_tuple = tuple(key)
         pos = product_index.get(key_tuple)
         if pos is not None:
-            aggregates[pos]['count'] += event.organizations.count()
+            aggregates[pos]['count'] += event.organizations.count() #update correct count
 
     return dict(aggregates)
 
 
 def social_aggregates(user, indicator, params, split, project, organization, start, end, filters, cascade):
+    '''
+    Function that collects all social media posts related to an indicator and matches the criteria and 
+    aggregates them based on the inputted metrics (total engagement is used by default, sum of all). Can 
+    split by time period or param if requested. 
+    - user (instance): the user making the request for permissions
+    - indicator (instance): the indicator whose data is to be aggregated
+    - params (dict): a dictionary of params with true or false values denoting whether this aggregates should be split by that param (metric, platform, organization)
+    - split (string): split the data into periods (month, quarter)
+    - project (instance): scope data to specific project
+    - organization (instance): scope data to specific organization
+    - start (ISO date string): only collect data after this point
+    - end (ISO date string): only collect data before this point
+    - filters (dict): filter to only inlcude values that match certain criteria
+    - cascade (boolean): if organization and project is selected, also include data from child organizations
+    '''
+    #get queryset of posts that match all criteria
     posts = get_posts_from_indicator(user, indicator, project, organization, start, end, filters, cascade)
-    aggregates = defaultdict(int)
+    aggregates = defaultdict(int) # create dict that will store aggregates
     #structure: pos: {platform: fb, metric: comments, count: 7}
+
+    #helper vars that will tell what we need to split by
     include_platform = False
     include_metric = False
     include_organization = False
     metrics = ['comments', 'views', 'likes', 'reach']
     fields_map = {}
+    #see if a period split is required
     if split in ['month', 'quarter']:
         period_func = get_quarter_string if split == 'quarter' else get_month_string
         fields_map['period'] = list({period_func(p.published_at) for p in posts})
 
+    #see what params the user wants the data split by
     for param, include in params.items():
         if param not in ['platform', 'metric', 'organization']:
             continue #other params not supported
@@ -234,18 +315,23 @@ def social_aggregates(user, indicator, params, split, project, organization, sta
             elif param == 'organization':
                 include_organization = True
                 fields_map['organization'] = set(sorted({p.tasks.first().organization.name for p in posts}))
+    #create list containing all possible combinations of each parameter that each post will be checked against to see where it should add values to
     cartesian_keys = list(fields_map.keys())
     cartesian_product = list(product(*fields_map.values()))
     product_index = {tuple(comb): i for i, comb in enumerate(cartesian_product)}
 
+    #for each combination, set the default count to 0
     aggregates = {}
     for i, comb in enumerate(cartesian_product):
         aggregates[i] = dict(zip(cartesian_keys, comb))
         aggregates[i]['count'] = 0
 
+    #for each post, get its value and add it to the correct breakdown set
     for post in posts:
         period = period_func(post.published_at) if split else None
+        #if the user wants breakdowns by metric, run through the most once for each metric and add it to the correct key
         for metric in metrics if include_metric else [None]:
+            #create a key that can be compared to the cartesian products
             key = []
             if split:
                 key.append(period)
@@ -265,6 +351,21 @@ def social_aggregates(user, indicator, params, split, project, organization, sta
     return dict(aggregates)
 
 def aggregates_switchboard(user, indicator, params, split=None, project=None, organization=None, start=None, end=None, filters=None, repeat_only=False, n=2, cascade=False):
+    '''
+    Function that takes an indicator, determines the type, and then runs the correct aggreagation function.
+    - user (instance): the user making the request for permissions
+    - indicator (instance): the indicator whose data is to be aggregated
+    - params (dict): a dictionary of params with true or false values denoting whether this aggregates should be split by that param
+    - split (string, optional): split the data into periods (month, quarter)
+    - project (instance, optional): scope data to specific project
+    - organization (instance, optional): scope data to specific organization
+    - start (ISO date string, optional): only collect data after this point
+    - end (ISO date string, optional): only collect data before this point
+    - filters (dict, optional): filter to only inlcude values that match certain criteria
+    - repeat_only (boolean, optional): for respondent indicators, count respondents that have had this interaction n number of times
+    - n (integer, optional): for use with repeat _only, the number of times this repsondent should have had an interaction with this indicator before being counted
+    - cascade (boolean, optional): if organization and project is selected, also include data from child organizations
+    '''
     aggregates = {}
     if indicator.indicator_type == 'respondent':
         aggregates = demographic_aggregates(user, indicator, params, split, project, organization, start, end, filters, repeat_only, n, cascade)

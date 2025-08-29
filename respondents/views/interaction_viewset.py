@@ -60,6 +60,10 @@ class InteractionViewSet(RoleRestrictedViewSet):
             queryset = queryset.filter(interaction_date__gte=start)
         if end:
             queryset = queryset.filter(interaction_date__lte=end)
+
+        indicator_param = self.request.query_params.get('indicator')
+        if indicator_param:
+            queryset = queryset.filter(task__indicator_id=indicator_param)
         return queryset
     
     def destroy(self, request, *args, **kwargs):

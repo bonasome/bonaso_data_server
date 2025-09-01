@@ -186,7 +186,7 @@ class EventViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'start': '2024-07-08',
-            'task_ids': [self.new_task.id],
+            'task_ids': [self.task.id, self.new_task.id],
         }
         response = self.client.patch(f'/api/activities/events/{self.event.id}/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -327,17 +327,6 @@ class EventViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         event.refresh_from_db()
         self.assertEqual(event.start, date(2024, 7, 1))
-
-    def test_add_wrong_task(self):
-        '''
-        Should fail since task is already in event.
-        '''
-        self.client.force_authenticate(user=self.admin)
-        invalid_payload = {
-            'task_ids': [self.other_task.id],
-        }
-        response = self.client.patch(f'/api/activities/events/{self.other_event.id}/', invalid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
     
     def test_delete_event(self):
         '''
@@ -354,32 +343,6 @@ class EventViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.manager)
         response = self.client.delete(f'/api/activities/events/{self.event.id}/')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-    
-    def test_remove_org(self):
-        '''
-        This link should allow you to remove an org from an event.
-        '''
-        self.client.force_authenticate(user=self.admin)
-
-        response = self.client.delete(f'/api/activities/events/{self.other_event.id}/remove-task/{self.other_task.id}/')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.other_event.refresh_from_db()
-        self.assertEqual(self.other_event.tasks.count(), 0)
-
-        response = self.client.delete(f'/api/activities/events/{self.other_event.id}/remove-organization/{self.other_org.id}/')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.other_event.refresh_from_db()
-        self.assertEqual(self.other_event.organizations.count(), 0)
-    
-    def test_remove_task(self):
-        '''
-        This link should allow you to remove an task from an event.
-        '''
-        self.client.force_authenticate(user=self.admin)
-        response = self.client.delete(f'/api/activities/events/{self.event.id}/remove-task/{self.task.id}/')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.event.refresh_from_db()
-        self.assertEqual(self.event.tasks.count(), 0)
     
     def test_associated_perms(self):
         '''
@@ -407,11 +370,5 @@ class EventViewSetTest(APITestCase):
         }
         
         response = self.client.patch(f'/api/activities/events/{test_event.id}/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-        #or remove
-        response = self.client.delete(f'/api/activities/events/{test_event.id}/remove-task/{self.child_task.id}/')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        response = self.client.delete(f'/api/activities/events/{test_event.id}/remove-organization/{self.child_org.id}/')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 

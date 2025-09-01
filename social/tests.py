@@ -1,5 +1,5 @@
 from django.test import TestCase
-
+from datetime import date
 from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
 from django.urls import reverse
@@ -56,15 +56,15 @@ class SocialPostViewSetTest(APITestCase):
         child_link.save()
 
 
-        self.indicator = Indicator.objects.create(code='1', name='Parent')
-        self.indicator_2 = Indicator.objects.create(code='2', name='Second')
+        self.indicator = Indicator.objects.create(code='1', name='Parent', indicator_type='social')
+        self.indicator_2 = Indicator.objects.create(code='2', name='Second', indicator_type='social')
         self.task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.indicator)
         self.task_2 = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.indicator_2)
         
         self.child_task = Task.objects.create(project=self.project, organization=self.child_org, indicator=self.indicator)
         self.other_task = Task.objects.create(project=self.project, organization=self.other_org, indicator=self.indicator)
 
-        self.post = SocialMediaPost.objects.create(platform=SocialMediaPost.Platform.FB, name='Test')
+        self.post = SocialMediaPost.objects.create(platform=SocialMediaPost.Platform.FB, name='Test', published_at=date(2025, 6, 7))
         self.post.tasks.set([self.task])
 
         self.other_post = SocialMediaPost.objects.create(platform=SocialMediaPost.Platform.FB, name='Test')

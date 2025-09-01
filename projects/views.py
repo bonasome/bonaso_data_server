@@ -20,17 +20,19 @@ from organizations.serializers import OrganizationListSerializer
 from projects.models import Project, ProjectOrganization, Client, Task, Target, ProjectActivity, ProjectDeadline, ProjectActivityOrganization, ProjectDeadlineOrganization
 from projects.serializers import ProjectListSerializer, ProjectDetailSerializer, TaskSerializer, TargetSerializer, ClientSerializer, ProjectActivitySerializer, ProjectDeadlineSerializer
 from projects.utils import ProjectPermissionHelper, test_child_org
+from indicators.models import Indicator
 from respondents.models import Interaction
 from respondents.utils import get_enum_choices
 from events.models import Event, DemographicCount
 from messaging.models import Announcement
 from messaging.serializers import AnnouncementSerializer
 
-today = date.today().isoformat()
+today = date.today().isoformat() #get today's date for reference
 
-
-    
 class ProjectViewSet(RoleRestrictedViewSet):
+    '''
+    Endpoint related to managing high level project information
+    '''
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
     filterset_fields = ['client', 'status', 'organizations']
@@ -45,6 +47,7 @@ class ProjectViewSet(RoleRestrictedViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        #permissions checks
         role = getattr(user, 'role', None)
         org = getattr(user, 'organization', None)
         client_org = getattr(user, 'client_organization', None)
@@ -56,7 +59,7 @@ class ProjectViewSet(RoleRestrictedViewSet):
             queryset =  Project.objects.filter(organizations=org, status=Project.Status.ACTIVE)
         else: 
             queryset = Project.objects.none()
-        
+        #custom params
         status = self.request.query_params.get('status')
         if status:
             queryset = queryset.filter(status=status)
@@ -120,7 +123,8 @@ class ProjectViewSet(RoleRestrictedViewSet):
     @action(detail=True, methods=['get'], url_path='get-related')
     def get_related(self, request, pk=None):
         '''
-        One stop shop to get related materials (i.e., activites/deadlines)
+        One stop shop to get related materials (i.e., activites/deadlines). Used for creating gantt charts
+        at the front end
         '''
         project=self.get_object()
         user = request.user
@@ -165,15 +169,18 @@ class ProjectViewSet(RoleRestrictedViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        #exclude already included
+        #exclude already in the project
         queryset = Organization.objects.exclude(id__in=ids)
+
+        #custom search
         search_term = request.query_params.get('search')
         if search_term:
             queryset = queryset.filter(
                 Q(name__icontains=search_term) |
                 Q(full_name__icontains=search_term)
             )
-            
+
+        #custom pagination   
         page = self.paginate_queryset(queryset)
 
         if page is not None:
@@ -196,7 +203,7 @@ class ProjectViewSet(RoleRestrictedViewSet):
         project = self.get_object()
         user = request.user
         parent_org_id = request.data.get('parent_id') #send as a singular ID
-        child_org_ids = request.data.get('child_ids', []) #send as a list of ids
+        child_org_ids = request.data.get('child_ids', []) #send as a list of ids to allow users to bulk create
         
         if user.role not in ['meofficer', 'manager', 'admin']:
             return Response(
@@ -218,6 +225,7 @@ class ProjectViewSet(RoleRestrictedViewSet):
                     {"detail": "You may only assign children to your own organization."},
                     status=status.HTTP_403_FORBIDDEN
                 )
+        #make sure parent org is in the project
         if not ProjectOrganization.objects.filter(organization=parent_org, project=project).exists():
             return Response(
                 {"detail": "Parent organization not in the requested project."},
@@ -233,7 +241,7 @@ class ProjectViewSet(RoleRestrictedViewSet):
             if parent_org == child_org:
                 return Response({"detail": "An organization cannot be its own child."}, status=400)
 
-            #prevent adding orgs that are already in the project if the user is not an admin 
+            #prevent adding orgs that are already in the project (unless the user is an admin)
             existing_link = ProjectOrganization.objects.filter(organization=child_org, project=project).first()
             if existing_link:
                 if user.role != 'admin':
@@ -258,8 +266,7 @@ class ProjectViewSet(RoleRestrictedViewSet):
     @action(detail=True, methods=['patch'], url_path='promote-org')
     def promote_org(self, request, pk=None):
         '''
-        Admins are the only ones that do this, but create a reverse action that allows an admin to make an organization
-        free of its parent if there was a mistake or whatever
+        Allow admins to promote an organization from a child org to a top-level org in the project.
         '''
         project = self.get_object()
         user = request.user
@@ -269,6 +276,7 @@ class ProjectViewSet(RoleRestrictedViewSet):
                 {"detail": "You do not have permission to reassign organizations within a project."},
                 status=status.HTTP_403_FORBIDDEN
             )
+        #make sure org exists and is in the project
         org = Organization.objects.filter(id=org_id).first()
         if not org:
             return Response(
@@ -283,14 +291,14 @@ class ProjectViewSet(RoleRestrictedViewSet):
             )
         if org_link.parent_organization is None:
             return Response({"detail": "Organization is already a top-level member."}, status=200)
-        org_link.parent_organization = None
+        org_link.parent_organization = None #remove their parent org
         org_link.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['delete'], url_path='remove-organization/(?P<organization_id>[^/.]+)')
     def remove_organization(self, request, pk=None, organization_id=None):
         '''
-        Allow admins to remove organizations from a project or parents to remove children if a mistake was made.
+        Allow admins to remove organizations from a project or parent orgs to remove children if a mistake was made.
         '''
         project = self.get_object()
         user = request.user
@@ -327,6 +335,9 @@ class ProjectViewSet(RoleRestrictedViewSet):
             return Response({"detail": "Organization not associated with this project."}, status=status.HTTP_404_NOT_FOUND)
 
 class TaskViewSet(RoleRestrictedViewSet):
+    '''
+    Viewset for viewing/creating tasks
+    '''
     permission_classes = [IsAuthenticated]
     serializer_class = TaskSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
@@ -340,6 +351,7 @@ class TaskViewSet(RoleRestrictedViewSet):
         user_client = getattr(user, 'client_organization', None)
         queryset = Task.objects.all()
 
+        #custom URL params
         indicator_param = self.request.query_params.get('indicator')
         if indicator_param:
             queryset = queryset.filter(indicator_id=indicator_param)
@@ -376,6 +388,7 @@ class TaskViewSet(RoleRestrictedViewSet):
             queryset = queryset.exclude(eventtask__event__id=event_param)
             queryset = queryset.filter(Q(organization__in=event.organizations.all()) | Q(organization=event.host))
 
+        #permissions checks
         if role == 'admin':
             return queryset
         elif role in ['meofficer', 'manager'] and user_org:
@@ -401,8 +414,11 @@ class TaskViewSet(RoleRestrictedViewSet):
 
     @action(detail=False, methods=["get"], url_path="mobile")
     def mobile_list(self, request):
+        '''
+        Special mobile action to get all tasks that are active so the user can download all of their tasks at once.
+        '''
         queryset = self.filter_queryset(self.get_queryset())
-        queryset = queryset.filter(indicator__status='active', project__status='active')
+        queryset = queryset.filter(indicator__status=Indicator.Status.ACTIVE, project__status=Project.Status.ACTIVE)
         # No pagination
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
@@ -451,8 +467,13 @@ class TaskViewSet(RoleRestrictedViewSet):
 
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)  
+    
     @action(detail=False, methods=['post'], url_path='batch-create')
     def batch_create_task(self, request):
+        '''
+        Endpoint that allows a user to give a list of indicator IDs and create a set of tasks for an org 
+        within a project. 
+        '''
         organization_id = request.data.get('organization_id')
         project_id = request.data.get('project_id')
         indicator_ids = request.data.get('indicator_ids', [])
@@ -461,7 +482,7 @@ class TaskViewSet(RoleRestrictedViewSet):
                 {"detail": "You must provide an organization, project, and at least one indicator to create a task."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+        #list of created tasks and list of tasks that already existed (project/org/indicator)
         created = []
         skipped = []
         for indicator_id in indicator_ids:
@@ -485,6 +506,9 @@ class TaskViewSet(RoleRestrictedViewSet):
         }, status=status.HTTP_201_CREATED)
 
 class TargetViewSet(RoleRestrictedViewSet):
+    '''
+    Manages all views related to targets.
+    '''
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
     filterset_fields = ['task', 'task__organization', 'task__indicator', 'task__project']
     search_fields = ['task__indicator__code', 'task__indicator__name']
@@ -493,8 +517,8 @@ class TargetViewSet(RoleRestrictedViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        #permissions check
         client_org = getattr(user, 'client_organization', None)
-        
         if user.role == 'admin':
             queryset= Target.objects.all()
 
@@ -512,6 +536,7 @@ class TargetViewSet(RoleRestrictedViewSet):
                 task__project__status=Project.Status.ACTIVE
             )
 
+        #url params
         start = self.request.query_params.get('start')
         end = self.request.query_params.get('end')
         if start:
@@ -528,6 +553,9 @@ class TargetViewSet(RoleRestrictedViewSet):
         serializer.save(updated_by=self.request.user)
 
     def destroy(self, request, *args, **kwargs):
+        '''
+        Allow user to delete targets for child orgs (or admins can delete anything)
+        '''
         user = request.user
         instance = self.get_object()
 
@@ -548,6 +576,9 @@ class TargetViewSet(RoleRestrictedViewSet):
     
 
 class ClientViewSet(RoleRestrictedViewSet):
+    '''
+    Viewset for managing clients. 
+    '''
     filter_backends = [filters.SearchFilter, OrderingFilter]
     filterset_fields = ['name', 'full_name']
     search_fields = ['name', 'full_name'] 
@@ -556,7 +587,7 @@ class ClientViewSet(RoleRestrictedViewSet):
 
     def get_queryset(self):
         '''
-        Only admins/clients should be managing this.
+        Only admins/clients should be viewing this. Only admins should create
         '''
         user = self.request.user
         role = getattr(user, 'role', None)
@@ -595,6 +626,9 @@ class ClientViewSet(RoleRestrictedViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 class ProjectActivityViewSet(RoleRestrictedViewSet):
+    '''
+    Manages project activities
+    '''
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
     filterset_fields = ['category', 'project', 'organizations', 'visible_to_all', 'status']
     search_fields = ['name', 'description', 'category'] 
@@ -638,6 +672,9 @@ class ProjectActivityViewSet(RoleRestrictedViewSet):
 
     
 class ProjectDeadlineViewSet(RoleRestrictedViewSet):
+    '''
+    Manages project deadlines
+    '''
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
     filterset_fields = ['project', 'organizations', 'visible_to_all']
     search_fields = ['name', 'description'] 

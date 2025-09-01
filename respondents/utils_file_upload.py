@@ -16,6 +16,7 @@ def excel_columns():
 def valid_excel_date(value):
     '''
     Helper to validate the myriad of dates from excel.
+    - date (string/date): object to check is a date
     '''
     if value is None:
         return None
@@ -65,14 +66,17 @@ def valid_excel_date(value):
 Few helpers the verify data types
 '''
 def is_email(value):
+    #checks email
     pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
     return bool(re.match(pattern, value))
 
 def is_phone_number(value):
+    #checks phone number
     pattern = r'^\+?[\d\s\-\(\)]{7,20}$'
     return bool(re.fullmatch(pattern, value))
 
 def is_truthy(value):
+    # checks boolean
     if isinstance(value, bool):
         return value
     if isinstance(value, (int, float)):

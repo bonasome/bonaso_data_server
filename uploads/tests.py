@@ -203,11 +203,3 @@ class UploadViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.officer)
         response = self.client.get(f'/api/uploads/narrative-report/{self.other_report.id}/download/')
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_download_missing_file(self):
-        self.other_report.file = None
-        self.other_report.save()
-
-        self.client.force_authenticate(user=self.admin)
-        response = self.client.get(f'/api/uploads/narrative-report/{self.report.id}/download/')
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

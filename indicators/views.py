@@ -16,6 +16,10 @@ from respondents.utils import get_enum_choices
 from events.models import DemographicCount
 
 class IndicatorViewSet(RoleRestrictedViewSet):
+    '''
+    Viewset that manages everything related to indicators, mostly only ever used by admins or for task creation/data analysis,
+    since otherwise non-admins should interact with indicators primarily though tasks. 
+    '''
     permission_classes = [IsAuthenticated]
     serializer_class = IndicatorSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -26,6 +30,7 @@ class IndicatorViewSet(RoleRestrictedViewSet):
     def get_queryset(self):
         queryset = Indicator.objects.all()
         user = self.request.user
+        #check perms
         if user.role == 'client':
             queryset = queryset.filter(status=Indicator.Status.ACTIVE)
             valid_ids = Task.objects.filter(project__client=user.client_organization).values_list('indicator__id', flat=True)
@@ -35,6 +40,7 @@ class IndicatorViewSet(RoleRestrictedViewSet):
             valid_ids = Task.objects.filter(organization=user.organization).values_list('indicator__id', flat=True)
             queryset = queryset.filter(id__in=valid_ids)
 
+        #exclude certain projects/orgs for when assigning tasks
         exclude_project_id = self.request.query_params.get('exclude_project')
         exclude_org_id = self.request.query_params.get('exclude_organization')
 
@@ -73,11 +79,11 @@ class IndicatorViewSet(RoleRestrictedViewSet):
                 {"detail": "You do not have permission to delete an indicator."},
                 status=status.HTTP_403_FORBIDDEN
             )
-        
+        #prevent deletion of active indicators
         if instance.status == Indicator.Status.ACTIVE:
             return Response(
                 {"detail": "You cannot delete an active indicator. Consider marking this as deprecated instead."},
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_409_CONFLICT
             )
         # Prevent deletion if indicator has interactions
         if Interaction.objects.filter(task__indicator__id=instance.id).exists():
@@ -85,11 +91,13 @@ class IndicatorViewSet(RoleRestrictedViewSet):
                 {"detail": "You cannot delete an indicator that has interactions associated with it."},
                 status=status.HTTP_409_CONFLICT
             )
+        # or if it has linked counts
         if DemographicCount.objects.filter(task__indicator__id=instance.id).exists():
             return Response(
                 {"detail": "You cannot delete an indicator that has counts associated with it."},
                 status=status.HTTP_409_CONFLICT
             )
+        #or if it has linked targets
         if Target.objects.filter(task__indicator=instance).exists():
             return Response(
                 {"detail": "You cannot delete an indicator that has targets associated with it."},

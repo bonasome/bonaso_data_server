@@ -42,6 +42,7 @@ Below functions are all for updating special attributes that can be used to help
 def sync_kp_attribute(sender, instance, **kwargs):
     '''
     If a respondent KP status is edited, automatically update their attribute status as a KP.
+    - instance (respondent instance): respondent in question
     '''
     respondent = instance.respondent_id
     def after_commit():
@@ -57,6 +58,7 @@ def sync_kp_attribute(sender, instance, **kwargs):
 def sync_disability_attribute(sender, instance, **kwargs):
     '''
     If a respondent KP status is edited, automatically update their attribute status to PWD.
+     - instance (respondent instance): respondent in question
     '''
     respondent = instance.respondent_id
     def after_commit():
@@ -71,6 +73,7 @@ def sync_disability_attribute(sender, instance, **kwargs):
 def sync_hiv_attribute(sender, instance, **kwargs):
     '''
     If a respondent's HIV status changes, update the corresponding attribute.
+    - instance (respondent isntnace): responent in question
     '''
     respondent = instance.respondent_id
     def after_commit():
@@ -86,8 +89,8 @@ def handle_govern_interaction(sender, instance, created, **kwargs):
     This isn't super fleshed out, and was mostly created for the above scenario, but could be expanded to other things
     in the future. 
 
-    instance --> interaction in question (links to indicator and respondent)
-    created --> is this a create or an update. Interaction updates should not retrigger this, only creation.
+    - instance (model instance) interaction in question (links to indicator and respondent)
+    - created (boolean) is this a create or an update. Interaction updates should not retrigger this, only creation.
     '''
     if not created:
         return 

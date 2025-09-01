@@ -347,7 +347,11 @@ def social_aggregates(user, indicator, params, split=None, project=None, organiz
             key_tuple = tuple(key)
             pos = product_index.get(key_tuple)
             if pos is not None:
-                count = getattr(post, metric) or 0 if include_metric else (post.comments + post.likes + post.views + post.reach)
+                count = (
+                    getattr(post, metric) or 0
+                    if include_metric
+                    else ( (post.comments or 0) + (post.likes or 0) + (post.views or 0) + (post.reach or 0) )
+                )
                 aggregates[pos]['count'] += count
 
     return dict(aggregates)

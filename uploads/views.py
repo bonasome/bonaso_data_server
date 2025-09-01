@@ -17,6 +17,9 @@ from django.db.models import Q
 
 
 class NarrativeReportViewSet(viewsets.ModelViewSet):
+    '''
+    Viewset for managing narrative reports (pdf/docx files realated to a project/org)
+    '''
     queryset = NarrativeReport.objects.all().order_by('-created_at')
     serializer_class = NarrativeReportSerializer
     permission_classes = [permissions.IsAuthenticated]

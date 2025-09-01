@@ -1,6 +1,9 @@
 from rest_framework.exceptions import APIException
 
 class DuplicateExists(APIException):
+    '''
+    Helper exception that tracks if a respondent is already in the database.
+    '''
     status_code = 409
     default_detail = "Duplicate entry exists."
     default_code = "duplicate"

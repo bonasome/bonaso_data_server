@@ -15,18 +15,20 @@ The basic auth flow is as follows:
     after 5 minutes the access token expires, but the refresh token can fetch another access token --> 
     after 8 hours the refresh token expires and the user must log in again.
 
+We do blacklist tokens.
+
 **Website Logic**
     User logs in → 
     server issues access + refresh tokens (in HTTP-only cookies) → 
     frontend sends requests with cookies → 
-    server validates tokens
+    server validates tokens (tokens are blacklisted)
 
 **Mobile Logic**
     User logs in via MobileLoginView → 
     server returns access + refresh tokens in JSON → 
     mobile stores tokens in secure storage → 
     mobile uses access token in headers → 
-    refresh via MobileRefreshView
+    refresh via MobileRefreshView (tokens are blacklisted)
 
 The mobile app does work with cookies, so here we use two seperate views (MobileLoginView and MobileRefreshView) which do send JSON tokens. These endpoints ('mobile-login' and 'mobile_token_refresh') should only be used when designing applications that cannot support HTTP cookies. 
 

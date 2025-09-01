@@ -89,7 +89,7 @@ class AggregatesViewSetTest(APITestCase):
 
         #other special indicators
         self.event_ind = Indicator.objects.create(code='2', name='Second', indicator_type='event_no')
-        self.event_org_ind = Indicator.objects.create(code='2', name='Second', indicator_type='event_org_no')
+        self.event_org_ind = Indicator.objects.create(code='2', name='Second', indicator_type='org_event_no')
         self.social_ind = Indicator.objects.create(code='2', name='Second', indicator_type='social')
 
         #create some tasks
@@ -384,7 +384,7 @@ class AggregatesViewSetTest(APITestCase):
             57 FROM events ((10+30 e1) + 17 e2) (78 from e1 should not count, count flag)
         '''
         self.client.force_authenticate(user=self.admin)
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.indicator.id}/')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.indicator.id}/')
         print('###===ADMIN===###')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -397,7 +397,7 @@ class AggregatesViewSetTest(APITestCase):
             40 FROM events ((10+30 e1)) (should not see 37 from other event)
         '''
         self.client.force_authenticate(user=self.client_user)
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.indicator.id}/')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.indicator.id}/')
         print('###===CLIENT===###')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -410,7 +410,7 @@ class AggregatesViewSetTest(APITestCase):
             40 FROM events (10+30 e1) (should not see 37 from other event)
         '''
         self.client.force_authenticate(user=self.manager)
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.indicator.id}/')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.indicator.id}/')
         print('###===ME===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -418,51 +418,51 @@ class AggregatesViewSetTest(APITestCase):
     
     def test_get_indicator_event_admin(self):
         self.client.force_authenticate(user=self.admin)
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.event_ind.id}/')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.event_ind.id}/')
         print('###===ADMIN-EVENT===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['counts']['count'], 3)
+        self.assertEqual(response.data['counts'][0]['count'], 3)
     
     def test_get_indicator_event_client(self):
         self.client.force_authenticate(user=self.client_user)
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.event_ind.id}/')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.event_ind.id}/')
         print('###===CLIENT-EVENT===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['counts']['count'], 2)
+        self.assertEqual(response.data['counts'][0]['count'], 2)
     
     def test_get_indicator_event_me(self):
         self.client.force_authenticate(user=self.manager)
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.event_ind.id}/')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.event_ind.id}/')
         print('###===ME-EVENT===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['counts']['count'], 2)
+        self.assertEqual(response.data['counts'][0]['count'], 2)
     
     def test_get_indicator_event_org_admin(self):
         self.client.force_authenticate(user=self.admin)
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.event_org_ind.id}/')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.event_org_ind.id}/')
         print('###===ADMIN-EVENT-ORG===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['counts']['count'], 4)
+        self.assertEqual(response.data['counts'][0]['count'], 4)
     
     def test_get_indicator_event_org_client(self):
         self.client.force_authenticate(user=self.client_user)
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.event_org_ind.id}/')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.event_org_ind.id}/')
         print('###===CLIENT-EVENT-ORG===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['counts']['count'], 3)
+        self.assertEqual(response.data['counts'][0]['count'], 3)
     
     def test_get_indicator_event_org_me(self):
         self.client.force_authenticate(user=self.manager)
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.event_org_ind.id}/')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.event_org_ind.id}/')
         print('###===ME-EVENT-ORG===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['counts']['count'], 3)
+        self.assertEqual(response.data['counts'][0]['count'], 3)
     
     def test_get_indicator_social_admin(self):
         '''
@@ -473,11 +473,11 @@ class AggregatesViewSetTest(APITestCase):
             -TOTAL: 205
         '''
         self.client.force_authenticate(user=self.admin)
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.social_ind.id}/')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.social_ind.id}/')
         print('###===ADMIN-SOCIAL===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['counts']['total_engagement'], 205)
+        self.assertEqual(response.data['counts'][0]['count'], 205)
     
 
     def test_get_indicator_social_client(self):
@@ -489,11 +489,11 @@ class AggregatesViewSetTest(APITestCase):
             -TOTAL: 116
         '''
         self.client.force_authenticate(user=self.client_user)
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.social_ind.id}/')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.social_ind.id}/')
         print('###===ME-SOCIAL===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['counts']['total_engagement'], 116)
+        self.assertEqual(response.data['counts'][0]['count'], 116)
 
     def test_get_indicator_social_me(self):
         '''
@@ -504,11 +504,11 @@ class AggregatesViewSetTest(APITestCase):
             -TOTAL: 116
         '''
         self.client.force_authenticate(user=self.manager)
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.social_ind.id}/')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.social_ind.id}/')
         print('###===ME-SOCIAL===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['counts']['total_engagement'], 116)
+        self.assertEqual(response.data['counts'][0]['count'], 116)
 
     def test_respondent_split(self):
         '''
@@ -517,7 +517,7 @@ class AggregatesViewSetTest(APITestCase):
             -Q2: 3ir + 17ev (20)
         '''
         self.client.force_authenticate(user=self.admin)
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.indicator.id}/?split=quarter')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.indicator.id}/?split=quarter')
         print('###===SPLIT-RESPONDENT-QUARTER===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -535,7 +535,7 @@ class AggregatesViewSetTest(APITestCase):
             -Q2: 1
         '''
         self.client.force_authenticate(user=self.admin)
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.indicator.id}/?split=quarter&repeat_only=2')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.indicator.id}/?split=quarter&repeat_only=2')
         print('###===SPLIT-RESPONDENT-QUARTER-REPEAT===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -554,7 +554,7 @@ class AggregatesViewSetTest(APITestCase):
             -Q3: 1
         '''
         self.client.force_authenticate(user=self.admin)
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.event_ind.id}/?split=quarter')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.event_ind.id}/?split=quarter')
         print('###===SPLIT-EVENT-QUARTER===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -568,7 +568,7 @@ class AggregatesViewSetTest(APITestCase):
             -Q3: 1
         '''
         self.client.force_authenticate(user=self.admin)
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.event_org_ind.id}/?split=quarter')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.event_org_ind.id}/?split=quarter')
         print('###===SPLIT-ORG-QUARTER===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -588,7 +588,7 @@ class AggregatesViewSetTest(APITestCase):
             
         '''
         self.client.force_authenticate(user=self.admin)
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.social_ind.id}/?split=quarter')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.social_ind.id}/?split=quarter')
         print('###===SPLIT-SOCIAL-QUARTER===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -604,7 +604,7 @@ class AggregatesViewSetTest(APITestCase):
 
         '''
         self.client.force_authenticate(user=self.admin)
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.indicator.id}/?citizenship=true&hiv_status=true')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.indicator.id}/?citizenship=true&hiv_status=true')
         print('###===PARAMS===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -619,7 +619,7 @@ class AggregatesViewSetTest(APITestCase):
 
         '''
         self.client.force_authenticate(user=self.admin)
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.indicator.id}/?pregnancy=true&kp_type=true')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.indicator.id}/?pregnancy=true&kp_type=true')
         print('###===PARAMS===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -643,7 +643,7 @@ class AggregatesViewSetTest(APITestCase):
             -Cat 1: 2
             -Cat 2: 1
         '''
-        response = self.client.get(f'/api/analysis/counts/aggregate/{subcat_indicator.id}/?subcategory=true')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{subcat_indicator.id}/?subcategory=true')
         print('###===SUBCATS===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -670,8 +670,8 @@ class AggregatesViewSetTest(APITestCase):
             'interaction_date': date(2025,5,1),
             'interaction_location': 'That place that sells chili.',
             'respondent': self.respondent2.id,
-            'task': subcat_task.id,
-            'subcategories_data': [{'name': 'Cat 1', 'id': cat1.id, 'numeric_component': 6}]
+            'task_id': subcat_task.id,
+            'subcategories_data': [{'id': None, 'subcategory': {'name': 'Cat 1', 'id': cat1.id}, 'numeric_component': 6}]
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -680,19 +680,19 @@ class AggregatesViewSetTest(APITestCase):
             -Cat 1: 11
             -Cat 2: 10
         '''
-        response = self.client.get(f'/api/analysis/counts/aggregate/{subcat_indicator.id}/?subcategory=true')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{subcat_indicator.id}/?subcategory=true')
         print('###===SUBCATS-NUMBER===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_social_platform_param(self):
         self.client.force_authenticate(user=self.admin)
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.social_ind.id}/?platform=true')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.social_ind.id}/?platform=true')
         print('###===SOCIAL-PLATFORM===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        response = self.client.get(f'/api/analysis/counts/aggregate/{self.social_ind.id}/?platform=true&split=month')
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.social_ind.id}/?platform=true&split=month')
         print('###===SOCIAL-SPLIT-PLATFORM===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)

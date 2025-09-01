@@ -16,7 +16,7 @@ from analysis.utils.targets import get_achievement
 
 class ClientSerializer(serializers.ModelSerializer):
     '''
-    Simple serializer for viewing/editing clients. Only admins have rights to do this.
+    Simple serializer for viewing/editing clients. Only admins have rights to create/edit. Client users can view their client
     '''
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
@@ -52,7 +52,7 @@ class ProjectListSerializer(serializers.ModelSerializer):
 
 class TaskSerializer(serializers.ModelSerializer):
     '''
-    Serializer for viewing tasks.
+    Serializer for viewing tasks. Contains related information about organization, project, and indicator.
     '''
     indicator = IndicatorSerializer(read_only=True)
     project = ProjectListSerializer(read_only=True)
@@ -89,12 +89,14 @@ class TaskSerializer(serializers.ModelSerializer):
                 raise PermissionDenied('You do not have permission to create this task.')
         if not ProjectOrganization.objects.filter(project=project, organization=organization).exists():
             raise serializers.ValidationError('This organization is not a part of this project.')
+        # validate that if this task has a prereq, that prereq indicator is also assigned as a task
         for prereq in indicator.prerequisites.all():
             if prereq and not Task.objects.filter(project=project, organization=organization, indicator=prereq).exists():
                 raise serializers.ValidationError(
                     f"This task's indicator has a prerequisite '{prereq.name}'. Please assign that indicator as a task first."
                 )
         return attrs
+    
     def create(self, validated_data):
         user = self.context.get('request').user if self.context.get('request') else None
         task= Task.objects.create(**validated_data)
@@ -164,7 +166,7 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
         # Use incoming value if present, otherwise fall back to existing value on the instance
         start = attrs.get('start') or getattr(self.instance, 'start', None)
         end = attrs.get('end') or getattr(self.instance, 'end', None)
-
+    
         if start and end and end < start:
             raise serializers.ValidationError("End date must be after start date.")
 
@@ -216,7 +218,7 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
     
 class TargetSerializer(serializers.ModelSerializer):
     '''
-    Serializer for viewing targets.
+    Serializer for viewing/editing/creating targets.
     '''
     task = TaskSerializer(read_only=True)
     task_id = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True, source='task')
@@ -376,7 +378,7 @@ class ProjectActivitySerializer(serializers.ModelSerializer):
                 
         if start and end and end < start:
             raise serializers.ValidationError("Start date must be before end date")
-        
+        #make usre dates are within the range of the project
         proj_start = project.start
         proj_end = project.end
 
@@ -458,7 +460,7 @@ class ProjectDeadlineSerializer(serializers.ModelSerializer):
 
         proj_start = project.start
         proj_end = project.end
-
+        #make sure deadline is within the project
         if date < proj_start or date > proj_end:
             raise serializers.ValidationError(f"Deadline date is outside the range of the project {proj_start} to {proj_end}. Not a bro move.")
         

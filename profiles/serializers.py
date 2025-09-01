@@ -10,7 +10,7 @@ from profiles.models import FavoriteObject
 from projects.models import Client
 class ProfileListSerializer(serializers.ModelSerializer):
     '''
-    Lightweight serializer used quite a bit for getting created by/updated by
+    Lightweight serializer used for index views and for getting created by/updated by
     '''
     display_name = serializers.SerializerMethodField(read_only=True)
     organization = OrganizationListSerializer(read_only=True)
@@ -26,7 +26,7 @@ class ProfileListSerializer(serializers.ModelSerializer):
 
 class ProfileSerializer(serializers.ModelSerializer):
     '''
-    Slightly more inclusive serializer for profile pages.
+    Slightly more inclusive serializer for profile pages. Also used for editing fields
     '''
     display_name = serializers.SerializerMethodField(read_only=True)
     organization = OrganizationListSerializer(read_only=True)

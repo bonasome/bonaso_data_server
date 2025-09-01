@@ -54,11 +54,14 @@ class Indicator(models.Model):
         PLANNED = 'planned', _('Planned')
 
     class IndicatorType(models.TextChoices):
+        '''
+        WARNING: The frontend will try to reference these values as strings, so be careful when changing these, and if you
+        do change these fields, reflect those changes in the frontend.
+        '''
         RESPONDENT = 'respondent', _('Respondent') #this indicator relies on a respondent, and will appear on respondent
         SOCIAL = 'social', _('Social Media Post') #this indicator is linked to a seperate post model
         EVENT_NO = 'event_no', _('Number of Events') #by default, when this indicator is added to an event via a task, it will contribute to its count
         ORG_EVENT_NO = 'org_event_no', _('Number of Organizations at Event') #by default, when this indicator is added to an event via a task, it will use the number of organizations added (exlcuding the host) as its count
-        COUNT = 'count', _('General Count') #this is a catch all that is used to gather generic counts with no required linkages
 
     name = models.CharField(max_length=255, verbose_name='Indicator Text')
     description = models.TextField(blank=True, null=True)

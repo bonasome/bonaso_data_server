@@ -13,6 +13,9 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 
 class AlertSerializer(serializers.ModelSerializer):
+    '''
+    Allow for viewing alerts. User's do not create events since they are always system generated.
+    '''
     content_object = serializers.SerializerMethodField()
     read = serializers.SerializerMethodField(read_only=True)
     def get_read(self, obj):
@@ -28,6 +31,9 @@ class AlertSerializer(serializers.ModelSerializer):
         fields = ['id', 'alert_type', 'sent_on', 'subject', 'body', 'content_object', 'object_id', 'read']
 
 class AnnouncementSerializer(serializers.ModelSerializer):
+    '''
+    Allow for viewing/creating/editing an announcement
+    '''
     project = ProjectListSerializer(read_only=True)
     project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True, required=False, allow_null=True, source='project')
     organization_ids = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, required=False, many=True, source='organizations')
@@ -35,6 +41,7 @@ class AnnouncementSerializer(serializers.ModelSerializer):
     read = serializers.SerializerMethodField(read_only=True)
     
     def get_read(self, obj):
+        #read data is created by creating a new row in the recipient table
         return AnnouncementRecipient.objects.filter(announcement=obj, recipient=self.context['request'].user).exists()
     
     class Meta:
@@ -122,7 +129,7 @@ class ReplySerializer(serializers.ModelSerializer):
 
 class MessageSerializer(serializers.ModelSerializer):
     '''
-    Main serializer for a thread.
+    Main serializer for a messaging threat thread.
     '''
     sender = ProfileListSerializer(read_only=True)
     recipients = MessageRecipientSerializer(source='recipient_links', many=True, read_only=True)

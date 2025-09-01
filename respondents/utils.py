@@ -17,6 +17,8 @@ def respondent_flag_check(respondent, user):
 
     User is a required param since the user will be set as the caused_by property, which will determine
     who is alerted to the flag.
+    - respondent(respondent instnace): the respondent object to check
+    - user (user instance): the user making edits that may cause the flag
     '''
     flags = respondent.flags.filter(auto_flagged=True)
     id_no = str(respondent.id_no)

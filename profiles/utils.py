@@ -15,6 +15,7 @@ def get_user_activity(user):
     Helper function to collect a list of all user activity. Not an exact science, but gives an idea of a users 
     activity for a profile page.
     '''
+    #fetch these items
     USER_ACTIVITY_MODELS = [
         Project,
         Task,
@@ -66,7 +67,11 @@ def get_user_activity(user):
 def get_favorited_object(model_str, obj_id):
     '''
     Helper function to take a model string (app.model) and an id and convert it to a favorite
+    - model_str(string): appname.modelname style string to find model instance
+    - obj_id (integer): id of object
     '''
+
+    #only these models can be favorited
     ALLOWED_FAV_MODELS = {
             "respondents.respondent",
             "events.event",

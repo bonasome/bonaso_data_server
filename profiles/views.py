@@ -23,6 +23,9 @@ from flags.models import Flag
 
 
 class ProfileViewSet(RoleRestrictedViewSet):
+    '''
+    Manages all endpoints related to managing user profiles (though not passwords/user creation)
+    '''
     serializer_class = ProfileSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -50,16 +53,18 @@ class ProfileViewSet(RoleRestrictedViewSet):
         Get log of what objects a user has updated/created
         '''
         user = self.get_object()
-        activity = get_user_activity(user)
+        activity = get_user_activity(user) #queryset of objects a user has created/updated
 
         response_data = {}
         for model_label, instances in activity.items():
             response_data[model_label] = []
             for instance in instances:
+                #get basic info
                 info = {
                     'display_name': str(instance), 
                     'id': instance.id
                 }
+                #send both a correct id(s) so the frontend can direct the user to the correct page for review
                 if model_label.lower() in [
                     'projects.task', 
                     'projects.projectactivity', 
@@ -78,6 +83,8 @@ class ProfileViewSet(RoleRestrictedViewSet):
                 else:
                     info['parent'] = None
                     info['second_parent'] = None
+                
+                #track what the user did with this object (created, updated) and at what times
                 if 'created_by' in [f.name for f in instance._meta.get_fields()]:
                     info['created'] = True if instance.created_by == user else False
                 else: 
@@ -136,6 +143,10 @@ class ProfileViewSet(RoleRestrictedViewSet):
     
     @action(detail=False, methods=['post'], url_path='is-favorited')
     def is_favorited(self, request):
+        '''
+        Check if a user has favorited an item so the frontend can display the correct information on 
+        the detail page. With app.model + id
+        '''
         user= request.user
         model_str = request.data.get('model')
         obj_id = request.data.get('id')

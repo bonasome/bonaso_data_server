@@ -161,7 +161,7 @@ class ProjectViewSetTest(APITestCase):
         '''
         Patches should not work either, even for clients who own the project.
         '''
-        self.client.force_authenticate(user=self.client)
+        self.client.force_authenticate(user=self.client_user)
         valid_payload = {
             'start': '2024-02-01',
             'client_id': self.other_client_obj.id

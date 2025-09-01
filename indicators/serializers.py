@@ -104,6 +104,9 @@ class IndicatorSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
+        '''
+        Validate received payloads.
+        '''
         user = self.context['request'].user
         
         #only admins can create indicators
@@ -132,6 +135,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
         if qs.exists():
             existing = qs.first()
             raise serializers.ValidationError({"code": f"Code already used by indicator {existing.code}: {existing.name}."})
+        
         # Uniqueness check for 'name'
         qs = Indicator.objects.filter(name=name)
         if self.instance:
@@ -152,6 +156,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError({"prerequisites": f"This indicator is marked as type {indicator_type} which does not match the selected prerequisite {prerequisite.indicator_type} ."})
         
         ###===Make sure an edit won't invalidate a downstream indicator===###
+        #ex. it is odd if a parent indicator is set to planned while a downstream is active or if a parent indicator is of a different data type
         if ind_id:
             dependencies = Indicator.objects.filter(prerequisites__id = ind_id)
             if dependencies:

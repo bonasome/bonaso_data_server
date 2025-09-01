@@ -86,6 +86,11 @@ class Respondent(models.Model):
     Otherwise, all fields are required except for Email and Phone Number (optional), and Age Range (which 
     we can calcualte from DOB).
     '''
+
+    '''
+    If you change/add any model fields, reflect those changes in the events/models.py --> DemographicCounts
+    and check the analysis/views.py and analysis/utils for updating params.
+    '''
     class Sex(models.TextChoices):
         FEMALE = 'F', _('Female')
         MALE = 'M', _('Male')

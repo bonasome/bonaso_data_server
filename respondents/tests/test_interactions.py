@@ -704,7 +704,7 @@ class InteractionViewSetTest(APITestCase):
                 {'task_id': self.task.id},
                 {'task_id': task_number.id, 'numeric_component': 10},
                 {'task_id': task_subcat_prereq.id, 'subcategories_data': [{'id': None, 'subcategory': {'name': 'Cat 1', 'id': category.id}}, {'id': None, 'subcategory': {'name': 'Cat 2', 'id': category2.id}}]},
-                {'task_id': task_subcat.id, 'subcategories_data': [{'id': None, 'subcateogry': {'name': 'Cat 1', 'id': category.id}}, {'id': None, 'subcategory': {'name': 'Cat 2', 'id': category2.id}}]}
+                {'task_id': task_subcat.id, 'subcategories_data': [{'id': None, 'subcategory': {'name': 'Cat 1', 'id': category.id}}, {'id': None, 'subcategory': {'name': 'Cat 2', 'id': category2.id}}]}
             ]
         }, format='json')
         print(response.json())

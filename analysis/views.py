@@ -154,7 +154,63 @@ class TablesViewSet(RoleRestrictedViewSet):
         response = HttpResponse(buffer.getvalue(), content_type='text/csv')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
+    
+    @action(detail=False, methods=["get"], url_path='aggregate/(?P<indicator_id>[^/.]+)')
+    def indicator_aggregate(self, request, indicator_id=None):
+        '''
+        Action that pulls indicators and gets the counts as a JSON object.
+        '''
+        user = request.user
+        if user.role not in ['client', 'admin', 'meofficer', 'manager']:
+            return Response(
+                {"detail": "You do not have permission to view aggregated counts."},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
+        '''
+        Get the indicator
+        '''
+        indicator = Indicator.objects.filter(id=indicator_id).first()
+        if not indicator:
+            return Response(
+                {"detail": "Please provide a valid indicator id to view aggregate counts."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        '''
+        Get any filter params
+        '''
+        project_id = request.query_params.get('project')
+        organization_id = request.query_params.get('organization')
+        start = request.query_params.get('start')
+        end = request.query_params.get('end')
+        project = Project.objects.filter(id=project_id).first() if project_id else None
+        organization = Organization.objects.filter(id=organization_id) if organization_id else None
+
+        params = {}
+        for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory']:
+            params[cat] = request.query_params.get(cat) in ['true', '1']
+        
+        #split, i.e. time period
+        split = request.query_params.get('split')
+
+        repeat_param = request.query_params.get('repeat_only')
+        repeat_only = False
+        n = None
+        if repeat_param:
+            try:
+                n = int(repeat_param)
+                repeat_only = True
+            except ValueError:
+                # Optional: handle 'true' or 'false' strings if needed
+                if repeat_param.lower() in ['true', 'yes']:
+                    n = 2  # Default value
+                    repeat_only = True
+        #aggregator function from anlysis.utils
+        aggregate = aggregates_switchboard(user, indicator, params, split, project, organization, start, end, None, repeat_only, n)
+        return Response(
+                {"counts": aggregate},
+                status=status.HTTP_200_OK
+            )
 class DashboardSettingViewSet(RoleRestrictedViewSet):
     '''
     Manges all endpoints related to dashboards/charts

@@ -8,6 +8,9 @@ class User(AbstractUser):
     used for many checks, required), and client organization (keep client and participant logic seperate).
     '''
     class Role(models.TextChoices):
+        '''
+        Be very careful when editing role value strings, as these are hard coded throughout the server and the frontend
+        '''
         VIEW_ONLY = 'view_only', _('View Only') #has no privleges, used to await admin approval
         DATA_COLLECTOR = 'data_collector', _('Data Collector') #has limited privlleges to create respondent level information
         SUPERVISOR = 'supervisor', _('Supervisor') #currently not in use

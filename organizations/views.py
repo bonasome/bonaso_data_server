@@ -16,17 +16,20 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 
 class OrganizationViewSet(RoleRestrictedViewSet):
+    '''
+    Manages all endpoints related to organizations. 
+    '''
     permission_classes = [IsAuthenticated]
     serializer_class = OrganizationSerializer
     filter_backends = [SearchFilter, OrderingFilter]
     filterset_fields = ['project', 'indicator']
     ordering_fields = ['name']
     search_fields = ['name'] 
-    def get_queryset(self):
 
+    def get_queryset(self):
+        #permissions checks
         user = self.request.user
         role = getattr(user, 'role', None)
-        org = getattr(user, 'organization', None)
         if role == 'admin':
             queryset = Organization.objects.all()
         elif role == 'client':
@@ -43,7 +46,7 @@ class OrganizationViewSet(RoleRestrictedViewSet):
             return queryset
         else:
             return Organization.objects.filter(id=user.organization.id)
-        
+        #filter by url prams
         project_id = self.request.query_params.get('project')
         if project_id:
             valid_ids = ProjectOrganization.objects.filter(project__id=project_id).distinct().values_list('organization__id', flat=True)
@@ -76,6 +79,9 @@ class OrganizationViewSet(RoleRestrictedViewSet):
         serializer.save(updated_by=self.request.user) 
     
     def destroy(self, request, *args, **kwargs):
+        '''
+        Only admins can create organizations and organizations with an assigned task cannot be deleted.
+        '''
         user = self.request.user
         instance = self.get_object()
         if user.role != 'admin':
@@ -97,7 +103,6 @@ class OrganizationViewSet(RoleRestrictedViewSet):
             )
         # Check for active tasks linked to active projects
         if Task.objects.filter(
-            project__status=Project.Status.ACTIVE,
             organization=instance
         ).exists():
             return Response(
@@ -109,6 +114,7 @@ class OrganizationViewSet(RoleRestrictedViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
+        
         self.perform_destroy(instance)
         
         return Response(status=status.HTTP_204_NO_CONTENT)

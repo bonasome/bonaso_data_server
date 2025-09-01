@@ -27,6 +27,9 @@ from respondents.utils import get_enum_choices
 today = date.today().isoformat()
 
 class RespondentViewSet(RoleRestrictedViewSet):
+    '''
+    Viewset for managing respondents
+    '''
     permission_classes = [IsAuthenticated]
     filter_backends = [filters.SearchFilter, OrderingFilter]
     ordering_fields = ['last_name', 'first_name', 'village', 'district']
@@ -35,7 +38,9 @@ class RespondentViewSet(RoleRestrictedViewSet):
     serializer_class = RespondentSerializer
 
     def get_queryset(self):
-        #respondents are 'public' since everyone will need to access them
+        '''
+        All users can see/edit all respondents
+        '''
         queryset = Respondent.objects.all()
         sex = self.request.query_params.get('sex')
         district = self.request.query_params.get('district')
@@ -58,6 +63,9 @@ class RespondentViewSet(RoleRestrictedViewSet):
             return RespondentSerializer
 
     def destroy(self, request, *args, **kwargs):
+        '''
+        Only admins can delete respondents, and not if the respondent has interactions associated with them.
+        '''
         user = request.user
         instance = self.get_object()
 
@@ -102,17 +110,20 @@ class RespondentViewSet(RoleRestrictedViewSet):
 
     @action(detail=False, methods=['post'], url_path='mobile')
     def mobile_upload(self, request):
+        '''
+        Allow the mobile app to send a list of respondents and serialize them. 
+        '''
         if request.user.role == 'client':
                 raise PermissionDenied('You do not have permission to perform this action.')
         data = request.data
         if not isinstance(data, list):
             return Response({"detail": "Expected a list of respondents."}, status=400)
-        ids_map = []
+        ids_map = [] #returns a map of local_id and the created server_id so the app knows what was uploaded
         errors = []
         for item in data:
             try:
                 server_id = item.get('server_id')
-                id_no = item.get('id_no')
+                id_no = item.get('id_no') #local ID
                 existing = None
                 if server_id:
                     existing = Respondent.objects.filter(id=server_id).first()
@@ -129,7 +140,7 @@ class RespondentViewSet(RoleRestrictedViewSet):
                 respondent_serializer.is_valid(raise_exception=True)
                 respondent = respondent_serializer.save()
                 ids_map.append({'local_id': item.get('local_id'), 'server_id': respondent.id })
-
+            #catch and return any errors
             except Exception as err:
                 errors.append({
                     'local_id': item.get('local_id'),
@@ -139,108 +150,3 @@ class RespondentViewSet(RoleRestrictedViewSet):
             "mappings": ids_map,
             "errors": errors
         }, status=status.HTTP_200_OK)
-
-    @action(detail=False, methods=['post'], url_path='bulk')
-    def bulk_upload(self, request):
-        '''
-        !!DEPRECATED!!
-        This is specifically designed for the mobile app, which for offline sync uploads in batches
-        from a table.
-        '''
-        if request.user.role == 'client':
-                raise PermissionDenied('You do not have permission to perform this action.')
-        data = request.data
-        if not isinstance(data, list):
-            return Response({"detail": "Expected a list of respondents."}, status=400)
-
-        created_ids = []
-        local_ids = []
-        errors = []
-        for i, item in enumerate(data):
-            try:
-                interactions = item.pop("interactions", [])
-
-                #check if the respondent exists, then create/update based on that
-                id_no = item.get('id_no')
-                existing = None
-                if id_no is not None:
-                    existing = Respondent.objects.filter(id_no=id_no).first()
-                if existing:
-                    respondent_serializer = RespondentSerializer(
-                        existing, data=item, context={'request': request}, partial=True
-                    )
-                else:
-                    respondent_serializer = RespondentSerializer(
-                        data=item, context={'request': request}
-                    )
-                respondent_serializer.is_valid(raise_exception=True)
-                respondent = respondent_serializer.save(created_by=request.user)
-
-                # Save interactions
-                with transaction.atomic():
-                    for interaction in interactions:
-                        try:
-                            interaction_date = interaction.get('interaction_date')
-                            if not interaction_date:
-                                raise ValidationError({'interaction_date': 'Interaction date is required'})
-                            interaction_location = interaction.get('interaction_location') or None
-                            subcats = interaction.get("subcategories_data", [])
-                            task_id = interaction.get("task")
-                            numeric_component = interaction.get('numeric_component')
-                            try:
-                                task_instance = Task.objects.get(id=task_id)
-                            except Task.DoesNotExist:
-                                raise ValidationError({"task": f"Task with ID {task_id} not found"})
-                            lookup_fields = {
-                                'respondent': respondent,
-                                'interaction_date': interaction_date,
-                                'task': task_id,
-                            }
-                            # Try to fetch the existing interaction, if it exists update it
-                            instance = Interaction.objects.filter(**lookup_fields).first()
-
-                            # Pass instance to serializer if it exists (update), otherwise it will create
-                            serializer = InteractionSerializer(
-                                instance=instance,
-                                data={
-                                    'respondent': respondent.id,
-                                    'interaction_date': interaction_date,
-                                    'interaction_location': interaction_location,
-                                    'task_id': task_id,
-                                    'numeric_component': numeric_component,
-                                    'subcategories_data': subcats,
-                                    'comments': '',
-                                },
-                                context={'request': request, 'respondent': respondent}
-                            )
-                            serializer.is_valid(raise_exception=True)
-                            serializer.save()
-                        except Exception as inter_err:
-                            errors.append({
-                                'respondent': respondent.id,
-                                'interaction_error': str(inter_err),
-                                'interaction_traceback': traceback.format_exc(),
-                                'interaction_data': interaction
-                            })
-            
-                local_ids.append(item.get('local_id'))
-                created_ids.append(respondent.id)
-
-            except ValidationError as ve:
-                errors.append({
-                    'index': i,
-                    'error': 'Validation error',
-                    'details': ve.detail,
-                    'data': item
-                })
-            except Exception as e:
-                errors.append({
-                    'index': i,
-                    'error': str(e),
-                    'data': item
-                })
-        return Response({
-            "created_ids": created_ids,
-            "local_ids": local_ids,
-            "errors": errors
-        }, status=status.HTTP_207_MULTI_STATUS if errors else status.HTTP_201_CREATED)

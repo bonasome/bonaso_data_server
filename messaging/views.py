@@ -24,6 +24,9 @@ from messaging.serializers import MessageSerializer, AnnouncementSerializer, Ale
 
 
 class MessageViewSet(RoleRestrictedViewSet):
+    '''
+    Manages all endpoints related to messages. 
+    '''
     permission_classes = [IsAuthenticated]
     serializer_class = MessageSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
@@ -48,6 +51,7 @@ class MessageViewSet(RoleRestrictedViewSet):
     def get_recipients(self, request):
         '''
         Get a list of valid profile recipients. Ideally only admins and people within your organization.
+        One cannot use the profile viewset since this will restrict perms to tightly
         '''
         user = request.user
         if user.role == 'admin':
@@ -67,6 +71,7 @@ class MessageViewSet(RoleRestrictedViewSet):
         else:
             queryset = User.objects.filter(Q(organization__id=user.organization.id) | Q(role='admin') )
 
+        #custom search
         search_term = request.query_params.get('search')
         if search_term:
             queryset = queryset.filter(
@@ -74,7 +79,7 @@ class MessageViewSet(RoleRestrictedViewSet):
                 Q(last_name__icontains=search_term) |
                 Q(username__icontains=search_term)
             )
-
+        #custom pagination
         page = self.paginate_queryset(queryset)
 
         if page is not None:
@@ -113,6 +118,9 @@ class MessageViewSet(RoleRestrictedViewSet):
     
 
 class AnnouncementViewSet(RoleRestrictedViewSet):
+    '''
+    Manages all endpoints related to announcements.
+    '''
     permission_classes = [IsAuthenticated]
     serializer_class = AnnouncementSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
@@ -146,7 +154,9 @@ class AnnouncementViewSet(RoleRestrictedViewSet):
     @action(detail=True, methods=['patch'], url_path='read')
     def set_read(self, request, pk=None):
         '''
-        Ping to mark as read when opened on the frontend.
+        Ping to mark as read when opened on the frontend. Tracks read by creating a new recipient object. 
+        This is more efficient that creating records marked as unread on announcement creation, since the 
+        number of recipients is large. Instead only create records when the announcement is read. 
         '''
         user = request.user
         annc = self.get_object()
@@ -163,6 +173,9 @@ class AnnouncementViewSet(RoleRestrictedViewSet):
         )
 
 class AlertViewSet(RoleRestrictedViewSet):
+    '''
+    Handles all things related to alerts. 
+    '''
     permission_classes = [IsAuthenticated]
     serializer_class = AlertSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]

@@ -229,7 +229,7 @@ class TaskViewSetTest(APITestCase):
         '''
         respondent = Respondent.objects.create(
             is_anonymous=True,
-            age_range=Respondent.AgeRanges.ET_24,
+            age_range=Respondent.AgeRanges.T_24,
             village='Testingplace',
             district=Respondent.District.CENTRAL,
             citizenship='test',

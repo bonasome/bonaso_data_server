@@ -38,6 +38,9 @@ from indicators.models import IndicatorSubcategory, Indicator
 from events.models import Event, EventOrganization
 
 class InteractionViewSet(RoleRestrictedViewSet):
+    '''
+    Viewset that manages everything related to viewing/creating interactions (including file uploads)
+    '''
     permission_classes = [IsAuthenticated]
     serializer_class = InteractionSerializer
     ordering_fields = ['-interaction_date']
@@ -47,7 +50,12 @@ class InteractionViewSet(RoleRestrictedViewSet):
                      'task__indicator__code', 'task__indicator__name', 'task__organization__name'] 
     
     def get_queryset(self):
+        '''
+        In context, interactions are almost always viewed in the context of a respondent, Interactions are
+        visible to all site users. 
+        '''
         queryset = Interaction.objects.all()
+        #URL params. 
         respondent = self.request.query_params.get('respondent')
         user = self.request.user
 
@@ -67,6 +75,9 @@ class InteractionViewSet(RoleRestrictedViewSet):
         return queryset
     
     def destroy(self, request, *args, **kwargs):
+        '''
+        Only admins can delete
+        '''
         user = request.user  # consistent access
         instance = self.get_object()
 
@@ -103,7 +114,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
         respondent_id = request.data.get('respondent')
         tasks = request.data.get('tasks', [])
 
-        #the mobile app may send this information at the task level, so use either from the top of the dict or the task level
+        # all for key information to be sent either at the top level or at the individual task level
         top_level_date = request.data.get('interaction_date')
         top_level_location = request.data.get('interaction_location')
         top_level_event = request.data.get('event_id')
@@ -112,7 +123,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
         respondent = get_object_or_404(Respondent, id=respondent_id)
 
-        created = []
+        created = [] #store all created items
         for i, task in enumerate(tasks):
             task_date = task.get('interaction_date') or top_level_date #again, use either
             task_location = task.get('interaction_location') or top_level_location
@@ -123,7 +134,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 return Response({'error': f'Missing interaction_location for task index {i}'}, status=status.HTTP_400_BAD_REQUEST)
             if not all(k in task for k in ['task_id']):
                 return Response({'error': f'Missing required task fields at index {i}'}, status=status.HTTP_400_BAD_REQUEST)
-        
+            
+            #use the serializer for validation
             serializer = self.get_serializer(data={
                 'respondent': respondent_id,
                 'interaction_date': task_date,
@@ -143,16 +155,19 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
     @action(detail=False, methods=['post'], url_path='mobile')
     def mobile_upload(self, request):
+        '''
+        Similar to batch create, but the mobile view is less punishing and allows for partial 
+        successes. Will expect the information to be uploaded with both a server_id and a local device ID. 
+        '''
         if request.user.role == 'client':
                 raise PermissionDenied('You do not have permission to perform this action.')
         data = request.data
         if not isinstance(data, list):
             return Response({"detail": "Expected a list of interactions."}, status=400)
-        ids_map = []
+        ids_map = [] #map that compares server IDs to local IDs so the app knows what information was recorded
         errors = []
         for item in data:
             try:
-
                 server_id = item.get('server_id')
                 existing = None
                 if server_id:
@@ -168,7 +183,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 interaction_serializer.is_valid(raise_exception=True)
                 interaction = interaction_serializer.save()
                 ids_map.append({'local_id': item.get('local_id'), 'server_id': interaction.id })
-
+            #catch and return any errors
             except Exception as err:
                 errors.append({
                     'local_id': item.get('local_id'),
@@ -184,7 +199,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
     @action(detail=False, methods=['get'], url_path='template')
     def get_template(self, request):
         '''
-        Action to generate an excel tempalte that a user can input data into and upload for bulk
+        Action to generate an excel template that a user can input data into and upload for bulk
         uploading.
         '''
         #Check perms to make sure the user should have access to tempaltes

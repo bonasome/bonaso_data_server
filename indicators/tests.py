@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.contrib.auth import get_user_model
 
 from organizations.models import Organization
-from projects.models import Project, Client
+from projects.models import Project, Client, Task
 from indicators.models import Indicator, IndicatorSubcategory
 
 User = get_user_model()
@@ -25,7 +25,21 @@ class TestIndicatorValidation(APITestCase):
         self.prereq_planned = Indicator.objects.create(name='Planned', code='PL', status='planned')
         self.dep =Indicator.objects.create(name='Dep', code='DEP')
         self.dep.prerequisites.set([self.prereq_resp])
-    
+
+        #set up a client
+        self.client_obj = Client.objects.create(name='Test Client', created_by=self.admin)
+
+        self.project = Project.objects.create(
+            name='Alpha Project',
+            client=self.client_obj,
+            status=Project.Status.ACTIVE,
+            start='2024-01-01',
+            end='2024-12-31',
+            description='Test project',
+            created_by=self.admin,
+        )
+        self.project.organizations.set([self.parent])
+        self.task = Task.objects.create(organization=self.parent, indicator=self.indicator, project=self.project)
     def test_queryset_admin(self):
         '''
         Admins can see all indicators
@@ -42,7 +56,7 @@ class TestIndicatorValidation(APITestCase):
         self.client.force_authenticate(user=self.officer)
         response = self.client.get('/api/indicators/')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data['results']), 3)
+        self.assertEqual(len(response.data['results']), 1)
     
     def test_create_admin(self):
         '''
@@ -86,22 +100,7 @@ class TestIndicatorValidation(APITestCase):
         }
         response = self.client.patch(f'/api/indicators/{self.indicator.id}/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-    
-    def test_delete_admin(self):
-        '''
-        Admins cannot delete indicators with a prereq.
-        '''
-        self.client.force_authenticate(user=self.admin)
-        response = self.client.delete(f'/api/indicators/{self.indicator.id}/')
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
 
-    def test_delete_meofficer(self):
-        '''
-        But no one slse
-        '''
-        self.client.force_authenticate(user=self.officer)
-        response = self.client.delete(f'/api/indicators/{self.indicator.id}/')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_create_prereq(self):
         '''

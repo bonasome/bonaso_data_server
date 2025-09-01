@@ -70,7 +70,7 @@ class ProjectOrganization(models.Model):
     This helps with mapping project hirearchies, but also helps manage permissions for things related to projects
     Like, parent orgs should be able to edit content for their child orgs (events, interactions, etc.).
     '''
-    parent_organization = models.ForeignKey(Organization, on_delete=models.SET_NULL, blank=True, null=True, related_name='child_links')
+    parent_organization = models.ForeignKey(Organization, on_delete=models.SET_NULL, blank=True, null=True, related_name='child_links') #this organizations parent. Only one layer of parent --> child is supported
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='org_links')
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='project_organization')
     
@@ -91,6 +91,7 @@ class Task(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='task_created_by')
+    
     class Meta:
         unique_together = ('project', 'organization', 'indicator')
 
@@ -109,8 +110,8 @@ class Target(models.Model):
     amount = models.IntegerField(verbose_name= 'Target Amount', blank=True, null=True)
     start = models.DateField('Target Start Date')
     end = models.DateField('Target Conclusion Date')
-    related_to = models.ForeignKey(Task, related_name='related_to_task', on_delete=models.CASCADE, blank=True, null=True)
-    percentage_of_related = models.IntegerField(validators=[MinValueValidator(0), MaxValueValidator(100)], null=True, blank=True)
+    related_to = models.ForeignKey(Task, related_name='related_to_task', on_delete=models.CASCADE, blank=True, null=True) #task to use for target amount
+    percentage_of_related = models.IntegerField(validators=[MinValueValidator(0), MaxValueValidator(100)], null=True, blank=True) #percentage of that task to achieve
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -162,8 +163,8 @@ class ProjectActivity(models.Model):
 
     project = models.ForeignKey(Project, on_delete=models.CASCADE)
     organizations = models.ManyToManyField(Organization, through='ProjectActivityOrganization')
-    visible_to_all = models.BooleanField(default=False)
-    cascade_to_children = models.BooleanField(default=False)
+    visible_to_all = models.BooleanField(default=False) #display to all project members
+    cascade_to_children = models.BooleanField(default=False) #if assigned to one org, also cascade to to child orgs automatically
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     start = models.DateField()
@@ -206,8 +207,8 @@ class ProjectDeadline(models.Model):
     '''
     project = models.ForeignKey(Project, on_delete=models.CASCADE)
     organizations = models.ManyToManyField(Organization, through='ProjectDeadlineOrganization')
-    visible_to_all = models.BooleanField(default=False)
-    cascade_to_children = models.BooleanField(default=False)
+    visible_to_all = models.BooleanField(default=False) #make visible to all project members
+    cascade_to_children = models.BooleanField(default=False) #if assigned to one org, auto cascade it to child orgs
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     deadline_date = models.DateField()

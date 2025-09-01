@@ -13,9 +13,9 @@ class FavoriteObject(models.Model):
     '''
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='favorites')
 
-    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    object_id = models.PositiveIntegerField()
-    target = GenericForeignKey('content_type', 'object_id')
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE) #app/model
+    object_id = models.PositiveIntegerField() #object id
+    target = GenericForeignKey('content_type', 'object_id') #pair of model/id
 
     created_at = models.DateTimeField(auto_now_add=True)
 

@@ -39,9 +39,17 @@ class ProjectPermissionHelper:
     This permission helper streamlines the process for creating project activites and the like. It automatically
     handles org assignment based on the user's role/their child organizations and the inputted settings.
 
-    It is useful for managing those models like project activities/deadlines that can have many orgs.
+    It is useful for managing those models like project activities/deadlines that can affect many or a 
+    single org, and simplifies which roles can create items visible to which orgs. 
     '''
     def __init__(self, user, project=None, org_field='organizations', public_flag='visible_to_all', cascade_flag='cascade_to_children'):
+        '''
+        - user (user instance): for tracking permissions
+        - project (project instance, optional): project checking permissions for
+        - org_field (string, optional): what field of the model you're checking contains information about participating organizations (m2m field)
+        - public_flag (string, optional): what field marks this model as visible to everyone in a project
+        - cascade_flag (string, optional): what field will cascade this to an organizations child orgs
+        '''
         self.user = user
         self.project = project
         self.org = user.organization
@@ -79,7 +87,7 @@ class ProjectPermissionHelper:
         
         if self.user.role == 'admin':
             return queryset
-
+        #client can only see there project's stuff
         if self.user.role == 'client' and self.user.client_organization:
             return queryset.filter(project__client=self.user.client_organization)
         
@@ -106,7 +114,7 @@ class ProjectPermissionHelper:
         Help manage the process of creating events, especially assigning orgs so that users don't have to wory
         about this on the front end. 
 
-        Basically if their not an admin, limit it to their org and their child org if cascade flag is true.
+        Basically if their not an admin, limit it to their org and their child orgs if cascade flag is true.
         '''
         orgs = data.get(self.org_field) or []
         org_ids = [org.id for org in orgs]

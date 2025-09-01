@@ -10,7 +10,7 @@ class NarrativeReport(models.Model):
     Narrative report, but really any supporting document that is meant to be viewed by a person (not input
     data into the system, like the file upload --> respondents.models).
 
-    It's most often attached to a project and an organization.
+    It's most often attached to a project and an organization. File type is meant to be a pdf/docx
     '''
     organization = models.ForeignKey(Organization, on_delete=models.SET_NULL, null=True, blank=True)
     project = models.ForeignKey(Project, on_delete=models.SET_NULL, null=True, blank=True)

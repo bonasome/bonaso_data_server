@@ -17,11 +17,17 @@ from collections import defaultdict
 from respondents.models import Interaction
 
 class LineListListSerializer(serializers.ModelSerializer):
+    '''
+    Returns list of a user's line lists for view in an index component
+    '''
     class Meta:
         model = LineList
         fields = ['id', 'name']
 
 class LineListSerializer(serializers.ModelSerializer):
+    '''
+    Returns detailed data about a line list and allows for the user to create a new line list. 
+    '''
     indicator = IndicatorSerializer(read_only=True)
     indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True, source='indicator', allow_null=True, required=False)
     organization = OrganizationListSerializer(read_only=True)
@@ -31,6 +37,9 @@ class LineListSerializer(serializers.ModelSerializer):
     data = serializers.SerializerMethodField()
 
     def get_data(self, obj):
+        '''
+        Get list of objects containing information about each row of the line list
+        '''
         return prep_line_list(
             user=obj.created_by,
             indicator=obj.indicator,
@@ -53,6 +62,9 @@ class LineListSerializer(serializers.ModelSerializer):
     
 
 class PivotTableListSerializer(serializers.ModelSerializer):
+    '''
+    Returns list of a user's pivot tables for view in an index component
+    '''
     display_name = serializers.SerializerMethodField()
     def get_display_name(self, obj):
         if obj.name:
@@ -66,6 +78,9 @@ class PivotTableListSerializer(serializers.ModelSerializer):
         fields = ['id', 'display_name',]
 
 class PivotTableSerializer(serializers.ModelSerializer):
+    '''
+    Contains data for the pivot table and allows a user to create a new pivot table.
+    '''
     indicator = IndicatorSerializer(read_only=True)
     indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True, source='indicator', allow_null=True, required=False)
     organization = OrganizationListSerializer(read_only=True)
@@ -83,11 +98,16 @@ class PivotTableSerializer(serializers.ModelSerializer):
     data = serializers.SerializerMethodField()
 
     def get_data(self, obj):
+        '''
+        Get data based on the pivot table settings.
+        '''
         table_params = [param.name for param in obj.params.all()]
+        #determine what params/breakdowns the user wants and format them as an object
         params = {}
         for cat in ['id', 'age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory', 'platform', 'metric']:
             params[cat] = cat in table_params
 
+        #collec the aggregates
         data = aggregates_switchboard(
             obj.created_by, 
             indicator=obj.indicator, 
@@ -100,6 +120,7 @@ class PivotTableSerializer(serializers.ModelSerializer):
             n=obj.repeat_n,
             cascade=obj.cascade_organization
         )
+        #convert it to a format with one param as the column headers, like one would expect a pivot table to look
         return prep_csv(aggregates=data, params=params)
 
     def get_params(self, obj):
@@ -120,6 +141,10 @@ class PivotTableSerializer(serializers.ModelSerializer):
         ]
 
     def _update_params(self, table, params):
+        '''
+        Helper function that will accept a list of params and update the m2m field that manages the 
+        tables params. 
+        '''
         fields = []
         valid_names = [choice[0] for choice in ChartField.Field.choices]
         for param in params:
@@ -146,6 +171,9 @@ class PivotTableSerializer(serializers.ModelSerializer):
         return instance
     
 class IndicatorChartSerializer(serializers.ModelSerializer):
+    '''
+    Returns information about a chart as well as the data used to build the chart.
+    '''
     chart_data = serializers.SerializerMethodField(read_only=True)
     targets = serializers.SerializerMethodField(read_only=True)
     indicators = IndicatorSerializer(read_only=True, many=True)
@@ -153,14 +181,22 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
     allow_targets = serializers.SerializerMethodField(read_only=True) #simple helper var to help the frontend determine whether or not to shown the option, cause no one wants that crap where you select an option and its like screw you, there's not data here. Get pranked, nerd
     display_name = serializers.SerializerMethodField(read_only=True)
     def get_chart_data(self, obj):
+        '''
+        Collect data that will be used in the chart
+        '''
+        #based on legend/stack, get list of params to break the data down by
         params = {}
         for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory', 'platform', 'metric', 'organization']:
             params[cat] = (cat == obj.legend) or (cat == obj.stack)
+        # collect model filters
         filters = self.get_filters(obj)
+        #get information from the dashboard about any meta filters (see below)
         project = self.context.get('project')
         organization = self.context.get('organization')
         cascade = self.context.get('cascade_organization', False)
-        data={}
+        data={} # dict to store chart data
+
+        #if only one indicator, return the aggreagate
         if obj.indicators.count() == 1:
             return aggregates_switchboard(obj.created_by, 
                 indicator=obj.indicators.first(), 
@@ -175,8 +211,8 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
                 n=obj.repeat_n,
                 cascade=cascade
             )
+        #if multiple indicators, return an array of indicators (no params should be present)
         data = []
-
         for indicator in obj.indicators.all():
             ind = aggregates_switchboard(
                 obj.created_by,
@@ -190,7 +226,7 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
                 filters=filters,
                 cascade=cascade
             )
-
+            # the indicator will be used as the legend item
             for period, item in ind.items():
                 row = {
                     'period': item.get('period', None),
@@ -198,10 +234,10 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
                     'indicator': str(indicator)
                 }
                 data.append(row)
-
+        #return the array
         return {i: item for i, item in enumerate(data)}
 
-    
+    # build the filters dict
     def get_filters(self, obj):
         queryset = ChartFilter.objects.filter(chart=obj)
         filters = defaultdict(list)
@@ -212,6 +248,7 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
     def get_allow_targets(self, obj):
         return Target.objects.filter(task__indicator__in=obj.indicators.all()).exists()
     
+    #collect related target data
     def get_targets(self, obj):
         if not obj.use_target:
             return []
@@ -222,6 +259,7 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
             target = get_target_aggregates(obj.created_by, indicator=indicator, split=obj.axis, project=project, organization=organization, start=obj.start, end=obj.end)
             targets.append(target)
         return targets
+    
     def get_display_name(self, obj):
         if obj.name:
             return obj.name
@@ -235,6 +273,9 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
 
 
 class DashboardFilterSerializer(serializers.ModelSerializer):
+    '''
+    Serializer for dashboard filters. Currently not in use. 
+    '''
     field = serializers.SlugRelatedField(slug_field="name", queryset=ChartField.objects.all())
 
     class Meta:
@@ -242,9 +283,14 @@ class DashboardFilterSerializer(serializers.ModelSerializer):
         fields = ['field', 'value']
 
 class DashboardIndicatorChartSerializer(serializers.ModelSerializer):
+    '''
+    M2M serializer that links an indicator chart to the dashboard. Also passes filter information 
+    (project, organization, cascade) to the chart when it collects data. 
+    '''
     chart = serializers.SerializerMethodField()
 
     def get_chart(self, obj):
+        #pass dashboard level context to the chart for when it collects data
         return IndicatorChartSerializer(
             obj.chart,
             context={
@@ -260,12 +306,18 @@ class DashboardIndicatorChartSerializer(serializers.ModelSerializer):
         fields = ['id', 'chart', 'width', 'height', 'order']
 
 class DashboardSettingListSerializer(serializers.ModelSerializer):
+    '''
+    Get lightweight list of all of a user's dashboards for use in an index component. 
+    '''
     project = ProjectListSerializer()
     class Meta:
         model = DashboardSetting
         fields = ['id', 'name', 'description', 'project']
 
 class DashboardSettingSerializer(serializers.ModelSerializer):
+    '''
+    Detailed information about a dashboard that also contains the charts and chart data. 
+    '''
     filters = DashboardFilterSerializer(source='dashboardfilter_set', many=True, required=False, allow_null=True)
     indicator_charts = DashboardIndicatorChartSerializer(source='dashboardindicatorchart_set', required=False, many=True, allow_null=True)
     organization = OrganizationListSerializer(read_only=True)

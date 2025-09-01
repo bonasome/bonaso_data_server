@@ -21,18 +21,19 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
     '''
     Function that finds interactions/demographic counts that match the criteria and aggregates them. Can split by 
     timer period/param if requested. 
-    - user (instance): the user making the request for permissions
-    - indicator (instance): the indicator whose data is to be aggregated
-    - params (dict): a dictionary of params with true or false values denoting whether this aggregates should be split by that param (metric, platform, organization)
-    - split (string): split the data into periods (month, quarter)
-    - project (instance): scope data to specific project
-    - organization (instance): scope data to specific organization
-    - start (ISO date string): only collect data after this point
-    - end (ISO date string): only collect data before this point
-    - filters (dict): filter to only inlcude values that match certain criteria
-    - repeat_only (boolean): for respondent indicators, count respondents that have had this interaction n number of times
-    - n (integer): for use with repeat _only, the number of times this repsondent should have had an interaction with this indicator before being counted
-    - cascade (boolean): if organization and project is selected, also include data from child organizations
+    - user (user instance): the user making the request for permissions
+    - indicator (indicator instance): the indicator whose data is to be aggregated
+    - params (dict): a dictionary of params with true or false values denoting whether this aggregates 
+        should be split by that param (accepts any of the breakdown fields found in the DemographicCount model)
+    - split (string, optional): split the data into periods (month, quarter)
+    - project (project instance, optional): scope data to specific project
+    - organization (organization instance, optional): scope data to specific organization
+    - start (ISO date string, optional): only collect data after this point
+    - end (ISO date string, optional): only collect data before this point
+    - filters (dict, optional): filter to only inlcude values that match certain criteria
+    - repeat_only (boolean, optional): for respondent indicators, count respondents that have had this interaction n number of times
+    - n (integer, optional): for use with repeat _only, the number of times this repsondent should have had an interaction with this indicator before being counted
+    - cascade (boolean, optional): if organization and project is selected, also include data from child organizations
     '''
     #get a list of interactions prefiltered based on user role/filters
     interactions = get_interactions_from_indicator(user, indicator, project, organization, start, end, filters, cascade)
@@ -157,20 +158,21 @@ def get_repeats(interactions, n):
     repeat_only = interactions.filter(respondent_id__in=repeat_respondents)
     return repeat_only
 
-def event_no_aggregates(user, indicator, split, project, organization, start, end, cascade, params):
+def event_no_aggregates(user, indicator, split=None, project=None, organization=None, start=None, end=None, cascade=False, params=None):
     '''
     Function that collects events that match the criteria and sums the number of events, splitting them
     by time or params if requested. 
-    - user (instance): the user making the request for permissions
-    - indicator (instance): the indicator whose data is to be aggregated
-    - params (dict): a dictionary of params with true or false values denoting whether this aggregates should be split by that param (metric, platform, organization)
+    - user (user instance): the user making the request for permissions
+    - indicator (indicator instance): the indicator whose data is to be aggregated
     - split (string): split the data into periods (month, quarter)
-    - project (instance): scope data to specific project
-    - organization (instance): scope data to specific organization
-    - start (ISO date string): only collect data after this point
-    - end (ISO date string): only collect data before this point
-    - filters (dict): filter to only inlcude values that match certain criteria
-    - cascade (boolean): if organization and project is selected, also include data from child organizations
+    - project (project instance, optional): scope data to specific project
+    - organization (organization instance, optional): scope data to specific organization
+    - start (ISO date string, optional): only collect data after this point
+    - end (ISO date string, optional): only collect data before this point
+    - filters (dict, optional): filter to only inlcude values that match certain criteria
+    - cascade (boolean, optional): if organization and project is selected, also include data from child organizations
+    - params (dict, optional): a dictionary of params with true or false values denoting whether this 
+        aggregates should be split by that param (organization only)
     '''
     #get list of events that match criteria
     events = get_events_from_indicator(user, indicator, project, organization, start, end, cascade)
@@ -212,20 +214,20 @@ def event_no_aggregates(user, indicator, split, project, organization, start, en
             aggregates[pos]['count'] += 1 #update correct count
     return dict(aggregates)
 
-def event_org_no_aggregates(user, indicator, split, project, organization, start, end, cascade, params):
+def event_org_no_aggregates(user, indicator, split=None, project=None, organization=None, start=None, end=None, cascade=False, params=None):
     '''
     Function that collects events that match the criteria and sums the number of participants for each event,
     splitting them by time or params if requested. 
-    - user (instance): the user making the request for permissions
-    - indicator (instance): the indicator whose data is to be aggregated
-    - params (dict): a dictionary of params with true or false values denoting whether this aggregates should be split by that param (metric, platform, organization)
-    - split (string): split the data into periods (month, quarter)
-    - project (instance): scope data to specific project
-    - organization (instance): scope data to specific organization
-    - start (ISO date string): only collect data after this point
-    - end (ISO date string): only collect data before this point
-    - filters (dict): filter to only inlcude values that match certain criteria
-    - cascade (boolean): if organization and project is selected, also include data from child organizations
+    - user (user instance): the user making the request for permissions
+    - indicator (indicator instance): the indicator whose data is to be aggregated
+    - params (dict, optional): a dictionary of params with true or false values denoting whether this aggregates should be split by that param (metric, platform, organization)
+    - split (string, optional): split the data into periods (month, quarter)
+    - project (project instance, optional): scope data to specific project
+    - organization (organization instance, optional): scope data to specific organization
+    - start (ISO date string, optional): only collect data after this point
+    - end (ISO date string, optional): only collect data before this point
+    - filters (dict, optional): filter to only inlcude values that match certain criteria
+    - cascade (boolean, optional): if organization and project is selected, also include data from child organizations
     '''
     #get list of events that fit the conditions
     events = get_events_from_indicator(user, indicator, project, organization, start, end, cascade)
@@ -269,21 +271,21 @@ def event_org_no_aggregates(user, indicator, split, project, organization, start
     return dict(aggregates)
 
 
-def social_aggregates(user, indicator, params, split, project, organization, start, end, filters, cascade):
+def social_aggregates(user, indicator, params, split=None, project=None, organization=None, start=None, end=None, filters=None, cascade=False):
     '''
     Function that collects all social media posts related to an indicator and matches the criteria and 
     aggregates them based on the inputted metrics (total engagement is used by default, sum of all). Can 
     split by time period or param if requested. 
-    - user (instance): the user making the request for permissions
-    - indicator (instance): the indicator whose data is to be aggregated
+    - user (user instance): the user making the request for permissions
+    - indicator (indicator instance): the indicator whose data is to be aggregated
     - params (dict): a dictionary of params with true or false values denoting whether this aggregates should be split by that param (metric, platform, organization)
-    - split (string): split the data into periods (month, quarter)
-    - project (instance): scope data to specific project
-    - organization (instance): scope data to specific organization
-    - start (ISO date string): only collect data after this point
-    - end (ISO date string): only collect data before this point
-    - filters (dict): filter to only inlcude values that match certain criteria
-    - cascade (boolean): if organization and project is selected, also include data from child organizations
+    - split (string, optional): split the data into periods (month, quarter)
+    - project (project instance, optional): scope data to specific project
+    - organization (organization instance, optional): scope data to specific organization
+    - start (ISO date string, optional): only collect data after this point
+    - end (ISO date string, optional): only collect data before this point
+    - filters (dict, optional): filter to only inlcude values that match certain criteria
+    - cascade (boolean, optional): if organization and project is selected, also include data from child organizations
     '''
     #get queryset of posts that match all criteria
     posts = get_posts_from_indicator(user, indicator, project, organization, start, end, filters, cascade)
@@ -353,8 +355,8 @@ def social_aggregates(user, indicator, params, split, project, organization, sta
 def aggregates_switchboard(user, indicator, params, split=None, project=None, organization=None, start=None, end=None, filters=None, repeat_only=False, n=2, cascade=False):
     '''
     Function that takes an indicator, determines the type, and then runs the correct aggreagation function.
-    - user (instance): the user making the request for permissions
-    - indicator (instance): the indicator whose data is to be aggregated
+    - user (user instance): the user making the request for permissions
+    - indicator (indicator instance): the indicator whose data is to be aggregated
     - params (dict): a dictionary of params with true or false values denoting whether this aggregates should be split by that param
     - split (string, optional): split the data into periods (month, quarter)
     - project (instance, optional): scope data to specific project
@@ -367,13 +369,13 @@ def aggregates_switchboard(user, indicator, params, split=None, project=None, or
     - cascade (boolean, optional): if organization and project is selected, also include data from child organizations
     '''
     aggregates = {}
-    if indicator.indicator_type == 'respondent':
+    if indicator.indicator_type == 'respondent': #respondent type
         aggregates = demographic_aggregates(user, indicator, params, split, project, organization, start, end, filters, repeat_only, n, cascade)
-    if indicator.indicator_type == 'event_no':
+    if indicator.indicator_type == 'event_no': #number of event type
         aggregates = event_no_aggregates(user, indicator, split, project, organization, start, end, cascade, params)
-    if indicator.indicator_type == 'org_event_no':
+    if indicator.indicator_type == 'org_event_no': #number of organizations at event type
         aggregates = event_org_no_aggregates(user, indicator, split, project, organization, start, end, cascade, params)
-    if indicator.indicator_type == 'social':
+    if indicator.indicator_type == 'social': #social type
         aggregates = social_aggregates(user, indicator, params, split, project, organization, start, end, filters, cascade)
     return aggregates
 

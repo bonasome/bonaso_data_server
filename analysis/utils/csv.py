@@ -1,4 +1,12 @@
 def prep_csv(aggregates, params):
+    '''
+    Function that accepts the result of an aggregates function (see [./aggregates.py]) and the params object 
+    used to construct that aggreagates and returns it in a tabular format (one of the params wil be used 
+    as the headers.)
+    - aggregates (object): an object returned by one of the aggregates functions from [./aggregates.py]
+    - params (object): list of params used to construct the aggreagates objct
+    '''
+    #get list of each param and its values
     column_field = next((k for k, v in params.items() if v), None)
     column_field_choices = sorted({cell.get(column_field) for cell in aggregates.values()})
 
@@ -12,9 +20,10 @@ def prep_csv(aggregates, params):
         column_field_value = cell.get(column_field)
         count = cell['count']
 
+        #create dict for each breakdown
         if breakdowns not in rows_map:
             rows_map[breakdowns] = {}
-
+        #add count
         rows_map[breakdowns][column_field_value] = count
 
     # Build final rows

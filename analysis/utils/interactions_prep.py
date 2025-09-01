@@ -1,25 +1,37 @@
 from datetime import date
+from analysis.utils.periods import get_month_string, get_quarter_string
 
+#convert names as they appear in the demographic count model/filters to how they appear on the respondent model
 FIELD_MAP = {
     'kp_type': 'kp_status',
     'disability_type': 'disability_status',
     # Add more if needed
 }
 
+# convert m2m fields into the name so the filter function returns the correct value
 M2M_MAP = {
     'kp_type': 'kp_status__name',
     'disability_type': 'disability_status__name',
     'special_attribute': 'special_attribute__name',
 }
 
+#list of valid fields to pull by, make sure this is updated if any demographic splits are added or removed
 fields = ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'organization']
-from analysis.utils.periods import get_month_string, get_quarter_string
+
 def build_keys(interaction, pregnancies_map, hiv_status_map, interaction_subcats, include_subcats):
     """
     Returns dict mapping frozenset keys -> numeric values (default to 1 if no subcats/numeric)
+    - interaction (interaction instance): interaction to build keys for
+    - pregnancies_map (dict): helper object that can rapidly look up if an interaction's respondent was pregnant
+    - hiv_status_map (dict): helper object that can rapidly look up a respondent's HIV status
+    - interaction_subcats (queryset): queryset of interaction subcategory objects that were prefetched and can be referenced
+    - include_subcats (boolean): if this is being broken down by subcats that require a numeric value, each numeric value
+        must appear as a seperate key so it can be added to the correct bucket
     """
+    #create base empty key that we will add to
     base_keys = set()
 
+    # go through each field and pull the correct value and add it to keys
     for field in fields:
         get_field = FIELD_MAP.get(field, field)
         
@@ -39,6 +51,7 @@ def build_keys(interaction, pregnancies_map, hiv_status_map, interaction_subcats
             )
             base_keys.add('hiv_positive' if is_positive else 'hiv_negative')
 
+        #if its an M2M field, add all the values to the keys, the parent will check if its a subset
         elif field in M2M_MAP:
             m2m_field = getattr(interaction.respondent, FIELD_MAP[field])
             base_keys.update(m2m_field.values_list('name', flat=True))  # assumes prefetched

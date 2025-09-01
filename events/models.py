@@ -21,7 +21,7 @@ class Event(models.Model):
 
     KEY FIELDS:
         Event Type: Mainly used for categorization/filtering
-        Status: Useful tracking tool, but also only completed events contribute towards targets
+        Status: Useful tracking tool, but also only completed events contribute towards targets for event_no/event_org_no type indicators
         Host: The hosting organization, will default to the users if not an admin, can be left blank by admins (
         for creating public/multi-org events).
         Organizations: The organizations that participated in this event. Governs which tasks are available.
@@ -50,8 +50,8 @@ class Event(models.Model):
     event_type = models.CharField(max_length=25, choices=EventType.choices, default=EventType.TRAINING, verbose_name='Event Type')
     status = models.CharField(max_length=25, choices=EventStatus.choices, default=EventStatus.PLANNED, verbose_name='Event Status')
     host = models.ForeignKey(Organization, verbose_name='Hosting Organization', on_delete=models.SET_NULL, blank=True, null=True, related_name='host')
-    organizations = models.ManyToManyField(Organization, through='EventOrganization', blank=True)
-    tasks = models.ManyToManyField(Task, through='EventTask', blank=True)
+    organizations = models.ManyToManyField(Organization, through='EventOrganization', blank=True) # list of participating organizations, used to calc org_event_numbers and can be used to add tasks for other orgs
+    tasks = models.ManyToManyField(Task, through='EventTask', blank=True) 
     location = models.CharField(max_length=255, verbose_name='Event Location')
     start = models.DateField()
     end = models.DateField()
@@ -63,9 +63,10 @@ class Event(models.Model):
 
     def __str__(self):
         return self.name
+    
 class EventOrganization(models.Model):
     '''
-    Through model for orgs.
+    Through model for participating orgs.
     '''
     event = models.ForeignKey(Event, on_delete=models.CASCADE)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
@@ -73,7 +74,7 @@ class EventOrganization(models.Model):
 
 class EventTask(models.Model):
     '''
-    Through model for tasks.
+    Through model for related tasks.
     '''
     event = models.ForeignKey(Event, on_delete=models.CASCADE)
     task = models.ForeignKey(Task, on_delete=models.CASCADE)
@@ -96,6 +97,9 @@ class DemographicCount(models.Model):
     Counts rely on a variety of TextChoices. These are both used to control inputs but also
     are used during analysis for demographic splits. IF YOU MAKE ANY CHANGES TO ANY OF THE CATEGORIES HERE, MAKE
     SURE YOU MIRROR THEM IN respondents/models (if applicable).
+
+    Also, there are several files in the analysis tool check view.py and /utils that use lists of fields for calculating
+    params, consider updating those as well. 
     '''
     class Sex(models.TextChoices):
         FEMALE = 'F', _('Female')
@@ -154,8 +158,8 @@ class DemographicCount(models.Model):
         YES = 'hiv_positive', _('HIV Positive')
         NO = 'hiv_negative', _('HIV Negative')
 
-    event = models.ForeignKey(Event, on_delete=models.CASCADE)
-    count = models.PositiveIntegerField()
+    event = models.ForeignKey(Event, on_delete=models.CASCADE) #linked to which event
+    count = models.PositiveIntegerField() #numeric value
     sex = models.CharField(max_length = 2, choices=Sex.choices, null=True, blank=True)
     age_range = models.CharField(max_length = 25, choices=AgeRange.choices, null=True, blank=True)
     citizenship = models.CharField(max_length = 25, choices=Citizenship.choices, null=True, blank=True)
@@ -164,8 +168,8 @@ class DemographicCount(models.Model):
     disability_type = models.CharField(max_length = 25, choices=DisabilityType.choices, null=True, blank=True)
     kp_type = models.CharField(max_length = 25, choices=KeyPopulationType.choices, null=True, blank=True)
     status = models.CharField(max_length = 25, choices=Status.choices, null=True, blank=True)
-    organization = models.ForeignKey(Organization, on_delete=models.PROTECT, null=True, blank=True)
-    task = models.ForeignKey(Task, on_delete=models.PROTECT, null=True, blank=True)
+    organization = models.ForeignKey(Organization, on_delete=models.PROTECT, null=True, blank=True) #not really used
+    task = models.ForeignKey(Task, on_delete=models.PROTECT, null=True, blank=True) #determines which task this count is related to
     subcategory = models.ForeignKey(IndicatorSubcategory, on_delete=models.PROTECT, null=True, blank=True)
     flags = GenericRelation('flags.Flag', related_query_name='flags')
 

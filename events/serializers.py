@@ -50,13 +50,11 @@ class EventSerializer(serializers.ModelSerializer):
                     'updated_by', 'updated_at'
                 ]
     
-    def _add_organizations(self, event, organizations, user):
+    def _update_organizations(self, event, organizations, user):
         '''
-        Add an org, assuming that org perms are met.
+        Add or remove a participating organization from an event
         '''
-        existing_org_ids = set(
-            EventOrganization.objects.filter(event=event).values_list('organization_id', flat=True)
-        )
+        EventOrganization.objects.filter(event=event).delete()
         new_links = []
         for org in organizations:
             if user.role != 'admin':
@@ -64,15 +62,14 @@ class EventSerializer(serializers.ModelSerializer):
                     raise PermissionDenied(
                         f"Cannot assign an organization that is not your organization or your child organization."
                     )
-            if org.id not in existing_org_ids:
-                new_links.append(EventOrganization(event=event, organization=org, added_by=user))
+            new_links.append(EventOrganization(event=event, organization=org, added_by=user))
         EventOrganization.objects.bulk_create(new_links)
 
-    def _add_tasks(self, event, tasks, user):
+    def _update_tasks(self, event, tasks, user):
         '''
-        Add a task assuming org perms/project dates line up.
+        Add or remove a task from an event
         '''
-        existing_task_ids = [t.task.id for t in EventTask.objects.filter(event=event)]
+        EventTask.objects.filter(event=event).delete()
         new_links = []
         for task in tasks:
             org = task.organization
@@ -91,15 +88,13 @@ class EventSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     f"Task '{task.indicator.name}' for organization '{task.organization.name}' is associcated with a project whose start and end dates do not align with this events date."
                 )
-            if task.id not in existing_task_ids:
-                new_links.append(EventTask(event=event, task=task, added_by=user))
-            else:
-                continue
+            new_links.append(EventTask(event=event, task=task, added_by=user))
 
         EventTask.objects.bulk_create(new_links)
 
     def validate(self, attrs):
         user = self.context.get('request').user if self.context.get('request') else None
+        #check permissions
         if user.role not in ['admin', 'meofficer', 'manager']:
             raise PermissionDenied('You do not have permission to edit events.')
         host = attrs.get('host', getattr(self.instance, 'host', None))
@@ -116,7 +111,7 @@ class EventSerializer(serializers.ModelSerializer):
 
             if not (is_own_org or is_child_org):
                 raise PermissionDenied("You do not have permission to edit events not related to your organization.")
-        
+        #check that start is not after the end
         start = attrs.get('start', getattr(self.instance, 'start', None))
         end = attrs.get('end', getattr(self.instance, 'end', None))
         if start and end and end < start:
@@ -130,8 +125,8 @@ class EventSerializer(serializers.ModelSerializer):
         tasks = validated_data.pop('tasks', [])
         event = Event.objects.create(**validated_data)
 
-        self._add_organizations(event, organizations, user)
-        self._add_tasks(event, tasks, user)
+        self._update_organizations(event, organizations, user)
+        self._update_tasks(event, tasks, user)
         event.created_by = user
         event.save()
         return event
@@ -154,7 +149,6 @@ class EventSerializer(serializers.ModelSerializer):
         instance.updated_by = user
         instance.save()
 
-        # Add new organizations (append-only)
-        self._add_organizations(instance, organizations, user)
-        self._add_tasks(instance, tasks, user)
+        self._update_organizations(instance, organizations, user)
+        self._update_tasks(instance, tasks, user)
         return instance

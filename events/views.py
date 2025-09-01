@@ -30,6 +30,9 @@ from respondents.utils import get_enum_choices
 
 
 class EventViewSet(RoleRestrictedViewSet):
+    '''
+    Viewset that handles all endpoints related to events and demograhic counts. 
+    '''
     permission_classes = [IsAuthenticated]
     serializer_class = EventSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -63,6 +66,7 @@ class EventViewSet(RoleRestrictedViewSet):
         else:
             return Event.objects.none()
 
+        #custom filter params
         host_param = self.request.query_params.get('host')
         if host_param:
             queryset=queryset.filter(host__id=host_param)
@@ -89,9 +93,11 @@ class EventViewSet(RoleRestrictedViewSet):
             "statuses": get_enum_choices(Event.EventStatus),
         })
     
-    #we should probably review this, but there might be a reason we did this, need to review the front end
     @action(detail=False, methods=['get'], url_path='breakdowns-meta')
     def get_breakdowns_meta(self, request):
+        '''
+        Action that pulls a list of values/labels for use when creating counts in the front end. 
+        '''
         sexs = [sex for sex, _ in DemographicCount.Sex.choices]
         sex_labels = [choice.label for choice in DemographicCount.Sex]
         age_ranges = [ar for ar, _ in DemographicCount.AgeRange.choices]
@@ -130,7 +136,7 @@ class EventViewSet(RoleRestrictedViewSet):
     @transaction.atomic
     def destroy(self, request, *args, **kwargs):
         '''
-        Only admins can delete and events that have counts attached should be protected.
+        Only admins can delete events and events that have counts attached should be protected.
         '''
         user = request.user
         instance = self.get_object()
@@ -149,72 +155,6 @@ class EventViewSet(RoleRestrictedViewSet):
 
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-    @transaction.atomic  
-    @action(detail=True, methods=['delete'], url_path='remove-organization/(?P<organization_id>[^/.]+)')
-    def remove_organization(self, request, pk=None, organization_id=None):
-        '''
-        To create a bit more rigidity of removing orgs, create a special action to perform this. It simplifies the 
-        serializer logic and makes the front end easier.
-        '''
-        event = self.get_object()
-        user = request.user
-
-        if user.role != 'admin':
-            is_own_org = event.host == user.organization
-            is_child_org = ProjectOrganization.objects.filter(
-                    parent_organization=user.organization,
-                    organization=event.host
-                ).exists()
-
-            if not (is_own_org or is_child_org):
-                raise PermissionDenied("You do not have permission to remove organizations from this event.")
-        org_link = get_object_or_404(EventOrganization, event=event, organization__id=organization_id)
-        #protect orgs that have counts or tasks with this event (counts should be unnecessary since any count will also have a task, but still)
-        if DemographicCount.objects.filter(event=event, organization=org_link.organization).exists():
-                return Response(
-                    {"detail": "You cannot remove an organization from a project when they are associated with an existing count."},
-                    status=status.HTTP_409_CONFLICT
-                )
-        if EventTask.objects.filter(event=event, task__organization__id=organization_id).exists():
-            return Response(
-                    {"detail": "You cannot remove an organization from a project when they have a task in the organization."},
-                    status=status.HTTP_409_CONFLICT
-                )
-        org_link.delete()
-        return Response({"detail": f"Organization removed from event."}, status=status.HTTP_200_OK)
-
-
-    
-    @transaction.atomic
-    @action(detail=True, methods=['delete'], url_path='remove-task/(?P<task_id>[^/.]+)')
-    def remove_task(self, request, pk=None, task_id=None):
-        '''
-        To create a bit more rigidity of removing tasks, create a special action to perform this. It simplifies the 
-        serializer logic and makes the front end easier.
-        '''
-        event = self.get_object()
-        user = request.user
-
-        if user.role != 'admin':
-            is_own_org = event.host == user.organization
-            is_child_org = ProjectOrganization.objects.filter(
-                    parent_organization=user.organization,
-                    organization=event.host
-                ).exists()
-
-            if not (is_own_org or is_child_org):
-                raise PermissionDenied("You do not have permission to remove organizations from this event.")
-
-        task_link = get_object_or_404(EventTask, event=event, task__id=task_id)
-        if DemographicCount.objects.filter(event=event, task=task_link.task).exists():
-                return Response(
-                    {"detail": "You cannot remove a task from an event when it is associated with an existing count."},
-                    status=status.HTTP_409_CONFLICT
-                )
-        task_link.delete()
-        return Response({"detail": f"Task removed from event."}, status=status.HTTP_200_OK)
-
 
     @action(detail=True, methods=['get'], url_path='get-counts')
     def get_counts(self, request, pk=None):
@@ -252,6 +192,13 @@ class EventViewSet(RoleRestrictedViewSet):
         Since there are a lot of rules around creating counts and this process is pretty complex, we handle creating
         and updating counts in a dedicated action rather than a serializer. The intent is users will edit
         counts in a tabular format that is uploaded in one batch. 
+
+        Endpoint expects counts as an array, with each array containing a dict that has all the information.
+        example : {
+            count: 20 (int),
+            sex: F (string/enum)
+            ...
+        } 
         '''
         event=self.get_object()
         user = request.user
@@ -263,7 +210,7 @@ class EventViewSet(RoleRestrictedViewSet):
                 {'detail': 'You do not have permission to edit event counts.'},
                 status=status.HTTP_403_FORBIDDEN
             )
-        ###===Prevent adding counts for events that haven't happened yet===###
+        ###===Prevent adding counts for events that haven't started yet===###
         if event.start > date.today():
             return Response(
                 {'detail': 'You cannot add counts for events in the future.'},
@@ -284,7 +231,7 @@ class EventViewSet(RoleRestrictedViewSet):
         event_task_ids = set(event_tasks.values_list('task_id', flat=True))
         event_org_ids = set(event_orgs.values_list('organization_id', flat=True))
 
-        #get a list of valid inputs
+        #get a list of valid demographic breakdown values
         valid_sexs = [sex for sex, _ in DemographicCount.Sex.choices]
         valid_age_ranges = [ar for ar, _ in DemographicCount.AgeRange.choices]
         valid_kp_types = [kp for kp, _ in DemographicCount.KeyPopulationType.choices]
@@ -294,10 +241,13 @@ class EventViewSet(RoleRestrictedViewSet):
         valid_hiv = [c for c, _ in DemographicCount.HIVStatus.choices]
         valid_preg = [c for c, _ in DemographicCount.Pregnancy.choices]
 
-        #create seperate lists for new counts or updated counts
-        #if a count has the same breakdowns/same task as a previous task, its considered an update
-            #ex: male, 20-24 = 4 --> male, 20-24 = 6 --> update
-            #male, 20-24 = 4 --> male = 4 --> create (breakdowns are different)
+        '''
+        create seperate lists for new counts or updated counts
+        if a count has the same breakdowns/same task as a previous task, its considered an update
+            ex: male, 20-24 = 4 --> male, 20-24 = 6 --> update 
+            male, 20-24 = 4 --> male = 4 --> create (breakdowns are different)
+        This helps manage flags between edits
+        '''
         to_create = []
         to_update = []
 
@@ -420,7 +370,7 @@ class EventViewSet(RoleRestrictedViewSet):
                         existing_count.count = amount
                         to_update.append(existing_count)
                     continue
-
+                # else create the demofaphic count
                 instance = DemographicCount(
                     event=event, count=amount, sex=sex, age_range=age_range, citizenship=citizenship,
                     hiv_status=hiv_status, pregnancy=pregnancy, disability_type=disability_type,
@@ -440,7 +390,6 @@ class EventViewSet(RoleRestrictedViewSet):
             grouped_obj[task_id].append(count)
         
         for task_id, group in grouped_obj.items():
-        
             for instance in group:
                 count_flag_logic(instance, user)
                 downstream_counts = DemographicCount.objects.filter(event=event, task__indicator__prerequisites=instance.task.indicator)
@@ -474,83 +423,3 @@ class EventViewSet(RoleRestrictedViewSet):
         for count in counts: 
             count.delete() 
         return Response({"detail": f"Count deleted."}, status=status.HTTP_200_OK)
-
-
-    #we need to review how we want to do this
-
-    @action(detail=True, methods=['patch'], url_path='flag-counts/(?P<task_id>[^/.]+)')
-    def flag_all_counts(self, request, pk=None, task_id=None):
-        event=self.get_object()
-        user=request.user
-        reason = request.data.get('reason', None)
-        if user.role not in ['meofficer', 'admin', 'manager']:
-            return Response(
-                {'detail': 'You do not have permission to flag event counts.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        task = Task.objects.filter(id=task_id).first()
-        if not task:
-            return Response(
-                {'detail': 'Invalid task id.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        if user.role != 'admin':
-            if task.organization != user.organization and not ProjectOrganization.objects.filter(organization=task.organization, parent_organization=user.organization).exists():
-                return Response(
-                    {'detail': 'You do not have permission to flag counts for this event.'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-        if reason is None:
-            return Response(
-                {'detail': 'Missing flag reason.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        counts = DemographicCount.objects.filter(event=event, task__id=task_id)
-        to_create = []
-        for count in counts: 
-            instance = CountFlag(count=count, created_by=user, reason=reason)
-            to_create.append(instance)
-        CountFlag.objects.bulk_create(to_create)
-        return Response({"detail": f"Flagged {len(to_create)} counts."}, status=status.HTTP_200_OK)
-    
-    @action(detail=True, methods=['patch'], url_path='resolve-count-flags/(?P<task_id>[^/.]+)')
-    def resolve_all_counts(self, request, pk=None, task_id=None):
-        event=self.get_object()
-        user=request.user
-        reason = request.data.get('resolved_reason', None)
-        if user.role not in ['meofficer', 'admin', 'manager']:
-            return Response(
-                {'detail': 'You do not have permission to flag event counts.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        task = Task.objects.filter(id=task_id).first()
-        if not task:
-            return Response(
-                {'detail': 'Invalid task id.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        if user.role != 'admin':
-             if task.organization != user.organization and not ProjectOrganization.objects.filter(organization=task.organization, parent_organization=user.organization).exists():
-                return Response(
-                    {'detail': 'You do not have permission to flag counts for this event.'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-        if reason is None:
-            return Response(
-                {'detail': 'Missing resolved status.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        flags = CountFlag.objects.filter(count__event=event, count__task__id=task_id)
-        for flag in flags: 
-            flag.resolved = True
-            flag.resolved_at = now()
-            flag.resolved_by = user
-            flag.reason_resolved = reason
-            flag.save()
-        return Response({"detail": f"Resolved {flags.count()} flags."}, status=status.HTTP_200_OK)
-
-        
-            

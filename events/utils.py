@@ -28,6 +28,8 @@ def count_flag_logic(instance, user):
     '''
     Check if event has a prerequisite and if not or the counts do not align (i.e., more people tested positive than tested),
     throw a flag.
+    - instance (count instance): count object to check flag for
+    - user (user instance): user object that helps determine who created/owns the flag
     '''
     existing_flags = instance.flags
     task = instance.task
@@ -51,6 +53,7 @@ def count_flag_logic(instance, user):
 
             reason = f'Task "{task.indicator.name}" has a prerequisite "{prereq.name}" that does not have an associated count.'
             if not prerequisite_count:
+                #check if a flag was already made (resolved or not resolved to prevent reflagging)
                 already_flagged = existing_flags.filter(reason=reason).exists()
                 if not already_flagged:
                     create_flag(instance, reason, user, 'missing_prerequisite')

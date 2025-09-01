@@ -7,6 +7,9 @@ from analysis.utils.collection import get_event_counts_from_indicator, get_inter
 from analysis.utils.periods import get_month_strings_between, get_quarter_strings_between
 
 def get_target_aggregates(user, indicator, split, start=None, end=None, project=None, organization=None):
+    '''
+    
+    '''
     queryset = Target.objects.filter(task__indicator=indicator)
 
     if user.role not in ['admin', 'client']:
@@ -47,18 +50,23 @@ def get_target_aggregates(user, indicator, split, start=None, end=None, project=
 def get_achievement(user, target, related=None):
     '''
     Slightly lighter weight helper that ignores demographics and just gets the raw totals for comparisons against
-    targets.
+    targets. Note that when collecting targets, data for child organizations is automatically included.
 
-    Note that we cascade all of these so that child organizations achievement is included when viewing parents.
+    - user (user instance): for checking permissions
+    - target (target instance): target to collect information about
+    - related (task instance): if this target is measured as the percentage of another task's achievement,
+        pass that task here to get its achievement over the target's time period
     '''
-    task = related if related else target.task
+    task = related if related else target.task # if this is getting achievement for a related task, use related, else use this target's task
     start = target.start
     end = target.end
     indicator = task.indicator
 
     total = 0
-    #respondent and count both use event counts
-    if indicator.indicator_type in [Indicator.IndicatorType.RESPONDENT, Indicator.IndicatorType.COUNT]:
+
+    #if indicator is of the respondent type
+    if indicator.indicator_type in [Indicator.IndicatorType.RESPONDENT]:
+        #start by fetching related event counts
         valid_counts  = get_event_counts_from_indicator(
             user=user,
             indicator=indicator, 
@@ -71,31 +79,31 @@ def get_achievement(user, target, related=None):
             filters=None
         )
         total += sum(count.count or 0 for count in valid_counts)
-        #respondent also pulls interactions
-        if indicator.indicator_type == Indicator.IndicatorType.RESPONDENT:
-            valid_irs = get_interactions_from_indicator(
-                user=user,
-                indicator=indicator,
-                project=task.project,
-                start=start,
-                end=end,
-                cascade=True,
-                organization=task.organization,
-                filters=None
-            )
-            if indicator.require_numeric:
-                if indicator.subcategories.exists():
-                    # Prefetch all subcategories once
-                    subcats = get_interaction_subcats(valid_irs)
-                    # Filter for relevant interactions only
-                    subcats = subcats.filter(interaction__in=valid_irs)
-                    total += sum(cat.numeric_component or 0 for cat in subcats)
-                else:
-                    total += sum(ir.numeric_component or 0 for ir in valid_irs)
+        #get related interactions
+        valid_irs = get_interactions_from_indicator(
+            user=user,
+            indicator=indicator,
+            project=task.project,
+            start=start,
+            end=end,
+            cascade=True,
+            organization=task.organization,
+            filters=None
+        )
+        # add the correct amount to the total, either by numeric component or just the raw count
+        if indicator.require_numeric:
+            if indicator.subcategories.exists():
+                # Prefetch all subcategories once
+                subcats = get_interaction_subcats(valid_irs)
+                # Filter for relevant interactions only
+                subcats = subcats.filter(interaction__in=valid_irs)
+                total += sum(cat.numeric_component or 0 for cat in subcats)
             else:
-                total += valid_irs.count()
+                total += sum(ir.numeric_component or 0 for ir in valid_irs)
+        else:
+            total += valid_irs.count()
 
-    #pull event numbers for raw event count/org count tests
+    # if event numer or org event number, fetch related events
     elif indicator.indicator_type in [Indicator.IndicatorType.EVENT_NO, Indicator.IndicatorType.ORG_EVENT_NO]:
         valid_events = get_events_from_indicator(
             user=user,
@@ -106,11 +114,13 @@ def get_achievement(user, target, related=None):
             end=end, 
             cascade=True,
         )
+        # if event no, add the count of events
         if indicator.indicator_type == Indicator.IndicatorType.EVENT_NO:
             total += len(valid_events)
+        # if org number, add number of participants
         elif indicator.indicator_type == Indicator.IndicatorType.ORG_EVENT_NO:
             total += sum(e.organizations.count() for e in valid_events)
-    #pull posts for social. Using total engagement for now
+    #pull posts for social. Using total engagement for now (though we should probably rethink this)
     elif indicator.indicator_type == Indicator.IndicatorType.SOCIAL:
         valid_posts = get_posts_from_indicator(
             user=user,

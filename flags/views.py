@@ -21,6 +21,9 @@ from respondents.utils import get_enum_choices
 
 
 class FlagViewSet(RoleRestrictedViewSet):
+    '''
+    Viewset managing all endpoints related to flags
+    '''
     permission_classes = [IsAuthenticated]
     serializer_class = FlagSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
@@ -29,6 +32,7 @@ class FlagViewSet(RoleRestrictedViewSet):
     search_fields = ['reason_type', 'reason']
     
     def get_queryset(self):
+        #check perms
         user = self.request.user
         queryset = Flag.objects.all()
         if user.role in ['admin', 'client']:
@@ -44,7 +48,7 @@ class FlagViewSet(RoleRestrictedViewSet):
         else:
             queryset = queryset.filter(caused_by=user)
 
-
+        #filter based on custom URL params
         org_param = self.request.query_params.get('organization')
         if org_param:
             queryset = queryset.filter(caused_by__organization__id=org_param)
@@ -91,6 +95,9 @@ class FlagViewSet(RoleRestrictedViewSet):
     
     @action(detail=False, methods=["get"], url_path='metadata')
     def metadata(self, request):
+        '''
+        Custom endpoint to get metadata realted to flags.
+        '''
         # Apply all filters/search/orderings as usual
         queryset = self.filter_queryset(self.get_queryset())
 
@@ -113,17 +120,31 @@ class FlagViewSet(RoleRestrictedViewSet):
     
     @action(detail=False, methods=['post'], url_path='raise-flag')
     def raise_flag(self, request):
+        '''
+        Custom endpont that allows a user to create a custom flag. Expects payload like
+        data: {
+            model: model_name (str),
+            app: app_name (str), 
+            id: object_id (int),
+            reason_type: type (str/enum),
+            reason: 'reason for flag' (str)
+
+        }
+        '''
+        # currently can only create flags for these models, others do not have the infrastructure
         ALLOWED_FLAG_MODELS = {
             "respondents.respondent",
             "respondents.interaction",
             "events.demographiccount",
             "social.socialmediapost"
         }
+        #check perms
         user = request.user
 
         if user.role not in ['admin', 'meofficer', 'manager']:
             raise PermissionDenied('You do not have permission to raise a flag.')
         
+
         model_str = request.data.get('model')
         obj_id = request.data.get('id')
 
@@ -133,6 +154,7 @@ class FlagViewSet(RoleRestrictedViewSet):
         if model_str.lower() not in ALLOWED_FLAG_MODELS:
             return Response({"detail": "Model not allowed for flagging."}, status=400)
         
+        #try to fetch model
         try:
             app_label, model_name = model_str.lower().split('.')
             model = apps.get_model(app_label, model_name)
@@ -140,12 +162,13 @@ class FlagViewSet(RoleRestrictedViewSet):
                 raise LookupError
         except (ValueError, LookupError):
             return Response({"detail": f'"{model_str}" is not a valid model.'}, status=status.HTTP_400_BAD_REQUEST)
-
+        #fetch object
         try:
             target_obj = model.objects.get(pk=obj_id)
         except model.DoesNotExist:
             return Response({"detail": f"No {model.__name__} with id {obj_id}."}, status=status.HTTP_404_NOT_FOUND)
 
+        #make sure user has perms to create a flag for this object
         if user.role != 'admin':
             try:
                 org = getattr(target_obj.created_by, 'organization', None)
@@ -153,11 +176,13 @@ class FlagViewSet(RoleRestrictedViewSet):
                     return Response({"detail": "You do not have permission to create a flag for this object."}, status=status.HTTP_403_FORBIDDEN)
             except:
                 return Response({"detail": "You do not have permission to create a flag for this object."}, status=status.HTTP_403_FORBIDDEN)
+        #get reason/reason type
         reason_type = request.data.get('reason_type')
         reason = request.data.get('reason')
         if not reason or not reason_type:
             return Response({"detail": "You must provide a reason for creating a flag."}, status=status.HTTP_400_BAD_REQUEST)
 
+        #create the flag
         flag = Flag.objects.create(
             content_type=ContentType.objects.get_for_model(model),
             object_id=target_obj.id,
@@ -166,15 +191,19 @@ class FlagViewSet(RoleRestrictedViewSet):
             reason=reason,
             reason_type=reason_type,
         )
-
+        #return flag
         return Response({"detail": f"{model.__name__} flagged.", "flag": FlagSerializer(flag).data}, 
                 status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['patch'], url_path='resolve-flag')
     def resolve_flag(self, request, pk=None):
+        '''
+        Endpoint that allows a user to resolve a flag
+        '''
         user = request.user
         flag = self.get_object()
 
+        #check perms
         if user.role not in ['admin', 'meofficer', 'manager']:
             return Response({"detail": "You do not have permission to resolve a flag."}, status=status.HTTP_403_FORBIDDEN)
 
@@ -182,18 +211,22 @@ class FlagViewSet(RoleRestrictedViewSet):
             if flag.caused_by.organization != user.organization and not ProjectOrganization.objects.filter(parent_organization=user.organization, organization=flag.caused_by.organization).exists():
                 return Response({"detail": "You do not have permission to resolve a flag for this object."}, status=status.HTTP_403_FORBIDDEN)
 
+        #prevent double resolving
         if flag.resolved:
             return Response({"detail": "This flag is already resolved."}, status=status.HTTP_400_BAD_REQUEST)
 
+        #reason is required
         resolved_reason = request.data.get('resolved_reason')
         if not resolved_reason:
             return Response({"detail": "You must provide a reason for resolving a flag."}, status=status.HTTP_400_BAD_REQUEST)
 
+        #update flag with new info
         flag.resolved = True
         flag.resolved_by = user
         flag.resolved_reason = resolved_reason
         flag.resolved_at = now()
         flag.save()
 
+        #return updated data
         return Response({"detail": "Flag resolved.", "flag": FlagSerializer(flag).data}, status=status.HTTP_200_OK)
     

@@ -8,6 +8,9 @@ from profiles.serializers import ProfileListSerializer
 
 
 class FlagSerializer(serializers.ModelSerializer):
+    '''
+    Serializer for viewing flags (create/resolve is handled through custom actions)
+    '''
     created_by = ProfileListSerializer(read_only=True)
     resolved_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
@@ -17,7 +20,7 @@ class FlagSerializer(serializers.ModelSerializer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # preload content types once
+        # preload content types once to prevent model loading errors
         try:
             ct = ContentType.objects
             self.ct_respondent = ct.get(app_label='respondents', model='respondent')
@@ -27,10 +30,14 @@ class FlagSerializer(serializers.ModelSerializer):
         except Exception:
             self.ct_respondent = None
     def get_model_string(self, obj):
+        #get app/model as a string so the frontend can categorize
         content_type = ContentType.objects.get(id=obj.content_type.id)
         return f"{content_type.app_label}.{content_type.model}"
     
     def get_target(self, obj):
+        '''
+        Get the object type and some information that is required for filtering/linking at the frontend. 
+        '''
         try:
             if obj.content_type == self.ct_respondent:
                 return {

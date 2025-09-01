@@ -7,7 +7,8 @@ from organizations.models import Organization
 User = get_user_model()
 class ChartField(models.Model):
     '''
-    Shared enum storing model that handles controlled filter/legend/stack fields 
+    Shared enum storing model that handles controlled filter/legend/stack fields. If adding any fields to 
+    the respondent/demogrpahic count model, make sure to reflect those changes here as well as [./utils/interactions_prep.py]
     (see the events.models --> Demogrpahic count for more).
     '''
     class Field(models.TextChoices):
@@ -32,7 +33,8 @@ class IndicatorChartSetting(models.Model):
         -Bar supports an axis (time period), legend (field), and stack (second field), unless multiple indicators are present
         -Line supports an axis and legend
         -Pie supports a legend
-    All charts can also be filtered by the fields above. All charts can also include a data table.
+    All charts can also be filtered by the fields above (except organization, which is managed at the dashboard level and metric). 
+    All charts can also include a data table.
     '''
     class ChartType(models.TextChoices):
         PIE = 'pie', _('Pie Chart')
@@ -43,14 +45,14 @@ class IndicatorChartSetting(models.Model):
         QUARTER = 'quarter', _('Quarter')
     
     name = models.CharField(max_length=255, blank=True, null=True)
-    indicators = models.ManyToManyField(Indicator, through='ChartIndicator')
+    indicators = models.ManyToManyField(Indicator, through='ChartIndicator') # indicators to chart. More than one indicator and the indicator will be treated as the legend
     chart_type = models.CharField(max_length=25, choices=ChartType.choices, default=ChartType.BAR, null=True, blank=True)
     tabular = models.BooleanField(default=False) #also show a data table
-    axis = models.CharField(max_length=25, choices=AxisOptions.choices, default=AxisOptions.QUARTER, null=True, blank=True)
-    legend = models.CharField(max_length=25, choices=ChartField.Field.choices, default=None, null=True, blank=True)
-    stack = models.CharField(max_length=25, choices=ChartField.Field.choices, default=None, null=True, blank=True)
+    axis = models.CharField(max_length=25, choices=AxisOptions.choices, default=AxisOptions.QUARTER, null=True, blank=True) # time period to display on x axis (corresponds to split)
+    legend = models.CharField(max_length=25, choices=ChartField.Field.choices, default=None, null=True, blank=True) # legend (corresponds to params)
+    stack = models.CharField(max_length=25, choices=ChartField.Field.choices, default=None, null=True, blank=True) #for bar charts (second param)
     use_target = models.BooleanField(default=False) #determines whether or not to show targets (will disable legend/stack)
-    filters = models.ManyToManyField(ChartField, through='ChartFilter', blank=True, related_name='chart_filters')
+    filters = models.ManyToManyField(ChartField, through='ChartFilter', blank=True, related_name='chart_filters') #chart field filters
     
     #for mapping repeated only
     repeat_only = models.BooleanField(default=False)
@@ -65,12 +67,18 @@ class IndicatorChartSetting(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 class ChartIndicator(models.Model):
+    '''
+    Through model to store indicators
+    '''
     chart = models.ForeignKey(IndicatorChartSetting, on_delete=models.CASCADE)
     indicator = models.ForeignKey(Indicator, on_delete=models.CASCADE)
     class Meta:
         unique_together = ('chart', 'indicator')
 
 class ChartFilter(models.Model):
+    '''
+    Through model to store filter fields
+    '''
     chart = models.ForeignKey(IndicatorChartSetting, on_delete=models.CASCADE, related_name='chart_for_filter')
     field = models.ForeignKey(ChartField, on_delete=models.CASCADE, related_name='chart_filter')
     value = models.CharField(max_length=100)
@@ -78,20 +86,26 @@ class ChartFilter(models.Model):
         unique_together = ('chart', 'field', 'value')
 
 class DashboardSetting(models.Model):
+    '''
+    Settings that control a dashboard, or a collection of charts. 
+    '''
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='dashboard_settings')
-    filters = models.ManyToManyField(ChartField, through='DashboardFilter', blank=True)
+    filters = models.ManyToManyField(ChartField, through='DashboardFilter', blank=True) #currently not used
     charts = models.ManyToManyField(IndicatorChartSetting, through='DashboardIndicatorChart', blank=True)
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
-    project = models.ForeignKey(Project, on_delete=models.SET_NULL, null=True)
-    organization = models.ForeignKey(Organization, on_delete=models.SET_NULL, null=True)
-    cascade_organization = models.BooleanField(default=False)
+    project = models.ForeignKey(Project, on_delete=models.SET_NULL, null=True) #filters all dashboard charts to a project
+    organization = models.ForeignKey(Organization, on_delete=models.SET_NULL, null=True) #filters all dashboard charts to an organization
+    cascade_organization = models.BooleanField(default=False) #if project/organization are provided, also includes data from child organizations
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     
 
 class DashboardFilter(models.Model):
+    '''
+    Through model for dashboard filters. Not currently used.
+    '''
     dashboard = models.ForeignKey(DashboardSetting, on_delete=models.CASCADE)
     field = models.ForeignKey(ChartField, on_delete=models.CASCADE, related_name='dashboard_filter')
     value = models.CharField(max_length=100)
@@ -99,6 +113,9 @@ class DashboardFilter(models.Model):
         unique_together = ('dashboard', 'field', 'value')
 
 class DashboardIndicatorChart(models.Model):
+    '''
+    Through table that links a dashboard to a set of charts. Currently order/width/height is unused. 
+    '''
     dashboard = models.ForeignKey(DashboardSetting, on_delete=models.CASCADE)
     chart = models.ForeignKey(IndicatorChartSetting, on_delete=models.CASCADE)
     order = models.PositiveIntegerField(default=0)
@@ -136,11 +153,15 @@ class PivotTableParam(models.Model):
     field = models.ForeignKey(ChartField, on_delete=models.CASCADE)
 
 class LineList(models.Model):
+    '''
+    Model that stores information about a line list. Accepts project, organization, indicator, start, and end
+    as filters. 
+    '''
     name = models.CharField(max_length=255, null=True, blank=True)
     indicator = models.ForeignKey(Indicator, on_delete=models.CASCADE, null=True)
     project = models.ForeignKey(Project, on_delete=models.SET_NULL, null=True)
     organization = models.ForeignKey(Organization, on_delete=models.SET_NULL, null=True)
-    cascade_organization = models.BooleanField(default=False) #will also include child organizations of the selected organization
+    cascade_organization = models.BooleanField(default=False) #will also include child organizations of the selected organization if project/organization are provided
     start = models.DateField(null=True, blank=True)
     end = models.DateField(null=True, blank=True)
     

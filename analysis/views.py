@@ -31,7 +31,11 @@ from io import StringIO
 
 #we may potentially need to rethink the user perms if we have to link this to other sites
 class LineListViewSet(RoleRestrictedViewSet):
+    '''
+    Manages all endpoints for creating/viewing line lists.
+    '''
     def get_serializer_class(self):
+        #return lightweight serializer for list view
         if self.action == 'list':
             return LineListListSerializer #for panel showing list of line lists
         else:
@@ -42,6 +46,9 @@ class LineListViewSet(RoleRestrictedViewSet):
     
     @action(detail=True, methods=['get'], url_path='download')
     def download_csv(self, request, pk=None):
+        '''
+        Special action for downloading a line list as a CSV file
+        '''
         user = request.user
         if user.role not in ['client', 'admin', 'meofficer', 'manager']:
             return Response(
@@ -56,6 +63,7 @@ class LineListViewSet(RoleRestrictedViewSet):
         rows = serialized.get('data', [])
 
         def serialize_value(value):
+            #helper function that converts date values and lists to strings
             if isinstance(value, date):
                 return value.isoformat()
             elif isinstance(value, list):
@@ -71,14 +79,19 @@ class LineListViewSet(RoleRestrictedViewSet):
         writer = csv.DictWriter(response, fieldnames=rows[0].keys())
         writer.writeheader()
         for row in rows:
-            serialized_row = {k: serialize_value(v) for k, v in row.items()}
+            serialized_row = {k: serialize_value(v) for k, v in row.items()} #serialize each value
             writer.writerow(serialized_row)
 
         return response
 
 #we may potentially need to rethink the user perms if we have to link this to other sites
 class TablesViewSet(RoleRestrictedViewSet):
+    '''
+    Manages all endpoints related to pivot tables, and tentatively handles a couple of transitory
+    API endpoints that return aggregates. 
+    '''
     def get_serializer_class(self):
+        #return lightweight serializer for index views
         if self.action == 'list':
             return PivotTableListSerializer #for panel showing list of pivot tables
         else:
@@ -90,6 +103,9 @@ class TablesViewSet(RoleRestrictedViewSet):
 
     @action(detail=True, methods=['get'], url_path='download')
     def download_csv(self, request, pk=None):
+        '''
+        Action to download pivot table as a CSV. 
+        '''
         user = request.user
         if user.role not in ['client', 'admin', 'meofficer', 'manager']:
             return Response(
@@ -97,11 +113,13 @@ class TablesViewSet(RoleRestrictedViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         table = self.get_object()
+        #fetch params
         params = {}
         table_params = [param.name for param in table.params.all()]
         params = {}
         for cat in ['id', 'age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory', 'platform', 'metric']:
             params[cat] = cat in table_params
+        #pull aggregates based on params
         aggregates = aggregates_switchboard(
             user=user,
             indicator=table.indicator,
@@ -122,113 +140,7 @@ class TablesViewSet(RoleRestrictedViewSet):
             )
         timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         filename = f'aggregates_{table.indicator.code}_{timestamp}.csv'
-        #convert to csv
-        rows = prep_csv(aggregates, params)
-        fieldnames = rows[0]
-        buffer = StringIO()
-        writer = csv.DictWriter(buffer, fieldnames=fieldnames)
-        writer.writeheader()
-
-        for row in rows[1:]:
-            row_dict = dict(zip(fieldnames, row))
-            writer.writerow(row_dict)
-
-        response = HttpResponse(buffer.getvalue(), content_type='text/csv')
-        response['Content-Disposition'] = f'attachment; filename="{filename}"'
-        return response
-    
-    @action(detail=False, methods=["get"], url_path='aggregate/(?P<indicator_id>[^/.]+)')
-    def indicator_aggregate(self, request, indicator_id=None):
-        '''
-        Action that pulls indicators and gets the counts as a JSON object.
-        '''
-        user = request.user
-        if user.role not in ['client', 'admin', 'meofficer', 'manager']:
-            return Response(
-                {"detail": "You do not have permission to view aggregated counts."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        '''
-        Get the indicator
-        '''
-        indicator = Indicator.objects.filter(id=indicator_id).first()
-        if not indicator:
-            return Response(
-                {"detail": "Please provide a valid indicator id to view aggregate counts."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        '''
-        Get any filter params
-        '''
-        project_id = request.query_params.get('project')
-        organization_id = request.query_params.get('organization')
-        start = request.query_params.get('start')
-        end = request.query_params.get('end')
-        project = Project.objects.filter(id=project_id).first() if project_id else None
-        organization = Organization.objects.filter(id=organization_id) if organization_id else None
-
-        params = {}
-        for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory']:
-            params[cat] = request.query_params.get(cat) in ['true', '1']
-        
-        #split, i.e. time period
-        split = request.query_params.get('split')
-
-        repeat_param = request.query_params.get('repeat_only')
-        repeat_only = False
-        n = None
-        if repeat_param:
-            try:
-                n = int(repeat_param)
-                repeat_only = True
-            except ValueError:
-                # Optional: handle 'true' or 'false' strings if needed
-                if repeat_param.lower() in ['true', 'yes']:
-                    n = 2  # Default value
-                    repeat_only = True
-        #aggregator function from anlysis.utils
-        aggregate = aggregates_switchboard(user, indicator, params, split, project, organization, start, end, None, repeat_only, n)
-        return Response(
-                {"counts": aggregate},
-                status=status.HTTP_200_OK
-            )
-    
-    @action(detail=False, methods=["get"], url_path='download-indicator-aggregate/(?P<indicator_id>[^/.]+)')
-    def download_indicator_aggregate(self, request, indicator_id=None):
-        '''
-        Very similar to the above action but takes the extra step to conver the data to csv format with a header row.
-        '''
-        user = request.user
-        if user.role not in ['client', 'admin', 'meofficer', 'manager']:
-            return Response(
-                {"detail": "You do not have permission to view aggregated counts."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        indicator = Indicator.objects.filter(id=indicator_id).first()
-        if not indicator:
-            return Response(
-                {"detail": "Please provide a valid indicator id to view aggregate counts."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        params = {}
-        for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy']:
-            params[cat] = request.query_params.get(cat) in ['true', '1']
-        split = request.query_params.get('split')
-        aggregates = aggregates_switchboard(user, indicator, params, split)
-
-        if not aggregates:
-            return Response(
-                {"detail": "No aggregate data found for this indicator."},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        filename = f'aggregates_{indicator.code}_{timestamp}.csv'
-
-        #convert tot csv
+        #convert aggregates to format that looks a bit more like a pivot table, with one param being used as column headers
         rows = prep_csv(aggregates, params)
         fieldnames = rows[0]
         buffer = StringIO()
@@ -244,11 +156,14 @@ class TablesViewSet(RoleRestrictedViewSet):
         return response
 
 class DashboardSettingViewSet(RoleRestrictedViewSet):
+    '''
+    Manges all endpoints related to dashboards/charts
+    '''
     serializer_class = DashboardSettingSerializer  # default
 
     def get_serializer_class(self):
         if self.action == 'list':
-            return DashboardSettingListSerializer #for panel showing list of dashboards
+            return DashboardSettingListSerializer #for index components
         else:
             return DashboardSettingSerializer #for dedicated views
         
@@ -308,7 +223,7 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
         use_target = str(request.data.get('use_target')).lower() in ['true', '1'] #show targets if provided
         tabular = str(request.data.get('tabular')).lower() in ['true', '1'] #show a data table underneath
         name = request.data.get('name')
-
+        #for only showing repeat interactions
         n=None
         repeat = str(request.data.get('repeat_only')).lower() in ['true', '1']
         if repeat:
@@ -407,8 +322,12 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
     @action(detail=True, methods=['patch'], url_path='filters/(?P<chart_link_id>[^/.]+)')
     @transaction.atomic
     def update_chart_filters(self, request, pk=None, chart_link_id=None):
+        '''
+        Endpoint that updates a charts filters
+        '''
         chart_link = get_object_or_404(DashboardIndicatorChart, id=chart_link_id)
         chart = chart_link.chart
+        #filters should be passed as a dict with a {filter_name: [values]} format
         filters_map = request.data.get('filters', {})
         if not isinstance(filters_map, dict):
             return Response({"detail": "Invalid filters format, expected an object."}, status=status.HTTP_400_BAD_REQUEST)
@@ -419,7 +338,7 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
         valid_fields = [field.value for field in ChartField.Field]
         # Create new filters
         for field_name, values in filters_map.items():
-            
+            #scan for any rogue filters
             if field_name in valid_fields:
                 field_obj = ChartField.objects.get_or_create(name=field_name)[0] 
             else:
@@ -450,7 +369,7 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
     @action(detail=False, methods=['get'], url_path='breakdowns')
     def get_breakdowns_meta(self, request):
         '''
-        Map the front end can use to get prettier names for the user.
+        Map the front end can use to get prettier names for the user. 
         '''
         breakdowns = {}
 

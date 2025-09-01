@@ -2,9 +2,16 @@ from datetime import date
 from respondents.models import Interaction
 from projects.models import ProjectOrganization
 from analysis.utils.aggregates import get_hiv_statuses, get_pregnancies, get_interaction_subcats
-def prep_line_list(user, start=None, end=None, indicator=None, project=None, organization=None, cascade=None):
+def prep_line_list(user, start=None, end=None, indicator=None, project=None, organization=None, cascade=False):
     '''
     Collect a list of interactions and return them as an array of set rows for a line list
+    - user (user instance): used to check permissions
+    - start (ISO date string, optional): only collect interactions after this date
+    - end (ISO date string, optional): only collect interactions before this date
+    - indicator (indicator instance, optional): only collect interactions whose task is realted to this indicator
+    - project (project instance, optional): only collect interactions whose task is related to this project
+    - organization (organization instance, optional): only collect interactions whose task is related to this org
+    - cascade (boolean, optional): if project and organization are provided, also collect interactions from child organizations
     '''
     queryset= Interaction.objects.all()
     
@@ -33,7 +40,7 @@ def prep_line_list(user, start=None, end=None, indicator=None, project=None, org
         queryset=queryset.filter(task__project=project)
     
     if organization:
-        #orgs relations are scoped by project, so only allow for cascading within the bounds of a specific project
+        # if project, organization, and cascade, also fetch data from any child orgs
         if cascade and project:
             accessible_orgs = list(
                 ProjectOrganization.objects.filter(
@@ -53,7 +60,7 @@ def prep_line_list(user, start=None, end=None, indicator=None, project=None, org
     if end:
         queryset=queryset.filter(interaction_date__lte=end)
     
-    #prefetch related crap
+    #prefetch related information used to build the line list
     queryset = queryset.select_related(
         'respondent',
         'task',
@@ -72,6 +79,7 @@ def prep_line_list(user, start=None, end=None, indicator=None, project=None, org
     pregnancies_map = get_pregnancies(respondent_ids=respondent_ids)
 
     rows = [] #stores the line list items
+    #loop through each interaction and build a row object
     for i, ir in enumerate(queryset):
         respondent = ir.respondent
         row = {

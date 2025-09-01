@@ -14,11 +14,11 @@ def create_alert_on_flag(sender, instance, created, **kwargs):
     Flag alerts should be sent by default to:
         -admins
         -M&E officer of the organization of the flag
-        -the user who caused the flag (if they did not also create it)
-
-    created --> was the object created. Do not alert for updates.
-
+        -the user who caused the flag (if it was system generated)
+    - instance (flag instnace): the flag object
+    - created: was the object created. Do not alert for flag updates.
     '''
+
     if not created:
         return
     def send_alert():
@@ -52,6 +52,7 @@ def create_alert_on_flag(sender, instance, created, **kwargs):
 def create_alert_on_resolve(sender, instance, **kwargs):
     '''
     Let relevent users (same as above) know when a flag was resolved so they can review the reason.
+    - instance (flag instnace): the flag object being resolved
     '''
     if not instance.pk:
         # New flag, nothing to compare

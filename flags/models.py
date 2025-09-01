@@ -12,6 +12,9 @@ class Flag(models.Model):
     model, but is mostly used for interactions, respondents, event counts, and social media posts.
     '''
     class FlagReason(models.TextChoices):
+        '''
+        Higher level flag reasons that can be used for filtering or metadata analysis
+        '''
         DUP = 'duplicate', _('Potential Duplicate') #may be duplicated or needs review 
         ERR = 'entry_error', _('Data Entry Error') #likely typo (invalid Omang, etc.)
         SUS = 'suspicious', _('Suspicious Entry') #somethings off, like a count is higher than it should be
@@ -20,11 +23,8 @@ class Flag(models.Model):
         MD = 'missing_data', _('Missing Data') #some necessary information is missing
         OTHER = 'other', _('Other Reason')
 
-    '''
-    Track information about what was flagged and why.
-    '''
-    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    object_id = models.PositiveIntegerField()
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE) #model of related object
+    object_id = models.PositiveIntegerField() #object id
     target = GenericForeignKey("content_type", "object_id")
 
     reason_type = models.CharField(max_length=32, choices=FlagReason.choices, default='other')

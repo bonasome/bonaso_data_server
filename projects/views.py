@@ -417,7 +417,7 @@ class TaskViewSet(RoleRestrictedViewSet):
         '''
         Special mobile action to get all tasks that are active so the user can download all of their tasks at once.
         '''
-        queryset = self.filter_queryset(self.get_queryset())
+        queryset = self.get_queryset()
         queryset = queryset.filter(indicator__status=Indicator.Status.ACTIVE, project__status=Project.Status.ACTIVE, indicator__indicator_type=Indicator.IndicatorType.RESPONDENT)
         # No pagination
         serializer = self.get_serializer(queryset, many=True)

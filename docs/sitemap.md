@@ -63,7 +63,7 @@ Contains uploaded files (primarily from the uploads app)
 - Storing favorites (currently support favorite projects, respondents, and events, but this could be expanded since we use a generic foreign key system)
 
 [**Important Models**](/profiles/models.py):
-- FavoriteObject (generic FK)
+- FavoriteObject (generic FK): Takes a content type and an object id and stores it as a "favorited" object that can be sent to the frontend to provide a quick link to that object.
 
 [**Important Views/Actions**](/profiles/views.py):
 - activity: Custom action on **ProfilesViewSet**. Gets a users activity (as collected by [get_user_activity](/profiles/utils.py))
@@ -90,7 +90,7 @@ Contains uploaded files (primarily from the uploads app)
 
 ---
 
-## INDICATORS:
+## Indicators:
 **At a glance**: Higher level information about indicators/things the site needs to track.
 
 **Description**: An indicator is any metric that we want this system to track, and serves as the central unifying component of the entire system. 
@@ -102,28 +102,29 @@ Contains uploaded files (primarily from the uploads app)
 **Permissions**: Only admins can create/edit indicators. For the purpose of assigning tasks, M&E Officers/Managers can view indicators for tasks they have been assigned. 
 
 **Notes**:
+
 *Indicator Types*: There are several different types of indicators:
 - Respondent: This is an indicator that is meant to be linked directly to one person (or a set of demographic information).
-- *Example*: Tested for HIV
+    - *Example*: Tested for HIV
 
 - Social: This is an indicator that is meant to be linked directly to a social media post.
-- *Example*: Number of People Reached with HIV Prevention Messages on Social Media
+    - *Example*: Number of People Reached with HIV Prevention Messages on Social Media
 - Number of Events: This is an indicator that is tied to an event and automatically counts the number of linked completed events.
-- *Example*: Number of Media Engagements Held
+    - *Example*: Number of Media Engagements Held
 
 - Number of Organizations at Event: This is an indicator that is tied to an event and counts the number of participants (FK organization) at a completed event.
-- *Example*: Number of Organizations Trained
+    - *Example*: Number of Organizations Trained
 
- -Counts (do not use): This is a misc. option but will not be pulled in any aggregates. 
+- Counts (**NOT IN USE**): This is designed as a misc. option, but will not currently be pulled in any aggregates due to a lack of identified need for the option. 
 
 *Attached Data*: Indicators are by default just an "it happened", but additional information can be attached:
 - Indicators can require a number (toggle the require_numeric boolean).
-- *Example*: Number of Lubricants Distributed
+    - *Example*: Number of Lubricants Distributed
 
 - Indicators can require specific subcategories be selected for additional information
-- *Example*:: Screened for NCDs → subcategories: BMI, Blood Glucose, Blood Pressure (the user will select which ones apply)
+    - *Example*:: Screened for NCDs → subcategories: BMI, Blood Glucose, Blood Pressure (the user will select which ones apply)
 - Subcategories and require a number can be combined.
-- *Example*: Number of Condoms Distrubted → subcategories: Male Condom, Female Condom, with a number associated with both male condoms and female condoms
+    - *Example*: Number of Condoms Distrubted → subcategories: Male Condom, Female Condom, with a number associated with both male condoms and female condoms
 
 *Managing Subcategories*: Indicator subcategories cannot be removed from an indicator (since this could delete or nullify existing data), so instead if an indicator's subcategories need to be changed, old ones can be deprecated. 
 
@@ -135,7 +136,7 @@ Contains uploaded files (primarily from the uploads app)
 - Require Attribute: If the respondent undergoing this indicator needs to have a speicifc attribute (example: to complete an interaction with the indicator "People Living With HIV Trained for Self-Defense", the respondent should be a Person Living with HIV).
 
 - Match Subcategories To: If an indicator should share subcategories with a prerequisite, their categories can be explcitly matched, in which case editing subcategories for the parent will automatically reflect in the dependent indicator and the system will throw a flag if the dependent indicator's subcategories are not a subset of the parent.
-- *Example*: Screened for NCDs → Referred for NCDs, can share subcategories (BMI, Blood Glucose, Blood Pressure), and shold throw a flag if a person was referred for BMI but not screened for BMI.
+    - *Example*: Screened for NCDs → Referred for NCDs, can share subcategories (BMI, Blood Glucose, Blood Pressure), and shold throw a flag if a person was referred for BMI but not screened for BMI.
 
 *Governs Attribute*: This is a feature still in development, but if an interaction with this indicator is had, it can automatically update certain respondent statuses. Currently on used so that if a respondent has an interaction for "Tested Positive for HIV* their HIV status automatically updates. This could be expanded in the future. 
 

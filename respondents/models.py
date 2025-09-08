@@ -56,9 +56,9 @@ class RespondentAttributeType(models.Model):
     manage that.
     '''
     class Attributes(models.TextChoices):
-        PLWHIV = 'PLWHIV', _('Person Living with HIV')
-        PWD = 'PWD', _('Person Living with a Disability')
-        KP = 'KP', _('Key Population')
+        PLWHIV = 'PLWHIV', _('Person Living with HIV') #auto generated
+        PWD = 'PWD', _('Person Living with a Disability') #auto generated
+        KP = 'KP', _('Key Population') #auto generated
         COMMUNITY_LEADER = 'community_leader', _('Community Leader')
         CHW = 'CHW', _('Community Health Worker')
         STAFF = 'staff', _('Organization Staff')

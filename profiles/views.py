@@ -123,8 +123,10 @@ class ProfileViewSet(RoleRestrictedViewSet):
         '''
         Get labels for the front end to assure consistency.
         '''
+        roles = get_enum_choices(User.Role)
+        roles = [r for r in roles if r['value'] not in ['supervisor', 'view_only']]
         return Response({
-            "roles": get_enum_choices(User.Role),
+            "roles": roles,
         })
 
     @action(detail=False, methods=['get'], url_path='get-favorites')

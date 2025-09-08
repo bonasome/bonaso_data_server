@@ -6,6 +6,8 @@ The following is a basic overview of the server structure and the apps it contai
 
 ## Contents:
 - [General](#general)
+    - [BonasoDataServer](#bonaso_data_server)
+    - [Media](#media)
 - [Users](#users)
 - [Profiles](#profiles)
 - [Organizations](#organizations)
@@ -21,66 +23,67 @@ The following is a basic overview of the server structure and the apps it contai
 
 ---
 
-## general:
+## General:
 ### [bonaso_data_server](/bonaso_data_server):
-contains high level project information. Most notably:
-    - urls.py --> sets up the app level urls (first layer)
-     - settings.py --> controls high level project settings, including the database, pagination settings, important auth settings, and some other meta settings. 
 
-### media [media]:
-contains uploaded files (primarily from the uploads app)
+Meta folder that contains high level project information. Most notably:
+- [urls.py](/bonaso_data_server/urls.py) → Sets up the app level urls (first layer)
+- [settings.py](/bonaso_data_server/settings.py) → Controls high level project settings, including the  database, pagination settings, important auth settings, and some other meta settings. 
+
+### [media](/media/):
+Contains uploaded files (primarily from the uploads app)
 
 ---
 
-## USERS:
-**At a glance**: Anything related to user verification, password management, or user creation should live here.
+## Users:
+**At a glance**: Anything related to user verification, password management, or user creation should live here. But information realted to user profiles (managing names, activity, etc.) should live in [Profiles](#profiles).
 
 **Description**: The users app controls features related to user authentication, including handling our login/logout system, password resets, and user creation. 
 
-**Important Models**:
-    - User (custom extended user model) 
+[**Important Models**](/users/models.py):
+    - User (custom extended user model). Includes the key extension fields of Organization (which organization a user is linked to that manages what content they can see), Client Organization (same thing but specific for the client role), and Role (which sets a user's base permissions).
 
-**Important Views/Actions**:
-    - ApplyForNewUser ([users/views], APIView): View that allows for a user to create another user assuming they have appropriate permissions.
-    - AdminResetPasswordView ([users/views], APIView): View that allows for an admin to reset a user's password.
+[**Important Views/Actions**](/users/views.py):
+    - ApplyForNewUser: APIView that allows for a user to create another user assuming they have appropriate permissions.
+    - AdminResetPasswordView: APIView that allows for an admin to reset a user's password.
 
 **Permissions**: M&E Officers/Managers/Admins/Clients can create users. Clients can only create other clients, while M&E Officers/Managers cannot create clients or admins. Admins can create all.
 
-**Notes**: For more detailed information about authentication rules, please reference [auth.md].
+**Notes**: For more detailed information about authentication rules, please reference [auth.md](/docs/auth.md).
 
 ---
 
-## PROFILES:
+## Profiles:
 **At a glance:** More superficial aspects of a users account that do not directly relate to authentication.
 
-**Description**: The profiles app houses most features related to the User model that is not explicitly auth related. It is mostly used for 
-    - Viewing a users profile.
-    - Editing their username/name/email account
-    - Viewing user activity (objects created/edited)
-    - Storing favorites (currently support favorite projects, respondents, and events, but this could be expanded since we use a generic foreign key system)
+**Description**: The profiles app houses most features related to the User model that is not explicitly auth related. It is mostly used for:
+- Viewing a users profile.
+- Editing their username/name/email account
+- Viewing user activity (objects created/edited)
+- Storing favorites (currently support favorite projects, respondents, and events, but this could be expanded since we use a generic foreign key system)
 
-**Important Models**:
+[**Important Models**](/profiles/models.py):
     - FavoriteObject (generic FK)
 
-**Important Views/Actions**:
-    - activity ([profiles/views.py], custom action on ProfilesViewSet): Gets a users activity (as collected by get_user_activity at [profiles/utils.py])
-    - get_favorites ([profiles/views.py], custom action on ProfilesViewSet): Gets a list of all of users favorited items.
-    - is_favorited ([profiles/views.py], custom action on ProfilesViewSet): Checks if a item is favorited, given it is provided an app.model string and an ID number (using get_favorited_object at [profiles/utils.py]).
-    - favorite ([profiles/views], custom action on ProfilesViewSet): Favorites an item given an app.model string and ID number (using get_favorited_object at [profiles/utils.py]).
-    - unfavorite ([profiles/views.py], custom action on ProfilesViewSet): Unfavorites (deletes a favorite instance) an item given an app.model string and an ID number (using get_favorited_object at [profiles/utils.py]).
+[**Important Views/Actions**](/profiles/views.py):
+- activity: Custom action on **ProfilesViewSet**. Gets a users activity (as collected by [get_user_activity](/profiles/utils.py))
+- get_favorites: Custom action on **ProfilesViewSet**. Gets a list of all of users favorited items.
+- is_favorited: Custom action on **ProfilesViewSet**. Checks if a item is favorited, given it is provided an app.model string and an ID number (using [get_favorited_object](/profiles/utils.py)).
+- favorite: Custom action on **ProfilesViewSet**. Favorites an item given an app.model string and ID number (using [get_favorited_object](/profiles/utils.py)).
+- unfavorite: Custom action on **ProfilesViewSet**. Unfavorites (deletes a favorite instance) an item given an app.model string and an ID number (using [get_favorited_object](/profiles/utils.py)).
 
 **Permissions**: Admins can see/edit any profile. M&E Officers/Managers can edit profiles for their organizaiton/their child orgs. Other roles can only view/edit their own profile. 
 
-**Notes**: ProfileListSerializer ([profiles/serializers.py]) is used in many other serializers for the created_by/updated_by field. 
+**Notes**: [ProfileListSerializer](/profiles/serializers.py) is used in many other serializers for the created_by/updated_by field. 
 
 ---
 
-## ORGANIZATIONS:
+## Organizations:
 **At a glance**: Content related to the organization.
 
 **Description**: Organizations are used to help group users together and manage what content they should see (since each user is associated with an organization). Organizations are primarily a permissions helper, but they also contain some contact information and descriptive information about an organization that can be referenced if needed. 
 
-**Important Models**:
+[**Important Models**](/organizations/models.py):
     - Organization: Contains an organization and some basic descriptive information about it. 
 
 **Permissions**: Admins can see all content. M&E Officers/Managers can see content related to their org or their child orgs. Others have no need to see organizations. 
@@ -92,53 +95,53 @@ contains uploaded files (primarily from the uploads app)
 
 **Description**: An indicator is any metric that we want this system to track, and serves as the central unifying component of the entire system. 
 
-**Important Models**:
-    - Indicator: Contains information about the indicator and its special validation/information requirements.
-    - Indicator Subcategory: Contains information about indicator subcategories, which is important for matching subcategories and deprecating subcategories. 
+[**Important Models**](/indicators/models.py):
+- Indicator: Contains information about the indicator and its special validation/information requirements.
+- Indicator Subcategory: Contains information about indicator subcategories, which is important for matching subcategories and deprecating subcategories. 
 
 **Permissions**: Only admins can create/edit indicators. For the purpose of assigning tasks, M&E Officers/Managers can view indicators for tasks they have been assigned. 
 
 **Notes**:
 *Indicator Types*: There are several different types of indicators:
-    -Respondent: This is an indicator that is meant to be linked directly to one person (or a set of demographic information).
-        - USE EXAMPLE: Tested for HIV
+- Respondent: This is an indicator that is meant to be linked directly to one person (or a set of demographic information).
+- *Example*: Tested for HIV
 
-    - Social: This is an indicator that is meant to be linked directly to a social media post.
-        - USE EXAMPLE: Number of People Reached with HIV Prevention Messages on Social Media
-    - Number of Events: This is an indicator that is tied to an event and automatically counts the number of linked completed events.
-        - USE EXAMPLE: Number of Media Engagements Held
+- Social: This is an indicator that is meant to be linked directly to a social media post.
+- *Example*: Number of People Reached with HIV Prevention Messages on Social Media
+- Number of Events: This is an indicator that is tied to an event and automatically counts the number of linked completed events.
+- *Example*: Number of Media Engagements Held
 
-    -Number of Organizations at Event: This is an indicator that is tied to an event and counts the number of participants (FK organization) at a completed event.
-        - USE EXAMPLE: Number of Organizations Trained
+- Number of Organizations at Event: This is an indicator that is tied to an event and counts the number of participants (FK organization) at a completed event.
+- *Example*: Number of Organizations Trained
 
-    -Counts (do not use): This is a misc. option but will not be pulled in any aggregates. 
+ -Counts (do not use): This is a misc. option but will not be pulled in any aggregates. 
 
 *Attached Data*: Indicators are by default just an "it happened", but additional information can be attached:
-    - Indicators can require a number (toggle the require_numeric boolean).
-        - USE EXAMPLE: Number of Lubricants Distributed
+- Indicators can require a number (toggle the require_numeric boolean).
+- *Example*: Number of Lubricants Distributed
 
-    - Indicators can require sspecific subcategories be selected for additional information
-        - USE EXAMPLE: Screened for NCDs --> subcategories: BMI, Blood Glucose, Blood Pressure (the user will select which ones apply)
-        - Subcategories and require a number can be combined.
-            - USE EXAMPLE: Number of Condoms Distrubted --> subcategories: Male Condom, Female Condom, with a number associated with both male condoms and female condoms
+- Indicators can require specific subcategories be selected for additional information
+- *Example*:: Screened for NCDs → subcategories: BMI, Blood Glucose, Blood Pressure (the user will select which ones apply)
+- Subcategories and require a number can be combined.
+- *Example*: Number of Condoms Distrubted → subcategories: Male Condom, Female Condom, with a number associated with both male condoms and female condoms
 
-*Subcategories*: Indicator subcategories cannot be removed from an indicator (since this would delete or nullify existing data), so instead if an indicator's subcategories need to be changed, old ones can be deprecated. 
+*Managing Subcategories*: Indicator subcategories cannot be removed from an indicator (since this could delete or nullify existing data), so instead if an indicator's subcategories need to be changed, old ones can be deprecated. 
 
 *Validation*: Indicators have some built in validation methods (mostly for respondent type):
-    - Allow Repeat: If the same person has an interaction associated with the same interaction more than once in 30 days, it will be flagged by default. This boolean will disable that.
+- Allow Repeat: If the same person has an interaction associated with the same interaction more than once in 30 days, it will be flagged by default. This boolean will disable that.
 
-    - Prerequisites: If an indicator should not be allowed unless prerequisite interactions are had (e.g., Tested for HIV --> Tested Positive for HIV). Setting prerequisites will flag interactions missing a prerequisite.
+- Prerequisites: If an indicator should not be allowed unless prerequisite interactions are had (example, Tested for HIV → Tested Positive for HIV, person should be tested in order to test positive). Setting prerequisites will flag interactions missing a prerequisite.
 
-    -Require Attribute: If the respondent undergoing this indicator needs to have a speicifc attribute (example: Person Living with HIV)
+- Require Attribute: If the respondent undergoing this indicator needs to have a speicifc attribute (example: to complete an interaction with the indicator "People Living With HIV Trained for Self-Defense", the respondent should be a Person Living with HIV).
 
-    - Match Subcategories To: If an indicator should share subcategories with a prerequisite, their categories can be explcitly matched, in which case editing subcategories for the parent will automatically reflect in the dependent indicator and the system will throw a flag if the dependent indicator's subcategories are not a subset of the parent.
-        - USE EXAMPLE: Screened for NCDs --> Referred for NCDs, can share subcategories (BMI, Blood Glucose, Blood Pressure), and shold throw a flag if a person was referred for BMI but not screened for BMI.
+- Match Subcategories To: If an indicator should share subcategories with a prerequisite, their categories can be explcitly matched, in which case editing subcategories for the parent will automatically reflect in the dependent indicator and the system will throw a flag if the dependent indicator's subcategories are not a subset of the parent.
+- *Example*: Screened for NCDs → Referred for NCDs, can share subcategories (BMI, Blood Glucose, Blood Pressure), and shold throw a flag if a person was referred for BMI but not screened for BMI.
 
 *Governs Attribute*: This is a feature still in development, but if an interaction with this indicator is had, it can automatically update certain respondent statuses. Currently on used so that if a respondent has an interaction for "Tested Positive for HIV* their HIV status automatically updates. This could be expanded in the future. 
 
 ---
 
-## PROJECTS:
+## Projects:
 **At a glance**: Information/features that are helpful for organizing data and realted to the project model in some way.
 
 **Description**: The Projects app contains all information related to projects, which are used to segment organization into specific scopes and time periods. 
@@ -147,21 +150,21 @@ A Project is required for any data to be collected, since all data recorded is l
 
 Projects also house important information about how organizations are related. An organization may be contracted under another organization for the duraiton of a project, and the project app is used to store that relationship. 
 
-**Important Models**:
-    - Project: Contains basic information about a project
-    - Task: A nexus model that stores FKs to a project, organization, and an indicator. Any data collected is related to a task. 
-    - Target: Can set target outcomes for tasks (either as a number or calculated based on the achievement for another task. )
-    - ProjectOrganization: Primarily a through model for the "organizations" field of projects, but also stores information about different organizations relationships. 
-    - ProjectActivity: An activity related to a project (such as an M&E check-in or midtern review) that can be scoped to an organization or visible to all members.
-    - ProjectDeadline: A deadline related to a project.
+[**Important Models**](/projects/models.py):
+- Project: Contains basic information about a project
+- Task: A nexus model that stores FKs to a project, organization, and an indicator. Any data collected is related to a task. 
+- Target: Can set target outcomes for tasks (either as a number or calculated based on the achievement for another task. )
+- ProjectOrganization: Primarily a through model for the "organizations" field of projects, but also stores information about different organizations relationships. 
+- ProjectActivity: An activity related to a project (such as an M&E check-in or midtern review) that can be scoped to an organization or visible to all members.
+- ProjectDeadline: A deadline related to a project.
 
-**Important Views/Actions**:
-    - assign_child ([projects/views.py]action in ProjectViewSet): Allows a user to assign an organization as a child org (creates a much simpler flow than a complex partial edit logic altering the organizations field on projects).
-    - promote_org ([projects/views.py], action in ProjectViewSet): Allows an admin to make an organization a top-level organization instead of a child org to another organization.
-    - remove_organization ([projects/views.py], action in ProjectViewSet): Allows an admin to remove an organization from a project and allows a M&E Officer/Manager to remove a subgrantee from a project (assuming there are no conflicts).
-    - batch_create_tasks ([projects/views.py], action in TaskViewSet): Takes a project/organization ID and a list of indicator IDs and creates tasks using the TaskSerializer [projects/serializers.py].
-    - mobile_list ([projects/views.py], action in TaskViewSet): Removes pagination and returns all tasks for a user so that the mobile app can get and download all tasks for offline use.
-    - mark_complete ([projects/views.py], action in ProjectDeadlineViewSet): Allows a user to mark a deadline as completed (even if they may not have edit abilities).
+[**Important Views/Actions**](/projects/views.py):
+- assign_child: Custom action in **ProjectViewSet**. Allows a user to assign an organization as a child org (creates a much simpler flow than a complex partial edit logic altering the organizations field on projects).
+- promote_org: Custom action in **ProjectViewSet**. Allows an admin to make an organization a top-level organization instead of a child org to another organization.
+- remove_organization: Custom action in **ProjectViewSet**. Allows an admin to remove an organization from a project and allows a M&E Officer/Manager to remove a subgrantee from a project (assuming there are no conflicts).
+- batch_create_tasks: Custom action in **TaskViewSet**. Takes a project/organization ID and a list of indicator IDs and creates tasks using the [TaskSerializer](/projects/serializers.py).
+- mobile_list: Custom action in **TaskViewSet**. Removes pagination and returns all tasks for a user so that the mobile app can get and download all tasks for offline use.
+- mark_complete: Custom action in **ProjectDeadlineViewSet**. Allows a user to mark a deadline as completed (even if they may not have edit abilities).
 
 **Permissions**: Only admins can create/edit projects. M&E Officers can view projects, create/edit project acitivities, deadlines, and announcements (assuming they are scoped to their organization), assign subgrantees to their organization (assuming they are not already in the project), and assign tasks/targets for their subgrantees. M&E Officers/Managers cannot assign targets/tasks for their own organization. Clients can view projects they are a client for, but not create any realted materials.  
 

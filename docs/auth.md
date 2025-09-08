@@ -47,10 +47,10 @@ It is important to note a couple important extensions to the user model:
 
 **Role**: Custom string-based role (not Django Groups/Permissions):
 
-| Admin (Site Administrator) | M&E Officer/Manager | Data Collector | Client |
-|---|---|---|---|
-| Full access to view, create, and destroy anything. | Access to view/create content related to the user's organization and their child organizations | Access to create interactions for their own organization (not child orgs, however) | Able to view all data related to projects they are the client on, but virtually no create/destroy privlleges |
-| Can create/edit/view users of any role | can create/view M&E Officers/Managers and Data Collectors for their organization or their child organizations (but cannot edit their roles, and creation must be approved by an admin as they will be inactive by default) | Cannot create users | Can create but not view other client viewers within the same client organization | 
+| Category | Admin (Site Administrator) | M&E Officer/Manager | Data Collector | Client |
+|---|---|---|---|---|
+|Role Overview| Full access to view, create, and destroy anything. | Access to view/create content related to the user's organization and their child organizations | Access to create interactions for their own organization (not child orgs, however) | Able to view all data related to projects they are the client on, but virtually no create/destroy privlleges |
+| User Creation Perms | Can create/edit/view users of any role | can create/view M&E Officers/Managers and Data Collectors for their organization or their child organizations (but cannot edit their roles, and creation must be approved by an admin as they will be inactive by default) | Cannot create users | Can create but not view other client viewers within the same client organization | 
 
 *(Not in use) Supervisor* – TBD role, do not assign
 *(Not in use) View Only* – placeholder role, blocks access to the site

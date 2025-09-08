@@ -50,18 +50,19 @@ It is important to note a couple important extensions to the user model:
 | Category | Admin (Site Administrator) | M&E Officer/Manager | Data Collector | Client |
 |---|---|---|---|---|
 |Role Overview| Full access to view, create, and destroy anything. | Access to view/create content related to the user's organization and their child organizations | Access to create interactions for their own organization (not child orgs, however) | Able to view all data related to projects they are the client on, but virtually no create/destroy privlleges |
-| User Creation Perms | Can create/edit/view users of any role | can create/view M&E Officers/Managers and Data Collectors for their organization or their child organizations (but cannot edit their roles, and creation must be approved by an admin as they will be inactive by default) | Cannot create users | Can create but not view other client viewers within the same client organization | 
+| User Creation Perms | Can create/edit/view users of any role | Can create/view M&E Officers/Managers and Data Collectors for their organization or their child organizations (but cannot edit their roles, and creation must be approved by an admin as they will be inactive by default) | Cannot create users | Can create but not view other client viewers within the same client organization | 
 
-*(Not in use) Supervisor* – TBD role, do not assign
-*(Not in use) View Only* – placeholder role, blocks access to the site
+- *(Not in use) Supervisor*: TBD role, do not assign
+- *(Not in use) View Only*: Placeholder role, blocks access to the site
 
 ---
 
 ## Custom Auth Rules
 It's also important to note that there are a couple other custom auth features:
-[**Role Restricted Views**](/users/restrictviewset.py): This site relies a lot on roles/organizations to manage permissions, and therefore it is assumed that every user has a role and organization. If they do not, while they will be allowed to log in, they will not be allowed to access any viewsets (you can see that almost all viewsets inherit from this custom Viewset extension).
 
-[**Inactive Users**](/users/permissions.py): If a user is not active, we deny them permission when checking IsAuthenticated, and therefore they effectively are not allowed to log in. 
+- [**Role Restricted Views**](/users/restrictviewset.py): This site relies a lot on roles/organizations to manage permissions, and therefore it is assumed that every user has a role and organization. If they do not, while they will be allowed to log in, they will not be allowed to access any viewsets (you can see that almost all viewsets inherit from this custom Viewset extension).
+
+- [**Inactive Users**](/users/permissions.py): If a user is not active, we deny them permission when checking IsAuthenticated, and therefore they effectively are not allowed to log in. 
 
 ---
 
@@ -77,5 +78,5 @@ At the moment, since this is mostly being built for the pilot and we want to tig
 ---
 
 ## Password Management
-**Preferred**: Email reset flow (requires mail server)
-**Fallback**: Admin resets password (cannot view password, only reset)
+- **Preferred**: Email reset flow (requires mail server)
+- **Fallback**: Admin resets password (cannot view password, only reset)

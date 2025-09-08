@@ -145,17 +145,17 @@ Contains uploaded files (primarily from the uploads app)
 ## Projects:
 **At a glance**: Information/features that are helpful for organizing data and realted to the project model in some way.
 
-**Description**: The Projects app contains all information related to projects, which are used to segment organization into specific scopes and time periods. 
+**Description**: The Projects app contains all information related to projects, which are used to scope data to specific funders/time periods. 
 
 A Project is required for any data to be collected, since all data recorded is linked to a Task, which needs a project, organization, and indicator. The project itself importatly has a start and end date (outside of which data cannot be recorded for that project). A project can also be assigned a client_organization, which allows users will a client role and that client_organization to view information related to that project.
 
 Projects also house important information about how organizations are related. An organization may be contracted under another organization for the duraiton of a project, and the project app is used to store that relationship. 
 
 [**Important Models**](/projects/models.py):
-- Project: Contains basic information about a project
+- Project: Contains basic information about a project.
 - Task: A nexus model that stores FKs to a project, organization, and an indicator. Any data collected is related to a task. 
-- Target: Can set target outcomes for tasks (either as a number or calculated based on the achievement for another task. )
-- ProjectOrganization: Primarily a through model for the "organizations" field of projects, but also stores information about different organizations relationships. 
+- Target: Can set target outcomes for tasks (either as a number or calculated based on the achievement for another task).
+- ProjectOrganization: Primarily a through model for the "organizations" field of projects, but also stores information about different organizations relationships (parent and child). 
 - ProjectActivity: An activity related to a project (such as an M&E check-in or midtern review) that can be scoped to an organization or visible to all members.
 - ProjectDeadline: A deadline related to a project.
 
@@ -171,88 +171,94 @@ Projects also house important information about how organizations are related. A
 
 **Notes**: Projects can also contain useful information for tracking progress. The project app contains deadlines and project activities models that can be used to track important project information. It also contains a targets model that can be used to set targets that an organization should strive to achieve. 
 
-Many project permissions are managed through the ProjectPermHelper class [projects/utils.py] that manages permissions for things like ProjectActivities, ProjectDeadlines, and announcements specific to a project. 
+Many project permissions are managed through the ProjectPermHelper class [utils.py](/projects/utils.py) that manages permissions for things like ProjectActivities, ProjectDeadlines, and announcements specific to a project. 
+
+Information about target achievement references util functions in the [analysis](/analysis/utils/targets.py).
 
 ---
 
-## RESPONDENTS:
+## Respondents:
 **At a glance**: Information about people and data collected about them.
 
-**Description**: Respondents contain all information about people stored in our system. A respondent is a person whose data lives in our system. We collect individual respondent profiles that can be used by any organization in any project. Respondents can be linked to tasks (and therefore indicators) through interactions.
+**Description**: Respondents contain all information about people stored in our system. A respondent is a person whose data lives in our system. We collect individual respondent profiles that can be used by any organization in any project (to prevent duplicates and allow for tracking people's history interacting with healthcare organizations). Respondents can be linked to tasks (and therefore indicators) through interactions.
 
-**Important Models**:
-    - Respondent: A person's demographic profile. 
-    - Interaction: A nexus model that connects a respondent to a task (with the respondent indicator type).
+[**Important Models**](/respondents/models.py):
+- Respondent: A person's demographic profile. 
+- Interaction: A nexus model that connects a respondent to a task (with the respondent indicator type).
 
 **Important Views/Actions**:
-    - mobile_upload (respondents) ([respondents/views/respondent_viewset.py] action in RespondentViewSet): Action that can take data from multiple respondents at once and serialize them without making repeated API calls. 
-    - mobile_upload (interactions) ([respondents/views/interaction_viewset.py] action in InteractionViewSet): Action that can take data from mutliple interactions as uploaded by the mobile app and serialize them without making repeated API calls.
-    - batch_create ([resoondents/views/interaction_viewset.py] action in InteractionViewSet): Takes a list of tasks and associated information and uses them to create interactions without making repeated API calls.
-    - get_template ([respondents/views/interaction_viewset.py] action in InteractionViewSet): Generates a downloadable excel template that the user can capture data in and upload it into the system.
-    - post_template ([respondents/views/interaction_viewset.py] action in InteractionViewSet): Accepts a template as generated by get_template and converts information in the template into serializable data.
+- [mobile_upload](/respondents/views/respondent_viewset.py): Custom action in **RespondentViewSet**. Action that can take data from multiple respondents at once and serialize them without making repeated API calls. 
+- [mobile_upload](/respondents/views/interaction_viewset.py): Custom action in **InteractionViewSet**. Action that can take data from mutliple interactions as uploaded by the mobile app and serialize them without making repeated API calls.
+- [batch_create](/respondents/views/interaction_viewset.py): Custom action in **InteractionViewSet**. Takes a list of tasks and associated information and uses them to create interactions without making repeated API calls.
+- [get_template](/respondents/views/interaction_viewset.py) Custom action in **InteractionViewSet**. Generates a downloadable excel template that the user can capture data in and upload it into the system.
+- [post_template](/respondents/views/interaction_viewset.py): Custom action in InteractionViewSet. Accepts a template as generated by get_template and converts information in the template into serializable data.
 
 **Notes**: It is worth noting that we allow respondents to remain anonymous, meaning that we only collect general demogrpahic information and no PII, but this makes it harder to track respondents (since no ID number is requested) and protect against duplicates, so this method is of secondary preference. 
 
 *Validation*:
 Respondents must be unique, as measured by their ID number (assuming they are not anonymous). 
 
-Respondent IDs are verified and flagged using logic in respondent_flag_check found in [respondents/utils.py]. 
+Respondent IDs are verified and flagged using logic in [respondent_flag_check](/respondents/utils.py). 
 
-Interactions are verified by their indicator's riles by interaction_flag_check found in [respondents/utils.py].
+Interactions are verified by their indicator's riles by [interaction_flag_check](/respondents/utils.py).
 
-*Signals*: Editing certain respondent attributes (notable HIV Status, disability status, and kp status) will trigger signals that will automatically set respondent attributes for verification.
+*Signals*: Editing certain respondent attributes (notable HIV Status, disability status, and kp status) will trigger [signals](/respondents/signals.py) that will automatically set respondent attributes for verification.
 
 If an interaction's indicator governs an attribute, completing that interaction will trigger a signal to change that respondents status (this currently only works for setting HIV status).
 
+*Links to [DemographicCounts](/events/models.py)*: To allow for aggregate data to be collected, most respondent fields are mirrored in the events app under the **DemographicCounts** model. *If you make any changes to the respondents model, such as changing choice fields or adding anew breakdown, make sure you reflect those changes in the DemographicCount model*.
+
 ---
 
-## EVENTS:
+## Events:
 **At a glance**: Information about events that contribute towards project indicators and counts associated with these events. 
 
-**Description**: Events contain information about events and their related counts. Each event has a host organization, can be assigned participants (other organizations who were at the event), and linked tasks. As noted in the indicators app, some linked tasks just need to be linked and they will be automatically calculated. 
+**Description**: Events contain information about events and their related counts. Each event has a host organization, can be assigned participants (other organizations who were at the event), and linked tasks. As noted in the indicators app, some tasks of the "Number of Events" or "Number of Organizations at Event" just need to be linked to the event and they will be automatically calculated. Indicators of the "Respondent" type can be associated with events, but a linked set of DemographicCount instances will need to be created to record the data in an aggregated form.
 
-**Important Models**:
-    - Event: Stores details about an event and associated tasks.
-    -Demographic Count: Stores details about counts associated with an event, linked to one task and one event, and then an variable number of demographic fields. 
+[**Important Models**](/events/models.py):
+- Event: Stores details about an event and associated tasks.
+-Demographic Count: Stores details about counts associated with an event, linked to one task and one event, and then an variable number of demographic fields. 
 
-**Important Views/Actions**:
-    -get_breakdowns_meta ([events/views.py], action in EventsViewSet): Returns an object with values/labels for each demographic field optimized for the frontend's count table creation process. 
-    - get_counts ([events/views.py], action in EventsViewSet): Returns a list of all counts associated with that event. 
-    - update_counts ([events/views.py], action in EventsViewSet): Takes a JSON containing numbers attached to specific demographic splits related to a particular task and stores them in the database. 
-    - delete_count ([events.views.py], action in EventsViewSet): Deletes a count (all DemographicCount instances associated with that task for that event.)
+[**Important Views/Actions**](/events/views.py):
+-get_breakdowns_meta: Custom action in **EventsViewSet**. Returns an object with values/labels for each demographic field optimized for the frontend's count table creation process. 
+- get_counts: Custom action in **EventsViewSet**. Returns a list of all counts associated with that event. 
+- update_counts: Custom action in **EventsViewSet**. Takes a JSON containing numbers attached to specific demographic splits related to a particular task and stores them in the database. 
+- delete_count Custom action in **EventsViewSet**. Deletes a count (all DemographicCount instances associated with that task for that event.)
 
 **Permissions**: M&E Officers/Managers and admins can create/edit events. M&E Officers/Managers can edit events where they or their child org are the host. Child orgs marked as participants can view the event and edit counts for their tasks in an event. 
 
 **Notes**: Respondent tasks can also be linked to an event, but need an associated count (a number matched with demographic inforation) to be tracked. 
 
-*Validation*: Count flag logic is managed in count_flag_logic at [events/utils.py].
+*Validation*: Count flag logic is managed in [count_flag_logic](/events/utils.py).
 
 ---
 
-## SOCIAL:
-**At a glance**: Any data related to social media.
+## Social:
+**At a glance**: Any data related to social media posts.
 
-**Description**: The Social app captures information about social media posts. This includes when the post was made, the platform, what tasks it is associated wtih, and any associated metrics. We currently track comments, likes, views, and reach.Metrics can be added or removed, but are hardcoded into the database.
+**Description**: The Social app captures information about social media posts. This includes when the post was made, the platform, what tasks it is associated with, and any associated metrics. We currently track comments, likes, views, and reach. Metrics can be added or removed, but are hardcoded into the database, and if changed, those changes will need to be reflected in [aggregates](/analysis/utils/aggregates.py) and [collection](/analysis/utils/collection.py).
 
-**Important Models**:
+[**Important Models**](/social/models.py):
 - SocialMediaPost: Stores details about a single post on one platform related to any number of tasks. 
 
-**Permissions**: Admins and M&E Officers/Managers can create posts. Posts are not explicitly assigned an organization, so rather permissions are managed via the assigned tasks.
+**Permissions**: Admins and M&E Officers/Managers can create posts. Posts are not explicitly assigned an organization, so rather permissions are managed via the assigned tasks (all tasks linked to a post must be from the same organization).
 
-**Notes**: All tasks related to a social media post must be from the same organization. 
+**Notes**: All tasks related to a social media post must be from the same organization. Posts can be flagged, but only by a user, the system will never flag a post.
+
+*Future Expansion*: In the future we could look into getting post data via API calls so they do not need to be updated manually.
 
 ---
 
-## UPLOADS:
+## Uploads:
 **At a glance**: Supplemental file uploads that are not meant to directly input information into the system.
 
 **Description**: Uploads are a generic file upload app, mostly meant for managing narrative reports, but could easily be expanded to include other supporting documents. 
 
-**Important Models**:
-    - Narrative Report: Stores information about a file and the file itself (.pdf or .docx).
+[**Important Models**](/uploads/models.py):
+- Narrative Report: Stores information about a file and the file itself (.pdf or .docx).
 
-**Important Views/Actions**:
-    - download ([uploads/views], action in NarrativeReportViewSet): Allows a user to download an uploaded file.
+[**Important Views/Actions**](/uploads/views.py):
+- download: Custom action in **NarrativeReportViewSet**. Allows a user to download an uploaded file.
 
 **Permissions**: Admins can download and upload files for all orgs. Clients can download reports related to their projects. M&E Officers/Managers can upload/download files related to their org or their child orgs. 
 
@@ -260,84 +266,86 @@ If an interaction's indicator governs an attribute, completing that interaction 
 
 ---
 
-## ANALYSIS:
+## Analysis:
 **At a glance**: Anything related to the aggregation/viewing of data.
 
-**Description**: This app houses all features related to collecting, aggregating, and analyzing data, including dashboards, downloads, and checking target achievement. This is also the location where any APIs that other systems collect data from should be housed. 
+**Description**: This app houses all features related to collecting, aggregating, and analyzing data, including dashboards, downloads, and checking target achievement. This is also probably the location where any APIs that other systems collect data from should be housed. 
 
 Currently, the app can
-    - Create Dashboards with charts
-    - Create pivot tables (downloadable as a CSV)
-    - Create Line Lists (downloadable as a CSV)
+- Create Dashboards with charts
+- Create pivot tables (downloadable as a CSV)
+- Create Line Lists (downloadable as a CSV)
 
-**Important Models**:
-    - DashboardSettings: Information about a user's dashboard settings.
-    - IndicatorChartSettings: Within a dashboard, a specific chart's settings.
-    - Pivot Tables: Stores information about a user's pivot table.
-    - Line Lists: Stores information about user's line lists.
+[**Important Models**](/analysis/models.py):
+- DashboardSettings: Information about a user's dashboard settings.
+- IndicatorChartSettings: Within a dashboard, a specific chart's settings.
+- Pivot Tables: Stores information about a user's pivot table.
+- Line Lists: Stores information about user's line lists.
 
-**Important Views/Actions**:
-    - create_update_chart ([analysis/views.py], action in DashboardSettingsViewSet): Takes a JSON object and uses it to update/create settings for a particular dashboard chart.
-    - update_chart_filters ([analysis/views.py], action in DashboardSettingsViewSet):Takes a JSON objects a uses it to set filters for a particular chart. 
-    - get_breakdowns_meta ([analysis/views.py], action in DashboardSettingsViewSet): Gets a list breakdown fields values/labels that the front end can use when building charts. 
-    - download_csv (pivot_tables) ([analysis/views.py], action in TablesViewSet): Downloads a pivot table as a csv file. 
-    - download_csv (line_list) ([analysis/views.py], action in LineListViewSet): Downloads a line list as a csv file. 
+[**Important Views/Actions**](/analysis/views.py):
+- create_update_chart: Custom action in **DashboardSettingsViewSet**. Takes a JSON object and uses it to update/create settings for a particular dashboard chart.
+- update_chart_filters: Custom action in **DashboardSettingsViewSet**. Takes a JSON objects a uses it to set filters for a particular chart. 
+- get_breakdowns_meta: Custom action in **DashboardSettingsViewSet**. Gets a list breakdown fields values/labels that the front end can use when building charts. 
+- download_csv: Custom action in **TablesViewSet**. Downloads a user created pivot table as a csv file. 
+- download_csv: Custom action in **LineListViewSet**. Downloads a user created line list as a csv file. 
 
 **Permissions**: Data is available to clients (limited to their own projects), M&E Officers/Managers (limited to their org/child orgs), and admins (see everything). Individual settings for dashboards/line lists/pibot tables are only visible to that user. 
 
 **Notes**:
 The utils folder is a little bit intimidating, but basically this is how the aggregation flow works for aggregates:
-    1. The aggregates switchboard function ([analysis/utils/aggregates.py]) gets the indicator and then determines what type of data it needs to collect.
-    2. The appropriate instances of that object are collected ([analysus/utils/collection.py]).
-    3. Depending on the indicator type and what breakdown parameters were supplied, a specialized aggregate function will be run (full list at [analysis/utils/aggregates.py]).
-    4. The data can alternatively be converted to a slightly friendlier table format using the prep_csv function at [analysis/utils/csv.py]. This is used when downloading pivot tables.
+1. The aggregates switchboard [function](/analysis/utils/aggregates.py) gets the indicator and then determines what type of data it needs to collect.
+2. The appropriate instances of that object based on the criteria/user permissions are collected with the appropriate collector [function](/analysis/utils/collection.py).
+3. Depending on the indicator type and what breakdown parameters were supplied, a specialized aggregate [function](/analysis/utils/aggregates.py) will be run.
+4. The data is sent as an object with positional keys by default. It can alternatively be converted to a slightly friendlier table format using the [prep_csv](/analysis/utils/csv.py). This is used when constructing/downloading pivot tables.
 
-The target serializer uses methods from [analysis/utils/targets.py] to get target achievements and relative amounts. Note that by default targets also pull achievement from child organizations. 
+The [TargetSerializer](/projects/serializers.py) uses methods from this app's [utils](/analysis/utils/targets.py) folder to get target achievements and relative amounts. Note that by default targets also pull achievement from child organizations. 
 
 ---
 
-## FLAGS:
+## Flags:
 **At a glance**: Anyting related to storing information about data validation.
 
 **Description**: Flags is the app that houses information related to tracking potentially suspiscious data. Flags can be generated by users with appropriate permissions (M&E Officers/Managers and Admins) or system generated. Flags can also be automatically resolved if system generated or be resolved by a user after review. 
 
-**Important Models**: 
+[**Important Models**](/flags/models.py): 
     - Flag: A generic FK model that is connected to an item and signals it needs to be reviewed.
 
-**Important Views/Actions**:
-    - raise_flag ([flags/views.py], action in FlagViewSet): Creates a new flag.
-    - resolve_flag ([flags/views.py], action in FlagViewSet): Resolves an existing flag.
-    - metadata ([flags/views.py], action in FlagViewSet): Provides metadata about a user's flags. 
+[**Important Views/Actions**](/flags/views.py):
+- raise_flag: Custom action in **FlagViewSet**. Used by a user to create a new flag.
+- resolve_flag: Custom action in **FlagViewSet**. Used by a user to resolve an existing flag (user or system generated).
+- metadata: Custom action in **FlagViewSet**. Provides metadata about a user's flags. 
 
 **Permissions**: Flags are visible to all, but only createable or resolvable by M&E Officers/Managers and admins. M&E Officers/Managers are restricted to resolving or creating flags for their own instances (excepting respondents).
 
 **Notes**: Instances which have an unresolved flag associated with them will not appear in any aggregates (except line lists, where it is noted in its own column).
 
-When flags are created or resolved, it automatically creates an alert for pertinent parties (see [flags/utils.py])
+When flags are created or resolved, it automatically creates an [alert](/flags/utils.py) for pertinent parties.
 
 ---
 
-## MESSAGING:
+## Messaging:
 **At a glance**: Anything related to communication between multiple users on the site or between the system and the user.
 
 **Description**: Contains all content related to messages between two users, alerts from the system, or announcements (both general and project scoped).
 
-**Important Models**:
-    - Message: A message between two or more people that stores read information and can optionally be assigned as a task. 
-    - Announcement: A message designed to be seen by many people (though can be scoped to projects/organizations).
-    - Alert: System generated messages, currently only created when flags are created/resolved.
+[**Important Models**](/messaging/models.py):
+- Message: A message between two or more people that stores read information and can optionally be assigned as a task. 
+- Announcement: A message designed to be seen by many people (though can be scoped to projects/organizations).
+- Alert: System generated messages, currently only created when flags are created/resolved.
 
-**Important Views/Actions**:
-    - set_completed ([messaging/views.py], action in MessagesViewSet): Marks a message that was assigned as a task as completed.
-    - get_recipients ([messaging.views.py], action in MessagesViewSet): Gets a list of recipients or a user based on their role/organization (since default profile permissions may be restricted for non-admins).
+[**Important Views/Actions**](/messaging/views.py):
+- set_read: Custom action in **MessagesViewSet**. Marks a MessageRecipient as read (for a specific message/user combo).
+- set_completed: Custom action in **MessagesViewSet**. Marks a message that was assigned as a task as completed.
+- get_recipients: Custom action in **MessagesViewSet**. Gets a list of recipients or a user based on their role/organization (since default profile permissions may be restricted for non-admins).
 
 **Permissions**: M&E Officers/Managers can message anyone in their organization or at their child orgs. Other roles are restricted to just users from their organization/client_organization (for clients). All users can message any admin. Admins can message all. 
 
-M&E Officers/Managers can only send announcements for a specific project that is only visible to their org/child orgs. Admins can create sitewide announcements. 
+M&E Officers/Managers can only send announcements for a specific project, and it will only be visible to their org/child orgs. Admins can create sitewide announcements. 
 
 Messages are only visible to people in the thread (not even admins can see other people's messages).
 
 **Notes**: 
+
 Messages, announcements, and alerts all have read statuses and custom actions to mark them as read. 
 
 Announcements can be scoped to projects, admins can create general announcements for the whole site. 

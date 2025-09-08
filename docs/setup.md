@@ -1,7 +1,7 @@
-# BONASO Data Portal Server: SETUP 
-*Please also review guides to setting up the web frontend and the mobile app*
+# BONASO Data Portal Server: Setup
+*Please also review guides to setting up the web frontend and the mobile app.*
 
-## 1. INSTALL REQUIREMENTS:
+## 1. Requirements:
     In order to setup the server, the following tools are required:
         - Python (~v. 3.13) (make sure this is added to path)
         - Pip (~v 25.1.1)
@@ -18,7 +18,7 @@
 
     There are better guides online for setting up Django on your PC (it's a bit old, but I like this one: https://www.w3schools.com/django/django_intro.php, particularly "Django Intro" through "Install Django"). Make sure you set up a virtual environment and use that whenever running commands. 
 
-## 2. SET ENVIRONMENT VARIABLES:
+## 2. Environment Variables:
     The .env file holds the following variables:
     - Database URL
     - Secret key
@@ -38,7 +38,7 @@
     
     ONLY SET DEBUG TO TRUE IN LOCAL ENIRONMENTS! Setting it as true disables certain security features, which is generally bad (and may crash the site since we rely on HTTP cookies).
 
-## 3. MIGRATE DATABASE:
+## 3. Migrate Database:
     Whenever you first load this project on a new device/server, make sure you run 
 
         ```bash
@@ -51,7 +51,7 @@
         ```
     before running "migrate."
 
-## 4. CREATE A USER:
+## 4. Create a Superuser:
     Pretty much every endpoint here is protected, so you'll need to create a superuser to do anything. Make sure you run:
 
         ```bash
@@ -73,7 +73,7 @@
 
     This will ensure that your user has a role and an organization (both of which are required to actually do anything on the site with our custom auth logic), since our custom RoleRestrictedViewset (users.restrictviewset) will not allow any user with no role or organization from accessing any viewset. From this point on, you should be able to manage almost everything else using the site's UI.
 
-## 5. RUN LOCAL SERVER:
+## 5. Run Local Server:
     If you're testing on a local machine, to start the server, run:
     
         ```bash

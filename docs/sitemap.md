@@ -41,11 +41,11 @@ Contains uploaded files (primarily from the uploads app)
 **Description**: The users app controls features related to user authentication, including handling our login/logout system, password resets, and user creation. 
 
 [**Important Models**](/users/models.py):
-    - User (custom extended user model). Includes the key extension fields of Organization (which organization a user is linked to that manages what content they can see), Client Organization (same thing but specific for the client role), and Role (which sets a user's base permissions).
+- User (custom extended user model). Includes the key extension fields of Organization (which organization a user is linked to that manages what content they can see), Client Organization (same thing but specific for the client role), and Role (which sets a user's base permissions).
 
 [**Important Views/Actions**](/users/views.py):
-    - ApplyForNewUser: APIView that allows for a user to create another user assuming they have appropriate permissions.
-    - AdminResetPasswordView: APIView that allows for an admin to reset a user's password.
+- ApplyForNewUser: APIView that allows for a user to create another user assuming they have appropriate permissions.
+- AdminResetPasswordView: APIView that allows for an admin to reset a user's password.
 
 **Permissions**: M&E Officers/Managers/Admins/Clients can create users. Clients can only create other clients, while M&E Officers/Managers cannot create clients or admins. Admins can create all.
 
@@ -63,7 +63,7 @@ Contains uploaded files (primarily from the uploads app)
 - Storing favorites (currently support favorite projects, respondents, and events, but this could be expanded since we use a generic foreign key system)
 
 [**Important Models**](/profiles/models.py):
-    - FavoriteObject (generic FK)
+- FavoriteObject (generic FK)
 
 [**Important Views/Actions**](/profiles/views.py):
 - activity: Custom action on **ProfilesViewSet**. Gets a users activity (as collected by [get_user_activity](/profiles/utils.py))
@@ -84,7 +84,7 @@ Contains uploaded files (primarily from the uploads app)
 **Description**: Organizations are used to help group users together and manage what content they should see (since each user is associated with an organization). Organizations are primarily a permissions helper, but they also contain some contact information and descriptive information about an organization that can be referenced if needed. 
 
 [**Important Models**](/organizations/models.py):
-    - Organization: Contains an organization and some basic descriptive information about it. 
+- Organization: Contains an organization and some basic descriptive information about it. 
 
 **Permissions**: Admins can see all content. M&E Officers/Managers can see content related to their org or their child orgs. Others have no need to see organizations. 
 

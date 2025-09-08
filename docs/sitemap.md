@@ -4,25 +4,25 @@ The following is a basic overview of the server structure and the apps it contai
 
 ---
 
-CONTENTS:
-- General
-- Users
-- Profiles
-- Organizations
-- Indicators
-- Projects
-- Respondents
-- Events
-- Social
-- Uploads
-- Analysis
-- Flags
-- Messaging
+## Contents:
+- [General](#general)
+- [Users](#users)
+- [Profiles](#profiles)
+- [Organizations](#organizations)
+- [Indicators](#indicators)
+- [Projects](#projects)
+- [Respondents](#respondents)
+- [Events](#events)
+- [Social](#social)
+- [Uploads](#uploads)
+- [Analysis](#analysis)
+- [Flags](#flags)
+- [Messaging](#messaging)
 
 ---
 
-## GENERAL:
-### bonaso_data_server [bonaso_data_server]:
+## general:
+### [bonaso_data_server](/bonaso_data_server):
 contains high level project information. Most notably:
     - urls.py --> sets up the app level urls (first layer)
      - settings.py --> controls high level project settings, including the database, pagination settings, important auth settings, and some other meta settings. 

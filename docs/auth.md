@@ -42,9 +42,13 @@ For the website, we use a HTTP Cookie JWT auth system, meaning the access and re
 It is important to note a couple important extensions to the user model:
 
 **Organization**: FK to Organization; determines data scope & permission.
-**client_organization**: FK to Client; works similarly in principle to an organization in determining scope/permission
-**Role**: Custom string-based role (not Django Groups/Permissions)
+
+**Client Organization**: FK to Client; works similarly in principle to an organization in determining scope/permission
+
+**Role**: Custom string-based role (not Django Groups/Permissions):
+
 | Admin (Site Administrator) | M&E Officer/Manager | Data Collector | Client |
+|---|---|---|---|
 | Full access to view, create, and destroy anything. | Access to view/create content related to the user's organization and their child organizations | Access to create interactions for their own organization (not child orgs, however) | Able to view all data related to projects they are the client on, but virtually no create/destroy privlleges |
 | Can create/edit/view users of any role | can create/view M&E Officers/Managers and Data Collectors for their organization or their child organizations (but cannot edit their roles, and creation must be approved by an admin as they will be inactive by default) | Cannot create users | Can create but not view other client viewers within the same client organization | 
 

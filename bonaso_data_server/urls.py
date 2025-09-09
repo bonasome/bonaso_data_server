@@ -16,4 +16,6 @@ urlpatterns = [
     path('api/uploads/', include('uploads.urls')),
     path('api/social/', include('social.urls')),
     path('api/flags/', include('flags.urls')),
+
+    path('api/tests/', include('testing_utils.urls')), #for use with e2e testing only
 ]

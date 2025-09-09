@@ -28,6 +28,7 @@ load_dotenv(BASE_DIR / '.env')
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv("SECRET_KEY", "unsafe-key")
 DEBUG = os.getenv("DEBUG", "False") == "True"
+TEST_SETUP = False #KEEP THIS FALSE UNLESS RUNNING TESTS, opens an endpoint to wipe the entire DB
 
 ALLOWED_HOSTS = ['*']
 
@@ -47,6 +48,7 @@ INSTALLED_APPS = [
     'analysis.apps.AnalysisConfig',
     'messaging.apps.MessagingConfig',
     'uploads.apps.UploadsConfig',
+    'testing_utils.apps.TestingUtilsConfig',
     'corsheaders',
     'django.contrib.admin',
     'django.contrib.auth',

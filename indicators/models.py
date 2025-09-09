@@ -70,7 +70,7 @@ class Indicator(models.Model):
     code = models.CharField(max_length=10, verbose_name='Indicator Code')
     prerequisites = models.ManyToManyField('self', blank=True, symmetrical=False, related_name='dependent_indicators', verbose_name='Prerequisite Indicators')
     required_attributes = models.ManyToManyField('respondents.RespondentAttributeType', blank=True)
-    governs_attribute = models.CharField(choices=get_attribute_choices, blank=True, null=True)
+    governs_attribute = models.CharField(max_length=25, choices=get_attribute_choices, blank=True, null=True)
     require_numeric = models.BooleanField(blank=True, null=True, default=False, verbose_name='Indicator requires an accompanying numeric value.')
     subcategories = models.ManyToManyField(IndicatorSubcategory, blank=True)
     match_subcategories_to = models.ForeignKey("self", on_delete=models.SET_NULL, blank=True, null=True)

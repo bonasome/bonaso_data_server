@@ -26,7 +26,7 @@ class DisabilityType(models.Model):
         VI = 'VI', _('Visually Impaired')
         PD = 'PD', _('Physical Disability')
         ID = 'ID', _('Intellectual Disability')
-        HI = 'HD', _('Hearing Impaired')
+        HI = 'HI', _('Hearing Impaired')
         PSY = 'PSY', _('Psychiatric Disability')
         SI = 'SI', _('Speech Impaired')
         OTHER = 'OTHER', _('Other Disability')

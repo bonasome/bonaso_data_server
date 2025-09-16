@@ -18,17 +18,6 @@ class FlagSerializer(serializers.ModelSerializer):
     target = serializers.SerializerMethodField(read_only=True)
     model_string = serializers.SerializerMethodField(read_only=True)
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # preload content types once to prevent model loading errors
-        try:
-            ct = ContentType.objects
-            self.ct_respondent = ct.get(app_label='respondents', model='respondent')
-            self.ct_interaction = ct.get(app_label='respondents', model='interaction')
-            self.ct_demo_count = ct.get(app_label='events', model='demographiccount')
-            self.ct_social_post = ct.get(app_label='social', model='socialmediapost')
-        except Exception:
-            self.ct_respondent = None
     def get_model_string(self, obj):
         #get app/model as a string so the frontend can categorize
         content_type = ContentType.objects.get(id=obj.content_type.id)
@@ -39,6 +28,11 @@ class FlagSerializer(serializers.ModelSerializer):
         Get the object type and some information that is required for filtering/linking at the frontend. 
         '''
         try:
+            ct = ContentType.objects
+            self.ct_respondent = ct.get(app_label='respondents', model='respondent')
+            self.ct_interaction = ct.get(app_label='respondents', model='interaction')
+            self.ct_demo_count = ct.get(app_label='events', model='demographiccount')
+            self.ct_social_post = ct.get(app_label='social', model='socialmediapost')
             if obj.content_type == self.ct_respondent:
                 return {
                     'id': obj.target.id,

@@ -1,14 +1,18 @@
 from django.shortcuts import render
-
+from django.core.management import call_command
 from django.conf import settings
 from django.db import connection
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.contrib.auth import get_user_model
 from django.views.decorators.csrf import csrf_exempt
+from django.db import transaction
 
 User = get_user_model()
 from organizations.models import Organization
+from projects.models import Project, Task, Client, ProjectOrganization
+from indicators.models import Indicator, IndicatorSubcategory
+from respondents.models import Respondent, Interaction, InteractionSubcategory, KeyPopulation, DisabilityType
 
 def create_user():
     org = Organization.objects.create(name='BONASO')
@@ -20,6 +24,75 @@ def create_user():
         organization=org,
     )
 
+@transaction.atomic
+def seed_db():
+    org = Organization.objects.create(name='Parent Org')
+    child_org = Organization.objects.create(name='Child Org')
+    other_org = Organization.objects.create(name='Other Org')
+    client_org = Client.objects.create(name='Client Org')
+
+    indicator = Indicator.objects.create(code='T101', name='Test 1', indicator_type='respondent')
+    cat1 = IndicatorSubcategory.objects.create(name='Cat 1')
+    cat2 = IndicatorSubcategory.objects.create(name='Cat 2')
+    cat3 = IndicatorSubcategory.objects.create(name='Cat 3')
+    indicator.subcategories.set([cat1, cat2, cat3])
+    indicator.save()
+
+    dep_indicator = Indicator.objects.create(code='T102', name='Test Dep', indicator_type='respondent')
+    dep_indicator.prerequisites.set([indicator])
+    dep_indicator.subcategories.set([cat1, cat2, cat3])
+    dep_indicator.match_subcategories_to = indicator
+    dep_indicator.save()
+    
+    num_sc_indicator = Indicator.objects.create(code='T103', name='Test Numeric Subcats', indicator_type='respondent', require_numeric=True)
+    num_sc_indicator.subcategories.set([cat1, cat2, cat3])
+    num_sc_indicator.save()
+
+    num_indicator = Indicator.objects.create(code='T104', name='Test Numeric Only', indicator_type='respondent', require_numeric=True)
+
+    social_ind = Indicator.objects.create(code='S101', name='Social', indicator_type='social')
+
+    project = Project.objects.create(name='Test Project', start='2025-01-01', end='2025-12-31', client=client_org, status='Active')
+    org_link = ProjectOrganization.objects.create(organization=org, project=project)
+    child_link = ProjectOrganization.objects.create(organization=child_org, parent_organization=org, project=project)
+    other_link = ProjectOrganization.objects.create(organization=other_org, project=project)
+
+    pti = Task.objects.create(project=project, organization=org, indicator=indicator)
+    ptd = Task.objects.create(project=project, organization=org, indicator=dep_indicator)
+    pts = Task.objects.create(project=project, organization=org, indicator=social_ind)
+
+    cti = Task.objects.create(project=project, organization=child_org, indicator=indicator)
+
+    oti = Task.objects.create(project=project, organization=other_org, indicator=indicator)
+
+    respondent1 = Respondent.objects.create(
+        is_anonymous=False,
+        id_no='000010001',
+        first_name='Goolius', 
+        last_name='Boozler', 
+        dob='2000-01-01',
+        sex=Respondent.Sex.MALE,
+        village='Coral Gables',
+        district=Respondent.District.CENTRAL,
+        citizenship='BW'
+    )
+    
+    respondent2 = Respondent.objects.create(
+        is_anonymous=True,
+        age_range=Respondent.AgeRanges.T4_29,
+        sex=Respondent.Sex.FEMALE,
+        village='Coral Gables',
+        district=Respondent.District.CENTRAL,
+        citizenship='ZM',
+    )
+    kp1=KeyPopulation.objects.create(name=KeyPopulation.KeyPopulations.FSW)
+    kp2=KeyPopulation.objects.create(name=KeyPopulation.KeyPopulations.LBQ)
+    d1=DisabilityType.objects.create(name=DisabilityType.DisabilityTypes.HI)
+    d2=DisabilityType.objects.create(name=DisabilityType.DisabilityTypes.VI)
+    respondent2.kp_status.set([kp1, kp2])
+    respondent2.disability_status.set([d1, d2])
+    respondent2.save()
+
 @csrf_exempt
 @require_POST
 def reset_db(request):
@@ -30,26 +103,9 @@ def reset_db(request):
     if "bonaso_test_db" not in db_name.lower():
         return JsonResponse({"error": f"Refusing to reset non-test database: {db_name}. Like bro, not even my mom tries to wipe by prod DB."}, status=403)
 
-    with connection.cursor() as cursor:
-        # Disable triggers temporarily to allow truncating all tables with FKs
-        cursor.execute("SET session_replication_role = 'replica';")
-
-        # Get all tables in the public schema
-        cursor.execute("""
-            SELECT tablename
-            FROM pg_tables
-            WHERE schemaname = 'public';
-        """)
-        tables = [row[0] for row in cursor.fetchall()]
-
-        if tables:
-            table_list = ", ".join(f'"{t}"' for t in tables)
-            cursor.execute(f"TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE;")
-
-        # Re-enable triggers
-        cursor.execute("SET session_replication_role = 'origin';")
+    call_command('flush', interactive=False)
 
     create_user()
+    seed_db()
 
-
-    return JsonResponse({"status": "ok", "truncated_tables": tables})
+    return JsonResponse({"status": "ok", "message": "DB reset"})

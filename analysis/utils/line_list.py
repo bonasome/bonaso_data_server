@@ -16,7 +16,9 @@ def prep_line_list(user, start=None, end=None, indicator=None, project=None, org
     queryset= Interaction.objects.all()
     
     #start with perms
-    if user.role == 'client':
+    if user.role == 'admin':
+        queryset=queryset
+    elif user.role == 'client':
         queryset=queryset.filter(task__project__client=user.client_organization)
     elif user.role in ['meofficer', 'manager']:
         # Find all orgs user has access to (own + child)

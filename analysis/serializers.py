@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 from django.db import transaction
-from analysis.models import DashboardFilter, ChartField, IndicatorChartSetting, DashboardSetting, DashboardIndicatorChart, ChartFilter, PivotTable, PivotTableParam, LineList
+from analysis.models import DashboardFilter, ChartField, IndicatorChartSetting, DashboardSetting, DashboardIndicatorChart, ChartFilter, PivotTable, PivotTableParam, LineList, RequestLog
 from analysis.utils.aggregates import  aggregates_switchboard
 from analysis.utils.targets import get_target_aggregates
 from analysis.utils.csv import prep_csv
@@ -10,6 +10,7 @@ from organizations.models import Organization
 from organizations.serializers import OrganizationListSerializer
 from projects.models import Project
 from projects.serializers import ProjectListSerializer, Target
+from profiles.serializers import ProfileListSerializer
 from indicators.models import Indicator
 from indicators.serializers import IndicatorSerializer
 from events.models import DemographicCount
@@ -335,3 +336,14 @@ class DashboardSettingSerializer(serializers.ModelSerializer):
         charts_data = validated_data.pop('dashboardindicatorchart_set', [])
         dashboard = DashboardSetting.objects.create(created_by=self.context['request'].user, **validated_data)
         return dashboard
+
+class RequestLogSerializer(serializers.ModelSerializer):
+    '''
+    Simple seializer that creates a serialized request log (URL, timestamp, status)
+    '''
+    user = ProfileListSerializer(read_only=True)
+    class Meta:
+        model=RequestLog
+        fields = [
+            'id', 'timestamp', 'path', 'method', 'status_code', 'response_time_ms', 'user'
+        ]

@@ -5,10 +5,15 @@ from django.shortcuts import get_object_or_404
 from datetime import date
 import csv
 from django.utils.timezone import now
+from datetime import datetime, timedelta
+from django.utils import timezone
 
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework import status
+from rest_framework.views import APIView
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import IsAuthenticated
 
 from users.restrictviewset import RoleRestrictedViewSet
 from django.contrib.auth import get_user_model
@@ -18,8 +23,8 @@ from organizations.models import Organization
 from projects.models import Project
 from indicators.models import Indicator
 
-from analysis.serializers import DashboardSettingSerializer, DashboardSettingListSerializer, DashboardIndicatorChartSerializer, PivotTableListSerializer, PivotTableSerializer, LineListSerializer, LineListListSerializer
-from analysis.models import DashboardSetting, IndicatorChartSetting, ChartField, DashboardIndicatorChart, ChartFilter, ChartIndicator, PivotTable, LineList
+from analysis.serializers import DashboardSettingSerializer, DashboardSettingListSerializer, DashboardIndicatorChartSerializer, PivotTableListSerializer, PivotTableSerializer, LineListSerializer, LineListListSerializer, RequestLogSerializer
+from analysis.models import DashboardSetting, IndicatorChartSetting, ChartField, DashboardIndicatorChart, ChartFilter, ChartIndicator, PivotTable, LineList, RequestLog
 from events.models import DemographicCount
 from respondents.utils import get_enum_choices
 
@@ -440,3 +445,18 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
                 }
 
         return Response(breakdowns)
+
+class SiteAnalyticsViewSet(RoleRestrictedViewSet):
+    permission_classes = [IsAuthenticated]
+    queryset = RequestLog.objects.none()
+    serializer = RequestLogSerializer
+    @action(detail=False, methods=["get"], url_path="site-analytics")
+    def site_analytics(self, request):
+        user = request.user
+        if getattr(user, "role", None) != "admin":
+            raise PermissionDenied("You do not have permission to view this information.")
+
+        one_year_ago = timezone.now() - timedelta(days=365)
+        queryset = RequestLog.objects.filter(timestamp__gte=one_year_ago)
+        serialized = RequestLogSerializer(queryset, many=True).data
+        return Response(serialized)

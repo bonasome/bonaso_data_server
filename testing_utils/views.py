@@ -13,6 +13,7 @@ from organizations.models import Organization
 from projects.models import Project, Task, Client, ProjectOrganization
 from indicators.models import Indicator, IndicatorSubcategory
 from respondents.models import Respondent, Interaction, InteractionSubcategory, KeyPopulation, DisabilityType
+from events.models import Event
 
 def create_user():
     org = Organization.objects.create(name='BONASO')
@@ -29,7 +30,11 @@ def seed_db():
     org = Organization.objects.create(name='Parent Org')
     child_org = Organization.objects.create(name='Child Org')
     other_org = Organization.objects.create(name='Other Org')
+    assign_org = Organization.objects.create(name='Unassigned Org')
     client_org = Client.objects.create(name='Client Org')
+
+    manager = User.objects.create_user(username='manager', password='testpass123', role='manager', email='test@test.com', organization=org)
+    dc = User.objects.create_user(username='dc', password='testpass123', email='test@test.org', role='data_collector', organization=org)
 
     indicator = Indicator.objects.create(code='T101', name='Test 1', indicator_type='respondent')
     cat1 = IndicatorSubcategory.objects.create(name='Cat 1')
@@ -44,7 +49,7 @@ def seed_db():
     dep_indicator.match_subcategories_to = indicator
     dep_indicator.save()
     
-    num_sc_indicator = Indicator.objects.create(code='T103', name='Test Numeric Subcats', indicator_type='respondent', require_numeric=True)
+    num_sc_indicator = Indicator.objects.create(code='T103', name='Test Numeric Subcats', indicator_type='respondent', require_numeric=True, allow_repeat=True)
     num_sc_indicator.subcategories.set([cat1, cat2, cat3])
     num_sc_indicator.save()
 
@@ -57,13 +62,20 @@ def seed_db():
     child_link = ProjectOrganization.objects.create(organization=child_org, parent_organization=org, project=project)
     other_link = ProjectOrganization.objects.create(organization=other_org, project=project)
 
+    other_project = Project.objects.create(name='Normies Should Not See This', start='2025-01-01', end='2025-12-31')
+
     pti = Task.objects.create(project=project, organization=org, indicator=indicator)
     ptd = Task.objects.create(project=project, organization=org, indicator=dep_indicator)
+    ptscn = Task.objects.create(project=project, organization=org, indicator=num_sc_indicator)
     pts = Task.objects.create(project=project, organization=org, indicator=social_ind)
 
     cti = Task.objects.create(project=project, organization=child_org, indicator=indicator)
 
     oti = Task.objects.create(project=project, organization=other_org, indicator=indicator)
+
+    event = Event.objects.create(name='Test Event', start='2025-05-01', end='2025-05-02', status=Event.EventStatus.COMPLETED, event_type=Event.EventType.ENGAGEMENT, location='Who Cares?', host=org)
+    event.tasks.set([pti, ptd])
+    event.save()
 
     respondent1 = Respondent.objects.create(
         is_anonymous=False,
@@ -91,6 +103,12 @@ def seed_db():
     d2=DisabilityType.objects.create(name=DisabilityType.DisabilityTypes.VI)
     respondent2.kp_status.set([kp1, kp2])
     respondent2.disability_status.set([d1, d2])
+    ir1 = Interaction.objects.create(task=pti, respondent=respondent2, interaction_date='2025-03-5', interaction_location='Over there')
+    ir1sc = InteractionSubcategory.objects.create(interaction=ir1, subcategory=cat1)
+    ir2 = Interaction.objects.create(task=ptd, respondent=respondent2, interaction_date='2025-03-5', interaction_location='Over there')
+    ir2sc = InteractionSubcategory.objects.create(interaction=ir2, subcategory=cat1)
+    ir3 = Interaction.objects.create(task=ptscn, respondent=respondent2, interaction_date='2025-03-5', interaction_location='Over there')
+    ir3sc = InteractionSubcategory.objects.create(interaction=ir3, subcategory=cat1, numeric_component=10)
     respondent2.save()
 
 @csrf_exempt
@@ -107,5 +125,5 @@ def reset_db(request):
 
     create_user()
     seed_db()
-
+    print('Test database reset.')
     return JsonResponse({"status": "ok", "message": "DB reset"})

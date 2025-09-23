@@ -95,7 +95,7 @@ def interaction_flag_check(interaction, user, downstream=False):
         if Interaction.objects.filter(
             interaction_date__lte=next_thirty_days,
             interaction_date__gte=past_thirty_days,
-            respondent=interaction.respondent, task=interaction.task
+            respondent=interaction.respondent, task__indicator=interaction.task.indicator
         ).exclude(pk=interaction.pk).exists():
             if not outstanding_flags.filter(reason=reason).exists():
                 create_flag(interaction, reason, user, 'suspicious')
@@ -113,8 +113,7 @@ def interaction_flag_check(interaction, user, downstream=False):
                 interaction_date__lte=interaction.interaction_date,
             )
             reason = (
-                    f'Indicator requires task "{prerequisite.name}" to have a valid interaction '
-                    f'with this respondent within the past year. Make sure the prerequisite interaction is not in the future.'
+                    f'Indicator requires task "{prerequisite.name}" to have a valid interaction with this respondent within the past year. Make sure the prerequisite interaction is not in the future.'
                 )
             if not prereqs.exists():
                 if not outstanding_flags.filter(reason=reason).exists():
@@ -125,9 +124,7 @@ def interaction_flag_check(interaction, user, downstream=False):
                 #Rule 3: If match categories is enabled, the dependent interaction's subcategories must be a subset
                 if interaction.task.indicator.match_subcategories_to == prerequisite:
                     most_recent = prereqs.order_by('-interaction_date').first()
-                    reason = (f'The selected subcategories for task "{interaction.task.indicator.name}" do'
-                        f'not match with the parent interaction associated with task "{most_recent.task.indicator.name}".' 
-                        'This interaction will be flagged until the subcategories match.')
+                    reason = (f'The selected subcategories for task "{interaction.task.indicator.name}" do not match with the parent interaction associated with task "{most_recent.task.indicator.name}". This interaction will be flagged until the subcategories match.')
                     current_ids = set(
                         InteractionSubcategory.objects.filter(interaction=interaction)
                         .values_list("subcategory_id", flat=True)
@@ -146,8 +143,7 @@ def interaction_flag_check(interaction, user, downstream=False):
         
         for attribute in required_attributes:
             reason = (
-                f'Task "{interaction.task.indicator.name}" requires the respondent to have the special attribute "{attribute.name}". '
-                'This interaction will be flagged so long as the respondent does not have the selected attribute.'
+                f'Task "{interaction.task.indicator.name}" requires the respondent to have the special attribute "{attribute.name}". This interaction will be flagged so long as the respondent does not have the selected attribute.'
             )
             
             if attribute.id not in respondent_attrs:

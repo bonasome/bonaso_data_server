@@ -9,6 +9,8 @@ class RoleRestrictedViewSet(ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        if not user.is_active:
+            return self.queryset.none()
         if getattr(user, 'role', None) in self.restricted_roles:
             return self.queryset.none()
         if getattr(user, 'organization', None) is None and getattr(user, 'client_organization', None) is None:
@@ -18,6 +20,8 @@ class RoleRestrictedViewSet(ModelViewSet):
     def check_permissions(self, request):
         super().check_permissions(request)
         user = self.request.user
+        if not user.is_active:
+            raise PermissionDenied("Your account is not yet activated.")
         if getattr(request.user, 'role', None) in self.restricted_roles:
             raise PermissionDenied("Your role does not have permission to access this resource.")
         if getattr(user, 'organization', None) is None and getattr(user, 'client_organization', None) is None:

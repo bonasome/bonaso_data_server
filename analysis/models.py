@@ -168,3 +168,13 @@ class LineList(models.Model):
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='line_lists')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+
+class RequestLog(models.Model):
+    path = models.CharField(max_length=200)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    method = models.CharField(max_length=10)
+    status_code = models.IntegerField()
+    response_time_ms = models.FloatField()
+    user = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)

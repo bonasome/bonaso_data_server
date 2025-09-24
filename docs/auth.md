@@ -69,9 +69,9 @@ It's also important to note that there are a couple other custom auth features:
 ## User Creation Flow
 At the moment, since this is mostly being built for the pilot and we want to tightly restrict access, our user creation flow looks like this:
 1. User created by:
-    - Client → may only create Clients
-    - M&E Officer/Manager → may create M&E Officers/Managers, Supervisors, Data Collectors
-    - Admin → may create any role
+    - Client User Role → may only create users with the Client role
+    - M&E Officer/Manager → may create users with the M&E Officer/Manager, Supervisor, and Data Collector role
+    - Admin → may create users of any role
 2. All new users are inactive by default
 3. Admin must activate account manually before login is possible
 

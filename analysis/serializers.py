@@ -265,7 +265,7 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
         if obj.name:
             return obj.name
         plural = 'Indicators' if obj.indicators.count() > 1 else 'Indicator'
-        return f'Tracking {plural} {', '.join([str(ind) for ind in obj.indicators.all()])}'
+        return f'Tracking {plural} {", ".join([str(ind) for ind in obj.indicators.all()])}'
     class Meta:
         model = IndicatorChartSetting
         fields = ['id', 'indicators', 'created_by', 'tabular', 'axis', 'legend', 'stack', 'chart_type', 'use_target',

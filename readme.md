@@ -40,6 +40,10 @@ Most apps follow a common structure:
 See [Sitemap](docs/sitemap.md) for a full outline of apps and features.  
 
 ## Next Steps
+For local development, follow the instructions in this repository.  
+
+For production builds with Docker, see [bonaso_data_portal](https://github.com/bonasome/bonaso_data_portal), which combines the frontend and backend.
+
 - [Setup](docs/setup.md)
 - [Sitemap](docs/sitemap.md)
 - [Auth](docs/auth/md)

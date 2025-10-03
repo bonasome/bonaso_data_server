@@ -1,11 +1,15 @@
+# -------------------------
+# STAGE 1: Setup Python (v 3.11)
+# -------------------------
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
-
-# Install build dependencies
+# -------------------------
+# STAGE 2: Install dependencies
+# -------------------------
 RUN apt-get update && apt-get install -y \
     build-essential \
     libssl-dev \
@@ -26,4 +30,5 @@ COPY . .
 # Collect static files (optional for prod)
 #RUN python manage.py collectstatic --noinput
 
+# Run production build with guinicorn
 CMD ["gunicorn", "bonaso_data_server.wsgi:application", "--bind", "0.0.0.0:8000"]

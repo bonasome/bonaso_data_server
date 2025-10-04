@@ -12,6 +12,7 @@ WORKDIR /app
 # -------------------------
 RUN apt-get update && apt-get install -y \
     build-essential \
+    libpq-dev \
     libssl-dev \
     libffi-dev \
     python3-dev \

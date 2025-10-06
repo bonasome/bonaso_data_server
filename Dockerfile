@@ -29,9 +29,12 @@ RUN pip install -r requirements.txt
 COPY . .
 
 # Collect static files (optional for prod)
-#RUN python manage.py collectstatic --noinput
+RUN python manage.py collectstatic --noinput
+
+# Run database migrations (if applicable)
+RUN python manage.py migrate
 
 EXPOSE 8000
 
 # Run production build with guinicorn
-CMD ["gunicorn", "bonaso_data_server.wsgi:application", "--bind", "0.0.0.0:8000"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "bonaso_data_server.wsgi:application"]

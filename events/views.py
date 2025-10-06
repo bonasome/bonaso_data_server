@@ -54,6 +54,7 @@ class EventViewSet(RoleRestrictedViewSet):
         #client can see any event that has counts relevent to their projects
         elif user.role == 'client':
             queryset = Event.objects.filter(tasks__project__client=user.client_organization)
+            queryset=queryset.distinct()
         #higher roles can see event where they are the host, their child is the host, or they are a participant
         elif user.role in ['meofficer', 'manager']:
            queryset = Event.objects.filter(

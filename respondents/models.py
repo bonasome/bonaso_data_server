@@ -67,7 +67,6 @@ class RespondentAttributeType(models.Model):
     def __str__(self):
         return self.name
 
-
 class Respondent(models.Model):
     '''
     Model that's basically used to centrally store demographic information attached to interactions
@@ -95,7 +94,6 @@ class Respondent(models.Model):
         FEMALE = 'F', _('Female')
         MALE = 'M', _('Male')
         NON_BINARY = 'NB', _('Non-Binary')
-    
     class District(models.TextChoices):
         CENTRAL = 'Central', _('Central District')
         GHANZI = 'Ghanzi', _('Ghanzi District')

@@ -1,7 +1,7 @@
 from django.utils.timezone import now
 from datetime import date, datetime, timedelta
 from django.db.models import Q
-from respondents.models import Interaction, InteractionSubcategory, Respondent
+from respondents.models import Interaction, Respondent
 from flags.utils import create_flag, resolve_flag
 from projects.models import ProjectOrganization
 from events.models import EventOrganization

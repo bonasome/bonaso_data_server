@@ -9,7 +9,7 @@ from events.models import Event
 from projects.models import Project, Client, Task, Target, ProjectOrganization
 from respondents.models import Respondent, Interaction, InteractionSubcategory, HIVStatus, Pregnancy
 from organizations.models import Organization
-from indicators.models import Indicator, IndicatorSubcategory
+from indicators.models import Indicator
 from datetime import date
 from io import BytesIO
 from openpyxl import Workbook

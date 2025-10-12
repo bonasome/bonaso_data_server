@@ -11,8 +11,8 @@ from django.db import transaction
 User = get_user_model()
 from organizations.models import Organization
 from projects.models import Project, Task, Client, ProjectOrganization
-from indicators.models import Indicator, IndicatorSubcategory
-from respondents.models import Respondent, Interaction, InteractionSubcategory, KeyPopulation, DisabilityType
+from indicators.models import Indicator
+from respondents.models import Respondent, Interaction, KeyPopulation, DisabilityType
 from events.models import Event
 
 def create_user():

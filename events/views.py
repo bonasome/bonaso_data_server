@@ -25,7 +25,6 @@ from events.serializers import EventSerializer, DCSerializer
 from events.utils import get_schema_key, make_key, count_flag_logic
 from organizations.models import Organization
 from projects.models import Task, ProjectOrganization
-from indicators.models import IndicatorSubcategory
 from respondents.utils import get_enum_choices
 
 

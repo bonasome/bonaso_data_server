@@ -2,7 +2,6 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
 from organizations.models import Organization
-from indicators.models import IndicatorSubcategory
 from projects.models import Task
 from django.contrib.contenttypes.fields import GenericRelation
 
@@ -170,7 +169,7 @@ class DemographicCount(models.Model):
     status = models.CharField(max_length = 25, choices=Status.choices, null=True, blank=True)
     organization = models.ForeignKey(Organization, on_delete=models.PROTECT, null=True, blank=True) #not really used
     task = models.ForeignKey(Task, on_delete=models.PROTECT, null=True, blank=True) #determines which task this count is related to
-    subcategory = models.ForeignKey(IndicatorSubcategory, on_delete=models.PROTECT, null=True, blank=True)
+    #subcategory = models.ForeignKey(IndicatorSubcategory, on_delete=models.PROTECT, null=True, blank=True)
     flags = GenericRelation('flags.Flag', related_query_name='flags')
 
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='count_created_by')
@@ -179,7 +178,7 @@ class DemographicCount(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ('event', 'sex', 'age_range', 'citizenship', 'task', 'subcategory',
+        unique_together = ('event', 'sex', 'age_range', 'citizenship', 'task',
                            'hiv_status', 'pregnancy', 'disability_type', 'kp_type', 'status', 'organization')
         indexes = [
             models.Index(fields=['event']),

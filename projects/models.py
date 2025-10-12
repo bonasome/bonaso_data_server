@@ -4,7 +4,7 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 
 from organizations.models import Organization
-from indicators.models import Indicator
+from indicators.models import Indicator, Assessment
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
@@ -86,14 +86,15 @@ class Task(models.Model):
     '''
     project = models.ForeignKey(Project, on_delete=models.CASCADE)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
-    indicator = models.ForeignKey(Indicator, on_delete=models.CASCADE)
+    assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE, null=True, blank=True)
+    indicator = models.ForeignKey(Indicator, on_delete=models.CASCADE, null=True, blank=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='task_created_by')
     
     class Meta:
-        unique_together = ('project', 'organization', 'indicator')
+        unique_together = ('project', 'organization', 'indicator', 'assessment')
 
     def __str__(self):
         return f'{self.indicator} ({self.organization}, {self.project})'
@@ -106,7 +107,9 @@ class Target(models.Model):
 
     Targets have start and end periods, and targets with the same linked task cannot overlap.
     '''
-    task = models.ForeignKey(Task, on_delete=models.CASCADE)
+    indicator = models.ForeignKey(Indicator, on_delete=models.CASCADE)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
     amount = models.IntegerField(verbose_name= 'Target Amount', blank=True, null=True)
     start = models.DateField('Target Start Date')
     end = models.DateField('Target Conclusion Date')

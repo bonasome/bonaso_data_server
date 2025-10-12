@@ -34,7 +34,7 @@ from respondents.models import Respondent, Interaction, HIVStatus, KeyPopulation
 from respondents.serializers import RespondentSerializer, InteractionSerializer
 from respondents.utils import check_event_perm
 from respondents.utils_file_upload import excel_columns, valid_excel_date, is_email, is_phone_number, is_truthy
-from indicators.models import IndicatorSubcategory, Indicator
+from indicators.models import  Indicator
 from events.models import Event, EventOrganization
 
 class InteractionViewSet(RoleRestrictedViewSet):

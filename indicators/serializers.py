@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
+from django.db.models import Max
 
 from indicators.models import Indicator, Assessment, Option, LogicCondition, LogicGroup
 from profiles.serializers import ProfileListSerializer
@@ -11,7 +12,7 @@ class LogicConditionSerializer(serializers.ModelSerializer):
         model=LogicCondition
         fields = [
             'id', 'operator', 'source_type', 'source_indicator', 'respondent_field', 'value_text', 
-            'value_option', 'created_at', 'updated_by', 'updated_at', 'deprecated'
+            'value_option', 'created_at', 'created_by', 'updated_by', 'updated_at'
         ]
 
 class LogicGroupSerializer(serializers.ModelSerializer):
@@ -20,7 +21,12 @@ class LogicGroupSerializer(serializers.ModelSerializer):
     conditions = serializers.SerializerMethodField()
     def get_conditions(self, obj):
         inds = LogicCondition.objects.filter(group=obj)
-        return LogicConditionSerializer(inds, many=True)
+        return LogicConditionSerializer(inds, many=True).data
+    class Meta:
+        model=LogicGroup
+        fields = [
+            'id', 'group_operator', 'conditions',  'created_by', 'created_at', 'updated_by', 'updated_at',
+        ]
     
 class OptionSerializer(serializers.ModelSerializer):
     created_by = ProfileListSerializer(read_only=True)
@@ -33,8 +39,16 @@ class OptionSerializer(serializers.ModelSerializer):
 
 class IndicatorSerializer(serializers.ModelSerializer):
     options = serializers.SerializerMethodField()
+    logic = serializers.SerializerMethodField()
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
+    match_options_id = serializers.PrimaryKeyRelatedField(
+        source='match_options',
+        queryset=Indicator.objects.all(),
+        write_only=True,
+        required=False, 
+        allow_null=True
+    )
     assessment_id = serializers.PrimaryKeyRelatedField(
         source='assessment',
         queryset=Assessment.objects.all(),
@@ -44,12 +58,19 @@ class IndicatorSerializer(serializers.ModelSerializer):
     )
     options_data = serializers.JSONField(write_only=True, required=False)
     logic_data = serializers.JSONField(write_only=True, required=False)
+    def get_options(self, obj):
+        opts = Option.objects.filter(indicator=obj)
+        return OptionSerializer(opts, many=True).data
+
+    def get_logic(self, obj):
+        log = LogicGroup.objects.filter(indicator=obj).first()
+        return LogicGroupSerializer(log).data
     
     class Meta:
         model=Indicator
         fields = [
-            'id', 'name', 'type', 'options', 'index',  'created_by', 'created_at', 'updated_by', 'updated_at',
-            'assessment_id', 'options_data', 'logic_data'
+            'id', 'name', 'type', 'options', 'order',  'created_by', 'created_at', 'updated_by', 'updated_at',
+            'assessment_id', 'options_data', 'logic', 'logic_data', 'match_options', 'match_options_id'
         ]
 
     def validate(self, attrs):
@@ -59,12 +80,14 @@ class IndicatorSerializer(serializers.ModelSerializer):
         if attrs.get('category') == Indicator.Category.ASS and not attrs.get('assessment_id'):
             raise serializers.ValidationError("Assessment is required for this category")
         if attrs.get('category') == Indicator.Category.ASS:
-            assessment = get_object_or_404(Assessment, id=attrs.get('assessment_id'))
+            assessment = Assessment.objects.filter(id=attrs.get('assessment_id')).first()
+            if not assessment:
+                raise serializers.ValidationErrors('Must provide a valid assessment.')
 
         ind_type = attrs.get('type')
         options_data = attrs.get('options_data') or []
         if ind_type in [Indicator.Type.SINGLE, Indicator.Type.MULTI]:
-            if not options_data:
+            if not options_data and not attrs.get('match_options'):
                 raise serializers.ValidationError("This indicator type requires options.")
             seen = []
             for option in options_data:
@@ -85,16 +108,23 @@ class IndicatorSerializer(serializers.ModelSerializer):
                 st = condition.get('source_type')
                 # if a indicator field (either this assessment or including previous ones)
                 if st in [LogicCondition.SourceType.ASS, LogicCondition.SourceType.IND]:
-                    prereq_id = condition.get('indicator') #grab the indicator id
-                    prereq = get_object_or_404(Indicator, id=prereq_id) #make sure this indicator exists
+                    prereq_id = condition.get('source_indicator') #grab the indicator id
+                    prereq = Indicator.objects.filter(id=prereq_id).first() #make sure this indicator exists
+                    if not prereq:
+                        raise serializers.ValidationError('A valid indicator is required.')
                     if prereq.type in [Indicator.Type.MULTI, Indicator.Type.SINGLE]: #if it is linked to options...
                         option = condition.get('value_option', None) # pull the value_option field (an int id)
-                        if not option:
+                        if option is None:
                             raise serializers.ValidationError('An option is required for this condition.') #raise error if blank
                         if not option in Option.objects.filter(indicator_id=prereq_id).values_list('id', flat=True): # raise error if not a valid option
                             raise serializers.ValidationError(f'"{option}" is not a valid option for this indicator')
-                    elif not condition.get('value_text'): #otherwise there should be a free response, make sure some value is provided
+                    
+                    elif prereq.type == Indicator.Type.BOOL and not condition.get('value_boolean') in [True, False]:
+                        raise serializers.ValidationError('Please provide a true/false to check when creating a condition.')
+        
+                    elif prereq.type in [Indicator.Type.TEXT, Indicator.Type.INT] and condition.get('value_text') in [None, '']: #otherwise there should be a free response, make sure some value is provided
                         raise serializers.ValidationError('Please provide a value to check when creating a condition.')
+                
                 #else if this is checking against a respondent field
                 
                 elif st == LogicCondition.SourceType.RES:
@@ -107,6 +137,8 @@ class IndicatorSerializer(serializers.ModelSerializer):
         return attrs
     
     def __set_options(self, user, indicator, options_data):
+        if len(options_data) == 0:
+            return
         if indicator.type not in [Indicator.Type.SINGLE, Indicator.Type.MULTI]:
             raise serializers.ValidationError(f'{indicator} cannot accept options.')
         for option in options_data:
@@ -124,12 +156,14 @@ class IndicatorSerializer(serializers.ModelSerializer):
                     deprecated=option.get('deprecated', False),
                 )
     def __set_logic(self, user, indicator, logic_data):
+        if len(logic_data) == 0:
+            return
         if indicator.category != Indicator.Category.ASS:
             raise serializers.ValidationError('Indicator of this category cannot accept logic rules')
         group=None
         existing = LogicGroup.objects.filter(indicator=indicator).first()
         if existing:
-            existing.operator =  logic_data.get('operator')
+            existing.group_operator =  logic_data.get('operator')
             existing.updated_by = user
             existing.save()
             group=existing
@@ -137,7 +171,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
         else:
             group = LogicGroup.objects.create(
                 indicator=indicator, 
-                operator=logic_data.get('operator'),
+                group_operator=logic_data.get('group_operator'),
                 created_by=user,
             )
         
@@ -165,6 +199,8 @@ class IndicatorSerializer(serializers.ModelSerializer):
         options_data = validated_data.pop('options_data', [])
         logic_data = validated_data.pop('logic_data', {}) or {}
         indicator = Indicator.objects.create(**validated_data)
+        pos = Indicator.objects.filter(assessment=indicator.assessment).aggregate(Max('order'))['order__max'] or -1
+        indicator.order = pos+1
         self.__set_options(user, indicator, options_data)
         self.__set_logic(user, indicator, logic_data)
         indicator.created_by = user
@@ -182,6 +218,15 @@ class IndicatorSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
+def reorder_questions(assessment, moved_question_id, new_order):
+    questions = list(Indicator.objects.filter(assessment=assessment).exclude(id=moved_question_id).order_by('order'))
+    questions.insert(new_order, Indicator.objects.get(id=moved_question_id))
+    
+    for idx, q in enumerate(questions):
+        if q.order != idx:
+            q.order = idx
+            q.save(update_fields=['order'])
+
 class AssessmentListSerializer(serializers.ModelSerializer):
     '''
     Simple index serializer. We also attach a subcateogry count that's helpful for frontend checks 
@@ -193,7 +238,7 @@ class AssessmentListSerializer(serializers.ModelSerializer):
     
     class Meta:
         model=Assessment
-        fields = ['id', 'display_name',  'created_by', 'created_at', 'updated_by', 'updated_at']
+        fields = ['id', 'display_name', 'description', 'created_by', 'created_at', 'updated_by', 'updated_at']
 
 class AssessmentSerializer(serializers.ModelSerializer):
     '''
@@ -207,11 +252,27 @@ class AssessmentSerializer(serializers.ModelSerializer):
 
     def get_indicators(self, obj):
         inds = Indicator.objects.filter(assessment=obj)
-        return IndicatorSerializer(inds, many=True)
+        return IndicatorSerializer(inds, many=True).data
         
     def get_display_name(self, obj):
         return str(obj)  # Uses obj.__str__()
     
     class Meta:
         model=Assessment
-        fields = ['id', 'display_name', 'created_by', 'created_at', 'updated_by', 'updated_at', 'indicators']
+        fields = [
+                'id', 'display_name', 'name', 'description', 'created_by', 'created_at', 'updated_by', 
+                'updated_at', 'indicators'
+        ]
+    
+    def create(self, validated_data):
+        user = self.context['request'].user
+        ass = Assessment.objects.create(**validated_data)
+        ass.created_by = user
+        ass.save()
+        return ass
+
+    def update(self, instance, validated_data):
+        user = self.context['request'].user
+        instance.updated_by = user
+        instance.save()
+        return instance

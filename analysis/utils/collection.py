@@ -1,5 +1,5 @@
 from django.db.models import Q
-from respondents.models import Interaction, HIVStatus, Pregnancy, InteractionSubcategory
+from respondents.models import Interaction, HIVStatus, Pregnancy
 from projects.models import ProjectOrganization
 from events.models import DemographicCount, Event
 from datetime import date

@@ -7,7 +7,7 @@ import uuid
 
 from django.contrib.auth import get_user_model
 User = get_user_model()
-from indicators.models import IndicatorSubcategory
+from indicators.models import Option
 from projects.models import Task
 from events.models import Event
 
@@ -289,36 +289,19 @@ class HIVStatus(models.Model):
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='hiv_status_updated_by')
 
 class Interaction(models.Model):
-    '''
-    The interaction is the model that links an indicator to a respondent (via tasks). 
-    It includes with it the date, location and also possibly additional information (subcategory, numbers) 
-    as is required by the indicator. Via the task model, it also tells us the project/organization that 
-    completed it.
-    '''
     respondent = models.ForeignKey(Respondent, on_delete=models.PROTECT)
     task = models.ForeignKey(Task, on_delete=models.PROTECT)
+    comments = models.TextField(null=True, blank=True)
     interaction_date = models.DateField()
     interaction_location = models.CharField(max_length=255, null=True, blank=True, verbose_name='Interaction Location')
-    subcategories = models.ManyToManyField(IndicatorSubcategory, through='InteractionSubcategory', blank=True)
-    comments = models.TextField(verbose_name='Comments', null=True, blank=True, default=None)
-    numeric_component = models.IntegerField(null=True, blank=True, default=None)
-    event = models.ForeignKey(Event, on_delete=models.PROTECT, null=True, blank=True)
-    flags = GenericRelation('flags.Flag', related_query_name='flags')
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='interaction_created_by')
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='interaction_updated_by')
-    
-    def __str__(self):
-        return f'Interaction with {self.respondent} on {self.interaction_date} for {self.task.indicator} by {self.task.organization}'
 
-
-class InteractionSubcategory(models.Model):
-    '''
-    Mostly a through table to link interactions to an interaction subcategory, but we can also store numeric 
-    information within it (i.e., male/female condoms).
-    '''
-    interaction = models.ForeignKey(Interaction, on_delete=models.CASCADE)
-    numeric_component = models.IntegerField(null=True, blank=True, default=None)
-    subcategory = models.ForeignKey(IndicatorSubcategory, on_delete=models.CASCADE)
+class Response(models.Model):
+    interaction = models.ForeignKey(Respondent, on_delete=models.CASCADE)
+    response_value = models.CharField(max_length=255)
+    response_option = models.ForeignKey(Option, on_delete=models.PROTECT)
+    response_date = models.DateField(null=True)

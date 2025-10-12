@@ -14,6 +14,10 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='indicator',
             name='governs_attribute',
-            field=models.CharField(blank=True, choices=indicators.models.get_attribute_choices, null=True),
+            field=models.CharField(blank=True, choices=[
+                ('attr1', 'Attribute 1'),
+                ('attr2', 'Attribute 2'),
+                # Add all your choices here exactly as they were at that time
+            ], null=True),
         ),
     ]

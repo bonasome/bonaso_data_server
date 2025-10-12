@@ -6,19 +6,17 @@ from django.utils.timezone import now
 
 from django.db.models import Q
 
-from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, DisabilityType, InteractionSubcategory, RespondentAttribute, RespondentAttributeType, KeyPopulationStatus, DisabilityStatus
-from respondents.utils import update_m2m_status, respondent_flag_check, interaction_flag_check, dummy_dob_calc, calculate_age_range, check_event_perm
+from respondents.models import Respondent, Interaction, Response, Pregnancy, HIVStatus, KeyPopulation, DisabilityType, RespondentAttribute, RespondentAttributeType, KeyPopulationStatus, DisabilityStatus
+from respondents.utils import update_m2m_status, respondent_flag_check,  dummy_dob_calc, calculate_age_range, check_event_perm
 from respondents.exceptions import DuplicateExists
 
 from projects.models import Task, ProjectOrganization
 from projects.serializers import TaskSerializer
 
-from indicators.models import IndicatorSubcategory, Indicator
-from indicators.serializers import IndicatorSubcategorySerializer
+from indicators.models import  Indicator, Option, LogicCondition, LogicGroup
+from indicators.serializers import OptionSerializer, IndicatorSerializer
 from flags.serializers import FlagSerializer
 from profiles.serializers import ProfileListSerializer
-from events.models import Event
-from events.serializers import EventSerializer
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
@@ -430,254 +428,130 @@ class RespondentSerializer(serializers.ModelSerializer):
 
         return instance
 
-
-#reevaluate if we need this after taking another swing at the profiles serializer
-class SimpleInteractionSerializer(serializers.ModelSerializer):
+class ResponseSerializer(serializers.ModelSerializer):
+    response_option = OptionSerializer(read_only=True)
+    indicator = IndicatorSerializer(read_only=True)
+    indicator_id = serializers.PrimaryKeyRelatedField(
+        source='response_option',
+        queryset=Indicator.objects.all(),
+        write_only=True,
+        required=False, 
+        allow_null=True
+    )
+    option_id = serializers.PrimaryKeyRelatedField(
+        source='response_option',
+        queryset=Option.objects.all(),
+        write_only=True,
+        required=False, 
+        allow_null=True
+    )
     class Meta:
-        model=Interaction
-        fields = ['id', 'interaction_date']
+        model=Response
+        fields = [
+            'id', 'response_value', 'response_option', 'response_date', 'indicator', 'option_id', 'indicator_id',
+            'interaction'
+        ]
+    def __check_logic(self, indicator, value, respondent):
+        past_responses = past_responses or {}
 
-    
-class InteractionSubcategoryInputSerializer(serializers.Serializer):
-    id = serializers.IntegerField(required=False, allow_null=True) #to allow creation fo new 
-    subcategory = IndicatorSubcategorySerializer()
-    numeric_component = serializers.CharField(required=False, allow_null=True, allow_blank=True)
-    
+        # Get the logic group (assumes only one per indicator)
+        group = LogicGroup.objects.filter(indicator=indicator).first()
+        if not group:
+            return True  # No logic = always visible / valid
+        
+        operator = group.operator  # AND / OR
+        conditions = group.conditions.all()
+
+        results = []
+
+        for cond in conditions:
+            st = cond.source_type
+            op = cond.operator
+            value = None
+
+            # 1️⃣ Respondent field
+            if st == LogicCondition.SourceType.RES:
+                field_name = cond.respondent_field
+                value = getattr(respondent, field_name, None)
+                compare_to = cond.value_text
+
+            # 2️⃣ Past indicator response (within this assessment)
+            elif st == LogicCondition.SourceType.ASS:
+                prereq_indicator = cond.prereq
+                # try cache first
+                value = past_responses.get(prereq_indicator.code)
+                if value is None:
+                    # fallback: query Response model
+                    response = Response.objects.filter(
+                        respondent=respondent, indicator=prereq_indicator
+                    ).first()
+                    value = response.value if response else None
+                # For option fields, use option id
+                if prereq_indicator.type in [Indicator.Type.SINGLE, Indicator.Type.MULTI] and cond.value_option:
+                    compare_to = cond.value_option.id
+                    if isinstance(value, Option):
+                        value = value.id
+                else:
+                    compare_to = cond.value_text
+
+            else:
+                results.append(False)
+                continue
+
+            # 3️⃣ Compare
+            if op == '=':
+                results.append(value == compare_to)
+            elif op == '!=':
+                results.append(value != compare_to)
+            elif op == '>':
+                results.append(value > compare_to)
+            elif op == '<':
+                results.append(value < compare_to)
+            elif op == 'contains':
+                results.append(compare_to in (value or []))
+            elif op == '!contains':
+                results.append(compare_to not in (value or []))
+            else:
+                results.append(False)
+
+        # Apply group operator
+        if operator == 'AND':
+            return all(results)
+        else:  # OR
+            return any(results)
+
+    def validate(self, attrs):
+        user = self.context['request'].user
+        indicator_id = attrs.get('indicator_id')
+        indicator = Indicator.objects.filter(id=indicator_id).first()
+        if not indicator:
+            raise serializers.ValidationError('A valid indicator is required')
+        value = attrs.get('response_value', None)
+        option = None
+        if indicator.type in [Indicator.Type.SINGLE, Indicator.Type.MULTI]:
+            option_id = attrs.get('option_id', None)
+            option = Option.objects.filter(id=option_id).first()
+            if not option or option not in Option.objects.filter(indicator=indicator).values_list('id', flat=True):
+                raise serializers.ValidationError('A valid option is required')
+            value = option
+        if not value:
+            raise serializers.ValidationError('A value is required for a response.')
+        self.__check_logic(indicator, value, interaction.respondent)
+        
+
+
 class InteractionSerializer(serializers.ModelSerializer):
-    respondent = serializers.PrimaryKeyRelatedField(queryset=Respondent.objects.all())
-    task_id = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True, source='task')
+    respondent = RespondentSerializer(read_only=True)
     task = TaskSerializer(read_only=True)
-    subcategories = serializers.SerializerMethodField()
-    subcategories_data = InteractionSubcategoryInputSerializer(many=True, write_only=True, required=False)
-    flags = FlagSerializer(read_only=True, many=True)
-    created_by = ProfileListSerializer(read_only=True)
-    updated_by = ProfileListSerializer(read_only=True)
-    event = EventSerializer(read_only=True)
-    event_id = serializers.PrimaryKeyRelatedField(queryset=Event.objects.all(), write_only=True, source='event', required=False, allow_null=True)
-    display_name = serializers.SerializerMethodField()
-    parent_organization = serializers.SerializerMethodField() #return the id of the parent organization (if applicable) for frontend permissions checks
-    
-    def get_display_name(self, obj):
-        return str(obj)  # Uses obj.__str__()
+    responses = serializers.SerializerMethodField()
 
-    def get_subcategories(self, obj):
-        subcats = InteractionSubcategory.objects.filter(interaction=obj)
-        data = []
-        for subcat in subcats:
-            data.append({
-                'id': subcat.id,
-                'subcategory': {
-                    'id': subcat.subcategory.id,
-                    'name': subcat.subcategory.name
-                },
-                'numeric_component': subcat.numeric_component
-            })
-        return data
-    def get_parent_organization(self, obj):
-        org = ProjectOrganization.objects.filter(organization=obj.task.organization, project=obj.task.project).first().parent_organization
-        return org.id if org else None
+    def get_responses(self, obj):
+        responses = Response.objects.filter(interaction=obj)
+        return ResponseSerializer(responses, many=True)
+    
     class Meta:
         model=Interaction
         fields = [
-            'id', 'display_name', 'respondent', 'subcategories', 'subcategories_data', 'task_id', 'task',
-            'interaction_date', 'numeric_component', 'created_by', 'updated_by', 'created_at', 'updated_at',
-            'comments', 'interaction_location', 'event','event_id', 'flags', 'parent_organization'
+            'id', 'interaction_date', 'interaction_location', 'comments', 'responses'
         ]
-    
-    def to_internal_value(self, data):
-        subcat = data.get('subcategories_data', None)
-        if subcat == '':
-            data['subcategories_data'] = []
-        return super().to_internal_value(data)
 
-    def validate(self, data):
-        user = self.context['request'].user
-        if user.role == 'client':
-                raise PermissionDenied('You do not have permission to perform this action.')
-        task = data.get('task') or getattr(self.instance, 'task', None)
-        respondent = data.get('respondent') or getattr(self.instance, 'respondent', None)
-        event = data.get('event') or getattr(self.instance, 'event', None)
-        subcategories = data.get('subcategories_data', [])
-        interaction_date = data.get('interaction_date') or getattr(self.instance, 'interaction_date', None)
-        interaction_location = data.get('interaction_location') or getattr(self.instance, 'interaction_location', None)
-        number = data.get('numeric_component')
-        if number == '':
-            number = None
-        ### ===check permissions==== ###
-        #clients cannot create
-        if user.role == 'client':
-            raise PermissionDenied("You do not have permission to make edits to interactions.")
-        #admins can do whatever
-        if user.role != 'admin':
-            # me officers have perms over their org and their child org
-            if user.role in ['meofficer', 'manager']:
-                if task.organization != user.organization and not ProjectOrganization.objects.filter(project=task.project, organization=task.organization, parent_organization=user.organization).exists():
-                    raise PermissionDenied(
-                        "You may not create or edit interactions not related to your organization or its child organizations."
-                    )
-            #everyone else is limited to their own org
-            else:
-                if task.organization != user.organization:
-                    raise PermissionDenied(
-                        "You may not create or edit interactions not related to your organization."
-                    )
-        if event:
-            if not check_event_perm(user, event, task.project.id):
-                raise PermissionDenied(
-                        "You may not attach an interaction to an event you are not a part of."
-                    )
-            
-        ###===Check fields===###
-        #verify date is present and not in the future or outside of the project
-        if not interaction_date:
-            raise serializers.ValidationError("Interaction date is required.")
-        if interaction_date > date.today():
-            raise serializers.ValidationError("Interaction date may not be in the future.")
-        if interaction_date < task.project.start or interaction_date > task.project.end:
-            raise serializers.ValidationError("This interaction is set for a date outside of the project boundaries.")
-        
-        #verify location is present
-        if not interaction_location:
-            raise serializers.ValidationError("Interaction location is required.")
-        #verify that the selected task's indicator is supposed to be linked to a respondent
-        if task.indicator.indicator_type != Indicator.IndicatorType.RESPONDENT:
-            raise serializers.ValidationError("This task cannot be assigned to an interaction.")
-        
-        #check if number is required/present
-        requires_number = task.indicator.require_numeric
-        if requires_number and not task.indicator.subcategories.exists():
-            try:
-                if number in [None, '']:
-                    raise ValueError
-                int(number) 
-            except (ValueError, TypeError):
-                raise serializers.ValidationError("Task requires a valid number.")
-        #make sure a number wasn't sent and raise an error if it was, since this will be ignored
-        else:
-            if number in ['', '0']:
-                data['numeric_component'] = None
-            elif number not in [None, 0, '0', '']:
-                raise serializers.ValidationError("Task does not expect a number.")
-
-        #work through subcategories if applicable
-        if task.indicator.subcategories.exists():
-            if not subcategories or subcategories in [None, '', []]:
-                raise serializers.ValidationError("Subcategories are required for this task.")
-            if task.indicator.require_numeric:
-                for cat in subcategories:
-                    numeric_value = cat.get('numeric_component', None)
-
-                    if numeric_value is None:
-                        raise serializers.ValidationError(
-                            f"Subcategory {cat.get('subcategory').get('name')} requires a numeric component."
-                        )
-                    try:
-                        int(numeric_value)
-                    except (ValueError, TypeError):
-                        raise serializers.ValidationError(
-                            f"Numeric component for subcategory {cat.get('subcategory').get('name')} must be a valid integer."
-                        )
-        else:
-            if not subcategories or subcategories in [None, '', []]:
-                data['subcategories_data'] = []
-    
-        return data
-    
-    def create(self, validated_data):
-        user = self.context['request'].user
-        respondent = validated_data.pop('respondent', None) or self.context.get('respondent')
-        subcategories = validated_data.pop('subcategories_data', [])
-
-        # Create the interaction
-        interaction = Interaction.objects.create(
-            respondent=respondent,
-            created_by=user,
-            **validated_data
-        )
-        for subcat in subcategories:
-            subcat_id = subcat.get('subcategory').get('id')
-            numeric_value = None
-            if interaction.task.indicator.require_numeric:
-                numeric_value = int(subcat.get('numeric_component'))
-            
-
-            try:
-                subcategory = IndicatorSubcategory.objects.get(pk=subcat_id)
-            except IndicatorSubcategory.DoesNotExist:
-                raise serializers.ValidationError(f"Subcategory with id {subcat_id} not found.")
-
-            InteractionSubcategory.objects.create(
-                interaction=interaction,
-                subcategory=subcategory,
-                numeric_component=numeric_value
-            )
-        
-        #check interaction for any flags --> see respondents.utils.interaction_flag_check for more details
-        interaction_flag_check(interaction, user, downstream=False)
-
-        #possible that edits to a parent may cause a child to flag or unflag, so verify them as well
-        dependent_tasks = Task.objects.filter(indicator__prerequisites=interaction.task.indicator)
-        downstream = Interaction.objects.filter(
-            respondent=interaction.respondent,
-            task__in=dependent_tasks,
-        )
-        for ir in downstream:
-            print('running downstream for ', ir.task.indicator.name )
-            interaction_flag_check(ir, user, downstream=True)
-            ir.save()
-
-        return interaction
-    
-    def update(self, instance, validated_data):
-        user = self.context['request'].user
-        created_by = instance.created_by
-        #perms are verified, but for updates we add the special perm that lower roles can only edit their own interactions
-        if user.role not in ['meofficer', 'manager', 'admin']:
-            if instance.created_by != user:
-                raise PermissionDenied("You may only edit your interactions.")
-        
-        subcategories = validated_data.pop('subcategories_data', [])
-        if instance.task.indicator.subcategories.exists():
-            if subcategories not in ['', [], None]:
-                InteractionSubcategory.objects.filter(interaction=instance).delete()
-
-                for subcat in subcategories:
-                    subcat_id = subcat.get('subcategory').get('id')
-                    numeric_value = None
-                    if instance.task.indicator.require_numeric:
-                        numeric_value = subcat.get('numeric_component', None)
-
-                    try:
-                        subcategory = IndicatorSubcategory.objects.get(pk=subcat_id)
-                    except IndicatorSubcategory.DoesNotExist:
-                        raise serializers.ValidationError(f"Subcategory with id {subcat_id} not found.")
-
-                    InteractionSubcategory.objects.create(
-                        interaction=instance,
-                        subcategory=subcategory,
-                        numeric_component=numeric_value
-                    )
-            else:
-                raise serializers.ValidationError(f'Subcategories are required for this interaction.')
-            
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-
-        instance.updated_by = user
-        instance.save()
-
-        #check interaction for any flags --> see respondents.utils.interaction_flag_check for more details
-        interaction_flag_check(instance, user, downstream=False)
-
-        #possible that edits to a parent may cause a child to flag or unflag, so verify them as well
-        dependent_tasks = Task.objects.filter(indicator__prerequisites=instance.task.indicator)
-        downstream = Interaction.objects.filter(
-            respondent=instance.respondent,
-            task__in=dependent_tasks,
-        )
-        for ir in downstream:
-            print('running downstream for ', ir.task.indicator.name )
-            interaction_flag_check(ir, user, downstream=True)
-            ir.save()
-
-        return instance

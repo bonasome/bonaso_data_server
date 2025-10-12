@@ -8,7 +8,7 @@ from rest_framework import status
 from rest_framework.decorators import action
 
 from users.restrictviewset import RoleRestrictedViewSet
-from indicators.models import Indicator, Assessment
+from indicators.models import Indicator, Assessment, LogicCondition, LogicGroup
 from indicators.serializers import IndicatorSerializer, Assessment, AssessmentSerializer, AssessmentListSerializer
 from projects.models import Task, Target
 from respondents.models import Interaction
@@ -16,17 +16,20 @@ from respondents.utils import get_enum_choices
 from events.models import DemographicCount
 
 
-class DataElementViewSet(RoleRestrictedViewSet):
+class IndicatorViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = IndicatorSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = []
+    filterset_fields = ['assessment']
     ordering_fields = ['index']
     search_fields = ['name']    
 
     def get_queryset(self):
-        queryset = DataElement.objects.all()
+        queryset = Indicator.objects.all()
         user = self.request.user
+        '''
+        put perms here
+        '''
         return queryset
     
     @action(detail=False, methods=['get'], url_path='meta')
@@ -35,7 +38,13 @@ class DataElementViewSet(RoleRestrictedViewSet):
         Get labels for the front end to assure consistency.
         '''
         return Response({
-            "type": get_enum_choices(DataElement.Type),
+            "type": get_enum_choices(Indicator.Type),
+            "category": get_enum_choices(Indicator.Category),
+            "group_operators": get_enum_choices(LogicGroup.Operator),
+            "source_types": get_enum_choices(LogicCondition.SourceType),
+            "respondent_fields": get_enum_choices(LogicCondition.RespondentField),
+            "operators": get_enum_choices(LogicCondition.Operator),
+            "respondent_choices": LogicCondition.RESPONDENT_VALUE_CHOICES
         })
 
 class AssessmentViewSet(RoleRestrictedViewSet):

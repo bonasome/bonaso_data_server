@@ -9,7 +9,7 @@ from projects.models import Project, Client, Task, ProjectOrganization
 from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, InteractionSubcategory, RespondentAttributeType
 from organizations.models import Organization
 from events.models import Event
-from indicators.models import Indicator, IndicatorSubcategory
+from indicators.models import Indicator
 from datetime import date, timedelta
 User = get_user_model()
 

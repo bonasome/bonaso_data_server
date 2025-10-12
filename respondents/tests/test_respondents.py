@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 from projects.models import Project, Client, Task
 from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, RespondentAttributeType
 from organizations.models import Organization
-from indicators.models import Indicator, IndicatorSubcategory
+from indicators.models import Indicator
 from datetime import date
 from respondents.utils import calculate_age_range, dummy_dob_calc
 User = get_user_model()

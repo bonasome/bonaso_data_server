@@ -31,14 +31,13 @@ class Indicator(models.Model):
         EVENTS = 'events', _('Number of Events / Outreach')
         ORGS = 'orgs', _('Organizations Capacitated')
 
-    code = models.CharField(max_length=10)
     name = models.CharField(max_length=255)
     required = models.BooleanField(default=False)
-    help_text = models.CharField(max_length=255, blank=True, null=True)
     type = models.CharField(max_length=25, choices=Type.choices, default=Type.BOOL, verbose_name='Data Type')
     category = models.CharField(max_length=25, choices=Category.choices, default=Category.ASS)
     assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE, null=True, blank=True)
-    index = models.PositiveIntegerField()
+    match_options = models.ForeignKey('self', blank=True, null=True, on_delete=models.SET_NULL)
+    order = models.PositiveIntegerField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -46,7 +45,7 @@ class Indicator(models.Model):
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='de_updated_by')
     
     def __str__(self):
-        return f'{self.code}: {self.name}'
+        return f'{self.name}'
     
 class Option(models.Model):
     name = models.CharField(max_length=255)
@@ -66,7 +65,7 @@ class LogicGroup(models.Model):
         OR = 'OR', _('Or')
 
     indicator = models.ForeignKey(Indicator, related_name="logic_groups", on_delete=models.CASCADE)
-    operator = models.CharField(max_length=3, choices=Operator.choices, default=Operator.AND)
+    group_operator = models.CharField(max_length=3, choices=Operator.choices, default=Operator.AND)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -85,11 +84,17 @@ class LogicCondition(models.Model):
         HIV = 'hiv_status', _('HIV Status')
         AGE = 'age', _('Age')
         PREG = 'pregnancy_status', _('Pregnancy Status')
+    class Operator(models.TextChoices):
+        EQUALS = '=', _('Equals'),
+        NE = '!=', _('Not Equals'),
+        GT = '>', _('Greater Than'),
+        LT = '<', _('Less Than'),
+        C = 'contains', _('Contains'),
+        DNC = '!contains', _('Does Not Contain'),
+    
     RESPONDENT_VALUE_CHOICES = {
-        'sex': ['M', 'F', 'NB'],
-        'attribute': ['chw', 'community_leader', 'organization_staff'],
-        'hiv_positive': [True, False],
-        'pregnancy_status': [True, False]
+        'sex': [{'value': 'M', 'label': 'Male'}, {'value': 'F', 'label': 'Female'}, {'value': 'NB', 'label': 'Non Binary'}],
+        'hiv_positive': [{'value': True, 'label': 'HIV Positive'}, {'value': False, 'label': 'HIV Negative'}],
     }
 
     source_type = models.CharField(max_length=20, choices=SourceType.choices, default=SourceType.ASS)
@@ -103,20 +108,14 @@ class LogicCondition(models.Model):
         null=True, blank=True,
         help_text="Used if source_type = respondent",
     )
-    operator = models.CharField(max_length=10, choices=[
-        ('=', 'Equals'),
-        ('!=', 'Not Equals'),
-        ('>', 'Greater Than'),
-        ('<', 'Less Than'),
-        ('contains', 'Contains'),
-        ('!contains', 'Does Not Contain'),
-    ])
+    operator = models.CharField(max_length=10, choices=Operator.choices, default=Operator.EQUALS)
     value_text = models.CharField(max_length=255, null=True, blank=True)
     value_option = models.ForeignKey(
         'Option',
         null=True, blank=True,
         on_delete=models.SET_NULL
     )
+    value_boolean = models.BooleanField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

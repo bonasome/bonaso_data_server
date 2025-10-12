@@ -53,7 +53,7 @@ class SocialMediaPostSerializer(serializers.ModelSerializer):
                 if org and task.organization != org:
                     raise serializers.ValidationError('All tasks must belong to the same organization.')
                 org = task.organization
-                if task.indicator.indicator_type != Indicator.IndicatorType.SOCIAL:
+                if task.indicator.category!= Indicator.Category.SOCIAL:
                     raise serializers.ValidationError(f'Task "{str(task)}" may not be assigned to a social media post.')
                 #check that task is associated with the organization or their child
                 if user.role != 'admin':

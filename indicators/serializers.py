@@ -73,7 +73,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
         model=Indicator
         fields = [
             'id', 'display_name', 'name', 'type', 'options', 'order',  'created_by', 'created_at', 'updated_by', 'updated_at',
-            'assessment_id', 'options_data', 'logic', 'logic_data', 'match_options', 'match_options_id'
+            'assessment_id', 'options_data', 'logic', 'logic_data', 'match_options', 'match_options_id', 'category',
         ]
 
     def validate(self, attrs):

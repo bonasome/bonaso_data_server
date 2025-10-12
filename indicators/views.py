@@ -21,7 +21,7 @@ class IndicatorViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = IndicatorSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['assessment']
+    filterset_fields = ['assessment', 'category']
     ordering_fields = ['index']
     search_fields = ['name']    
 
@@ -31,6 +31,9 @@ class IndicatorViewSet(RoleRestrictedViewSet):
         '''
         put perms here
         '''
+        exclude_cat_param = self.request.query_params.get('exclude_category')
+        if exclude_cat_param:
+            queryset = queryset.exclude(category=exclude_cat_param)
         return queryset
     
     @action(detail=True, methods=['patch'], url_path='change-order')

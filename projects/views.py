@@ -356,6 +356,10 @@ class TaskViewSet(RoleRestrictedViewSet):
         if indicator_param:
             queryset = queryset.filter(indicator_id=indicator_param)
 
+        assessment_param = self.request.query_params.get('assessment')
+        if assessment_param:
+            queryset = queryset.filter(assessment_id=assessment_param)
+
         org_param = self.request.query_params.get('organization')
         if org_param:
             queryset = queryset.filter(organization__id=org_param)
@@ -370,9 +374,12 @@ class TaskViewSet(RoleRestrictedViewSet):
         if project_param:
             queryset = queryset.filter(project__id=project_param)
 
-        type_param = self.request.query_params.get('indicator_type')
-        if type_param:
-            queryset = queryset.filter(indicator__indicator_type=type_param)
+        cat_param = self.request.query_params.get('category')
+        if cat_param:
+            if cat_param == Indicator.Category.ASS:
+                queryset = queryset.filter(assessment__isnull=False)
+            else:
+                queryset = queryset.filter(indicator__category=cat_param)
 
         exclude_type_param = self.request.query_params.get('exclude_indicator_type')
         if exclude_type_param:
@@ -476,8 +483,9 @@ class TaskViewSet(RoleRestrictedViewSet):
         '''
         organization_id = request.data.get('organization_id')
         project_id = request.data.get('project_id')
+        assessment_ids = request.data.get('assessment_ids', [])
         indicator_ids = request.data.get('indicator_ids', [])
-        if not organization_id or not project_id or not indicator_ids:
+        if not organization_id or not project_id or not (indicator_ids or assessment_ids):
             return Response(
                 {"detail": "You must provide an organization, project, and at least one indicator to create a task."},
                 status=status.HTTP_400_BAD_REQUEST
@@ -485,21 +493,38 @@ class TaskViewSet(RoleRestrictedViewSet):
         #list of created tasks and list of tasks that already existed (project/org/indicator)
         created = []
         skipped = []
-        for indicator_id in indicator_ids:
-            existing_task = Task.objects.filter(indicator_id=indicator_id, project_id=project_id, organization_id=organization_id).first()
-            if existing_task:
-                skipped.append(f'Task "{str(existing_task)}" already exists and was skipped.')
-                continue
-            serializer = self.get_serializer(data={
-                'organization_id': organization_id,
-                'indicator_id': indicator_id,
-                'project_id': project_id,
-            }, context={'request': request})
+        if len(indicator_ids) > 0:
+            for indicator_id in indicator_ids:
+                existing_task = Task.objects.filter(indicator_id=indicator_id, project_id=project_id, organization_id=organization_id).first()
+                if existing_task:
+                    skipped.append(f'Task "{str(existing_task)}" already exists and was skipped.')
+                    continue
+                serializer = self.get_serializer(data={
+                    'organization_id': organization_id,
+                    'indicator_id': indicator_id,
+                    'assessment_id': None,
+                    'project_id': project_id,
+                }, context={'request': request})
 
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            created.append(serializer.data)
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
+                created.append(serializer.data)
+        if len(assessment_ids) > 0:
+            for assessment_id in assessment_ids:
+                existing_task = Task.objects.filter(assessment_id=assessment_id, project_id=project_id, organization_id=organization_id).first()
+                if existing_task:
+                    skipped.append(f'Task "{str(existing_task)}" already exists and was skipped.')
+                    continue
+                serializer = self.get_serializer(data={
+                    'organization_id': organization_id,
+                    'assessment_id': assessment_id,
+                    'indicator_id': None,
+                    'project_id': project_id,
+                }, context={'request': request})
 
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
+                created.append(serializer.data)
         return Response({
             "created": created,
             "skipped": skipped
@@ -510,8 +535,8 @@ class TargetViewSet(RoleRestrictedViewSet):
     Manages all views related to targets.
     '''
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
-    filterset_fields = ['task', 'task__organization', 'task__indicator', 'task__project']
-    search_fields = ['task__indicator__code', 'task__indicator__name']
+    filterset_fields = ['organization', 'indicator', 'project']
+    search_fields = ['indicator__name']
     permission_classes = [IsAuthenticated]
     serializer_class = TargetSerializer
 

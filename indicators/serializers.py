@@ -12,7 +12,7 @@ class LogicConditionSerializer(serializers.ModelSerializer):
         model=LogicCondition
         fields = [
             'id', 'operator', 'source_type', 'source_indicator', 'respondent_field', 'value_text', 
-            'value_option', 'created_at', 'created_by', 'updated_by', 'updated_at'
+            'value_option', 'value_boolean', 'created_at', 'created_by', 'updated_by', 'updated_at'
         ]
 
 class LogicGroupSerializer(serializers.ModelSerializer):
@@ -58,6 +58,9 @@ class IndicatorSerializer(serializers.ModelSerializer):
     )
     options_data = serializers.JSONField(write_only=True, required=False)
     logic_data = serializers.JSONField(write_only=True, required=False)
+    display_name = serializers.SerializerMethodField(read_only=True)
+    def get_display_name(self, obj):
+        return str(obj)  # Uses obj.__str__()
     def get_options(self, obj):
         opts = Option.objects.filter(indicator=obj)
         return OptionSerializer(opts, many=True).data
@@ -69,7 +72,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
     class Meta:
         model=Indicator
         fields = [
-            'id', 'name', 'type', 'options', 'order',  'created_by', 'created_at', 'updated_by', 'updated_at',
+            'id', 'display_name', 'name', 'type', 'options', 'order',  'created_by', 'created_at', 'updated_by', 'updated_at',
             'assessment_id', 'options_data', 'logic', 'logic_data', 'match_options', 'match_options_id'
         ]
 
@@ -107,11 +110,14 @@ class IndicatorSerializer(serializers.ModelSerializer):
                 #check if this is comparing to an indicator a respondent field
                 st = condition.get('source_type')
                 # if a indicator field (either this assessment or including previous ones)
+                
                 if st in [LogicCondition.SourceType.ASS, LogicCondition.SourceType.IND]:
                     prereq_id = condition.get('source_indicator') #grab the indicator id
                     prereq = Indicator.objects.filter(id=prereq_id).first() #make sure this indicator exists
+                    
                     if not prereq:
                         raise serializers.ValidationError('A valid indicator is required.')
+                    
                     if prereq.type in [Indicator.Type.MULTI, Indicator.Type.SINGLE]: #if it is linked to options...
                         option = condition.get('value_option', None) # pull the value_option field (an int id)
                         if option is None:
@@ -163,7 +169,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
         group=None
         existing = LogicGroup.objects.filter(indicator=indicator).first()
         if existing:
-            existing.group_operator =  logic_data.get('operator')
+            existing.group_operator =  logic_data.get('group_operator')
             existing.updated_by = user
             existing.save()
             group=existing
@@ -179,15 +185,21 @@ class IndicatorSerializer(serializers.ModelSerializer):
             st = condition.get('source_type')
             op = condition.get('operator')
             value_text = condition.get('value_text', None)
+            value_boolean = condition.get('value_boolean', None)
             value_option = Option.objects.filter(id=condition.get('value_option_id')).first() if condition.get('value_option_id') else None
-            prereq = condition.get('indicator', None)
+            prereq = None
+            ind_id = condition.get('source_indicator', None)
+            if ind_id:
+                prereq = Indicator.objects.filter(id=ind_id).first()
             respondent_field = condition.get('respondent_field', None)
+
             LogicCondition.objects.create(
                 group=group,
                 source_type = st,
                 operator=op,
                 value_text=value_text,
                 value_option=value_option,
+                value_boolean=value_boolean,
                 source_indicator= prereq,
                 respondent_field=respondent_field,
                 created_by = user
@@ -199,8 +211,8 @@ class IndicatorSerializer(serializers.ModelSerializer):
         options_data = validated_data.pop('options_data', [])
         logic_data = validated_data.pop('logic_data', {}) or {}
         indicator = Indicator.objects.create(**validated_data)
-        pos = Indicator.objects.filter(assessment=indicator.assessment).aggregate(Max('order'))['order__max'] or -1
-        indicator.order = pos+1
+        pos = Indicator.objects.filter(assessment=indicator.assessment).count()
+        indicator.order = pos - 1 if pos > 0 else 0
         self.__set_options(user, indicator, options_data)
         self.__set_logic(user, indicator, logic_data)
         indicator.created_by = user
@@ -212,20 +224,13 @@ class IndicatorSerializer(serializers.ModelSerializer):
         
         options_data = validated_data.pop('options_data', [])
         logic_data = validated_data.pop('logic_data', {}) or {}
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
         self.__set_options(user, instance, options_data)
         self.__set_logic(user, instance, logic_data)
         instance.updated_by = user
         instance.save()
         return instance
-
-def reorder_questions(assessment, moved_question_id, new_order):
-    questions = list(Indicator.objects.filter(assessment=assessment).exclude(id=moved_question_id).order_by('order'))
-    questions.insert(new_order, Indicator.objects.get(id=moved_question_id))
-    
-    for idx, q in enumerate(questions):
-        if q.order != idx:
-            q.order = idx
-            q.save(update_fields=['order'])
 
 class AssessmentListSerializer(serializers.ModelSerializer):
     '''

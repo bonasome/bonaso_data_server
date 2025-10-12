@@ -59,8 +59,8 @@ class TaskSerializer(serializers.ModelSerializer):
     organization = OrganizationListSerializer(read_only=True)
     assessment = AssessmentListSerializer(read_only=True)
     organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, source='organization')
-    indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True, source='indicator', required=False)
-    assessment_id = serializers.PrimaryKeyRelatedField(queryset=Assessment.objects.all(), write_only=True, source='indicator', required=False)
+    indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True, source='indicator', required=False, allow_null=True)
+    assessment_id = serializers.PrimaryKeyRelatedField(queryset=Assessment.objects.all(), write_only=True, source='assessment', required=False, allow_null=True)
     project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True, source='project')
     display_name = serializers.SerializerMethodField(read_only=True)
 
@@ -77,6 +77,7 @@ class TaskSerializer(serializers.ModelSerializer):
         
 
     def validate(self, attrs):
+        print(attrs)
         user = self.context.get('request').user if self.context.get('request') else None
         organization = attrs.get('organization')
         indicator = attrs.get('indicator')
@@ -86,10 +87,13 @@ class TaskSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                     f"This task requires a project, indicator, and organization."
                 )
-        if indicator and Task.objects.filter(project=project, organization=organization, indicator=indicator).exists():
-            raise serializers.ValidationError('This task already exists.')
-        if assessment and Task.objects.filter(project=project, organization=organization, assessment=assessment).exists():
-            raise serializers.ValidationError('This task already exists.')
+        print(indicator)
+        if indicator:
+            if Task.objects.filter(project=project, organization=organization, indicator=indicator).exists():
+                raise serializers.ValidationError('This task already exists.')
+        if assessment:
+            if Task.objects.filter(project=project, organization=organization, assessment=assessment).exists():
+                raise serializers.ValidationError('This task already exists.')
         if user.role != 'admin':
             #only allow non admins to create tasks for their children
             if not test_child_org(user, organization, project):
@@ -223,7 +227,6 @@ class TargetSerializer(serializers.ModelSerializer):
     '''
     
     indicator = IndicatorSerializer(read_only=True)
-    indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True, source='task')
     project = ProjectListSerializer(read_only=True)
     organization = OrganizationListSerializer(read_only=True)
     organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, source='organization')
@@ -233,7 +236,7 @@ class TargetSerializer(serializers.ModelSerializer):
     related_to = TaskSerializer(read_only=True)
     related_to_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True, required=False, allow_null=True, source='related_to')
     related_as_number = serializers.SerializerMethodField()
-    achievement = serializers.SerializerMethodField()
+    # achievement = serializers.SerializerMethodField()
     display_name = serializers.SerializerMethodField()
 
     def get_related_as_number(self, obj):
@@ -244,7 +247,7 @@ class TargetSerializer(serializers.ModelSerializer):
         if not obj.related_to:
             return None
         return get_achievement(user, obj, obj.related_to)
-
+    
     def get_achievement(self, obj):
         '''
         Get the actual number that has been acheived. Works similar to the above function.
@@ -258,7 +261,7 @@ class TargetSerializer(serializers.ModelSerializer):
         model = Target
         fields = [
             'id', 'indicator', 'indicator_id', 'start', 'end', 'amount','related_to', 'related_to_id', 
-            'related_as_number', 'percentage_of_related', 'achievement', 'display_name',
+            'related_as_number', 'percentage_of_related', 'display_name',
             'organization', 'organization_id', 'project', 'project_id'
         ]
 
@@ -267,6 +270,7 @@ class TargetSerializer(serializers.ModelSerializer):
         organization = attrs.get('organization', getattr(self.instance, 'organization', None))
         project = attrs.get('project', getattr(self.instance, 'project', None))
         indicator = attrs.get('indicator', getattr(self.instance, 'indicator', None))
+
         ###===Permission Check===###
         user = self.context['request'].user
         if user.role not in ['meofficer', 'manager', 'admin']:
@@ -285,7 +289,7 @@ class TargetSerializer(serializers.ModelSerializer):
         
         ###===VALIDATION===###, error messages should help explain what each of these does
         related = attrs.get('related_to')
-        if not organization or project or indicator:
+        if not organization or not project or not indicator:
             raise serializers.ValidationError('Project, organization, and indicator are required.')
         
 

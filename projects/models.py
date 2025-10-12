@@ -62,7 +62,7 @@ class Project(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f'{self.name} (for {self.client})'
+        return f'{self.name}'
 
 class ProjectOrganization(models.Model):
     '''
@@ -97,7 +97,10 @@ class Task(models.Model):
         unique_together = ('project', 'organization', 'indicator', 'assessment')
 
     def __str__(self):
-        return f'{self.indicator} ({self.organization}, {self.project})'
+        if self.assessment:
+            return f'{self.assessment} ({self.organization}, {self.project})'
+        if self.indicator:
+            return f'{self.indicator} ({self.organization}, {self.project})'
     
 class Target(models.Model):
     '''
@@ -147,7 +150,7 @@ class Target(models.Model):
             raise ValidationError("Target date range overlaps with an existing target.")
 
     def __str__(self):
-        return f'Target for Task {self.task} ({self.start} - {self.end})'
+        return f'Target for {self.indicator} ({self.start} - {self.end})'
 class ProjectActivity(models.Model):
     '''
     An organizational tool that can help admins/orgs track when events are and such. No real bearing on the data,

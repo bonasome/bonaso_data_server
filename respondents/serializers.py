@@ -569,7 +569,10 @@ class InteractionSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(f'Indicator {indicator.name} is required.')
             # if this shouldn't be visible but a value was sent anyway, raise an error
             if not sbv and val not in [[], None, '']:
-                raise serializers.ValidationError(f'Indicator {indicator.name} does not meet the criteria to be answered.')
+                raise serializers.ValidationError({
+                    "logic_error": f'Indicator {indicator.name} does not meet the criteria to be answered.',
+                    "details": {"indicator_id": indicator.id}
+                })
             if sbv:
                 print(key)
                 self.__value_valid(indicator, val)

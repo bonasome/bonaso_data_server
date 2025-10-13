@@ -79,6 +79,7 @@ def check_logic(c, response_info, assessment, respondent):
         if prereq.type == 'multi' and c.condition_type in ['any', 'none', 'all']:
             prereq_val = prereq_val or []
             if req_val == 'any':
+                print('v', prereq_val)
                 return len(prereq_val) > 0
             elif req_val == 'none':
                 print('here', prereq_val)

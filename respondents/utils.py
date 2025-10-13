@@ -81,7 +81,8 @@ def check_logic(c, response_info, assessment, respondent):
             if req_val == 'any':
                 return len(prereq_val) > 0
             elif req_val == 'none':
-                return prereq_val in [[]]
+                print('here', prereq_val)
+                return prereq_val in [[], None, ['none']]
             elif req_val == 'all':
                 return len(prereq_val) == Option.objects.filter(indicator=prereq).count()
 
@@ -92,7 +93,7 @@ def check_logic(c, response_info, assessment, respondent):
             if req_val == 'any':
                 return bool(prereq_val)
             elif req_val == 'none':
-                return prereq_val in [None]
+                return prereq_val in [None, 'none']
             elif req_val == 'all':
                 return False  # impossible
 

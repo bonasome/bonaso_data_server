@@ -578,7 +578,7 @@ class InteractionSerializer(serializers.ModelSerializer):
     
         return attrs
     def __make_response(self, interaction, indicator, data):
-        if data.get('value') in [[], None, '']:
+        if data.get('value') in [[], None, '', 'none', ['none']]:
             return
         if indicator.type == Indicator.Type.MULTI:
             options = data.get('value')

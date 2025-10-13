@@ -10,7 +10,7 @@ from projects.utils import ProjectPermissionHelper, test_child_org
 from organizations.models import Organization
 from organizations.serializers import OrganizationListSerializer
 from indicators.models import Indicator, Assessment
-from indicators.serializers import IndicatorSerializer, AssessmentListSerializer
+from indicators.serializers import IndicatorSerializer, AssessmentSerializer
 from profiles.serializers import ProfileListSerializer
 from analysis.utils.targets import get_achievement
 
@@ -57,7 +57,7 @@ class TaskSerializer(serializers.ModelSerializer):
     indicator = IndicatorSerializer(read_only=True)
     project = ProjectListSerializer(read_only=True)
     organization = OrganizationListSerializer(read_only=True)
-    assessment = AssessmentListSerializer(read_only=True)
+    assessment = AssessmentSerializer(read_only=True)
     organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, source='organization')
     indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True, source='indicator', required=False, allow_null=True)
     assessment_id = serializers.PrimaryKeyRelatedField(queryset=Assessment.objects.all(), write_only=True, source='assessment', required=False, allow_null=True)

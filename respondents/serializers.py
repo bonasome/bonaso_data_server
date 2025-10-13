@@ -7,7 +7,7 @@ from django.utils.timezone import now
 from django.db.models import Q
 
 from respondents.models import Respondent, Interaction, Response, Pregnancy, HIVStatus, KeyPopulation, DisabilityType, RespondentAttribute, RespondentAttributeType, KeyPopulationStatus, DisabilityStatus
-from respondents.utils import update_m2m_status, respondent_flag_check,  dummy_dob_calc, calculate_age_range, check_event_perm
+from respondents.utils import update_m2m_status, respondent_flag_check,  dummy_dob_calc, calculate_age_range, check_logic
 from respondents.exceptions import DuplicateExists
 
 from projects.models import Task, ProjectOrganization
@@ -431,127 +431,199 @@ class RespondentSerializer(serializers.ModelSerializer):
 class ResponseSerializer(serializers.ModelSerializer):
     response_option = OptionSerializer(read_only=True)
     indicator = IndicatorSerializer(read_only=True)
-    indicator_id = serializers.PrimaryKeyRelatedField(
-        source='response_option',
-        queryset=Indicator.objects.all(),
-        write_only=True,
-        required=False, 
-        allow_null=True
-    )
-    option_id = serializers.PrimaryKeyRelatedField(
-        source='response_option',
-        queryset=Option.objects.all(),
-        write_only=True,
-        required=False, 
-        allow_null=True
-    )
     class Meta:
         model=Response
         fields = [
-            'id', 'response_value', 'response_option', 'response_date', 'indicator', 'option_id', 'indicator_id',
-            'interaction'
+            'id', 'response_value', 'response_option', 'response_boolean', 'response_date', 'indicator', 
+            'response_location',
         ]
-    def __check_logic(self, indicator, value, respondent):
-        past_responses = past_responses or {}
-
-        # Get the logic group (assumes only one per indicator)
-        group = LogicGroup.objects.filter(indicator=indicator).first()
-        if not group:
-            return True  # No logic = always visible / valid
-        
-        operator = group.operator  # AND / OR
-        conditions = group.conditions.all()
-
-        results = []
-
-        for cond in conditions:
-            st = cond.source_type
-            op = cond.operator
-            value = None
-
-            # 1️⃣ Respondent field
-            if st == LogicCondition.SourceType.RES:
-                field_name = cond.respondent_field
-                value = getattr(respondent, field_name, None)
-                compare_to = cond.value_text
-
-            # 2️⃣ Past indicator response (within this assessment)
-            elif st == LogicCondition.SourceType.ASS:
-                prereq_indicator = cond.prereq
-                # try cache first
-                value = past_responses.get(prereq_indicator.code)
-                if value is None:
-                    # fallback: query Response model
-                    response = Response.objects.filter(
-                        respondent=respondent, indicator=prereq_indicator
-                    ).first()
-                    value = response.value if response else None
-                # For option fields, use option id
-                if prereq_indicator.type in [Indicator.Type.SINGLE, Indicator.Type.MULTI] and cond.value_option:
-                    compare_to = cond.value_option.id
-                    if isinstance(value, Option):
-                        value = value.id
-                else:
-                    compare_to = cond.value_text
-
-            else:
-                results.append(False)
-                continue
-
-            # 3️⃣ Compare
-            if op == '=':
-                results.append(value == compare_to)
-            elif op == '!=':
-                results.append(value != compare_to)
-            elif op == '>':
-                results.append(value > compare_to)
-            elif op == '<':
-                results.append(value < compare_to)
-            elif op == 'contains':
-                results.append(compare_to in (value or []))
-            elif op == '!contains':
-                results.append(compare_to not in (value or []))
-            else:
-                results.append(False)
-
-        # Apply group operator
-        if operator == 'AND':
-            return all(results)
-        else:  # OR
-            return any(results)
-
-    def validate(self, attrs):
-        user = self.context['request'].user
-        indicator_id = attrs.get('indicator_id')
-        indicator = Indicator.objects.filter(id=indicator_id).first()
-        if not indicator:
-            raise serializers.ValidationError('A valid indicator is required')
-        value = attrs.get('response_value', None)
-        option = None
-        if indicator.type in [Indicator.Type.SINGLE, Indicator.Type.MULTI]:
-            option_id = attrs.get('option_id', None)
-            option = Option.objects.filter(id=option_id).first()
-            if not option or option not in Option.objects.filter(indicator=indicator).values_list('id', flat=True):
-                raise serializers.ValidationError('A valid option is required')
-            value = option
-        if not value:
-            raise serializers.ValidationError('A value is required for a response.')
-        self.__check_logic(indicator, value, interaction.respondent)
         
 
 
 class InteractionSerializer(serializers.ModelSerializer):
     respondent = RespondentSerializer(read_only=True)
     task = TaskSerializer(read_only=True)
+    task_id = serializers.PrimaryKeyRelatedField(
+        source='task',
+        queryset=Task.objects.all(),
+        write_only=True,
+    )
+    respondent_id = serializers.PrimaryKeyRelatedField(
+        source='respondent',
+        queryset=Respondent.objects.all(),
+        write_only=True,
+    )
+    
     responses = serializers.SerializerMethodField()
+    response_data = serializers.JSONField(write_only=True, required=False)
 
     def get_responses(self, obj):
         responses = Response.objects.filter(interaction=obj)
-        return ResponseSerializer(responses, many=True)
+        return ResponseSerializer(responses, many=True).data
     
     class Meta:
         model=Interaction
         fields = [
-            'id', 'interaction_date', 'interaction_location', 'comments', 'responses'
+            'id', 'interaction_date', 'interaction_location', 'comments', 'responses', 'response_data',
+            'task_id', 'task', 'respondent', 'respondent_id'
         ]
 
+    def __options_valid(self, option, indicator):
+        try:
+            option = int(option)
+        except (TypeError, ValueError):
+            return False
+        if not indicator.match_options and not option in Option.objects.filter(indicator_id=indicator).values_list('id', flat=True): # raise error if not a valid option
+            return False
+        elif indicator.match_options:
+            if not option in Option.objects.filter(indicator=indicator.match_options).values_list('id', flat=True):
+                return False
+        return True
+    
+    def __value_valid(self, indicator, val):
+        if indicator.type == Indicator.Type.MULTI:
+            if not isinstance(val, list):
+                raise serializers.ValidationError('A list is expected for this indicator.')
+            if 'none' in val and indicator.allow_none:
+                val = []
+            else:
+                for option in val:
+                    valid = self.__options_valid(option, indicator)
+                    if not valid:
+                        raise serializers.ValidationError(f'ID {val} is not valid for indicator {indicator.name}.')
+        if indicator.type == Indicator.Type.SINGLE:
+            if val == 'none' and indicator.allow_none:
+                val = None
+            else:
+                valid = self.__options_valid(option, indicator)
+                if not valid:
+                    raise serializers.ValidationError(f'ID {val} is not valid for indicator {indicator.name}.')
+        if indicator.type == Indicator.Type.INT:
+            try:
+                val = int(val)
+            except (TypeError, ValueError):
+                raise serializers.ValidationError(f'Integer is required.')
+        if indicator.type == Indicator.Type.BOOL:
+            if val not in [True, False, 0, 1, "true", "false"]:
+                raise serializers.ValidationError('Boolean is required.')
+    
+    def __should_be_visible(self, indicator, responses, respondent, task):
+        logic_group = LogicGroup.objects.filter(indicator=indicator).first()
+        if logic_group:
+            conditions = LogicCondition.objects.filter(group=logic_group)
+            if conditions.exists():
+                if logic_group.group_operator == LogicGroup.Operator.AND:   
+                    for condition in conditions.all():
+                        passed = check_logic(c=condition, response_info=responses, assessment=task.assessment, respondent=respondent)
+                        print(indicator.name, passed)
+                        if not passed:
+                            return False
+                if logic_group.group_operator == LogicGroup.Operator.OR:   
+                    for condition in conditions.all():
+                        passed = check_logic(condition, responses, task.assessment, respondent)
+                        if passed:
+                            return True
+                    return False
+        return True    
+    def validate(self, attrs):
+        user = self.context['request'].user
+        if user.role == 'client':
+            raise PermissionDenied('You do not have permission to perform this action.')
+        ir_date = attrs.get('interaction_date', None)
+        loc = attrs.get('interaction_location', None)
+        task = attrs.get('task')
+        respondent = attrs.get('respondent')
+        if user.role != 'admin':
+            #if not an admin, only allow users to assign targets to their children
+            if user.role not in ['meofficer', 'admin']:
+                is_child = ProjectOrganization.objects.filter(
+                    organization=task.organization,
+                    parent_organization=user.organization,
+                    project=task.project
+                ).exists()
+                if not is_child and task.organization != user.organization:
+                    raise PermissionDenied('You do not have permission to create this interaction.')
+            else:
+                if task.organization != user.organization:
+                    raise PermissionDenied('You do not have permission to create this interaction.')
+        if not task.assessment:
+            raise serializers.ValidationError('An assessment is required to create an interaction.')
+        
+        if not ir_date or not loc:
+            raise serializers.ValidationError('Date and location are both required.')
+        if ir_date > date.today():
+            raise serializers.ValidationError('Assessment dates cannot be in the future.')
+        responses = attrs.get('response_data')
+
+        for key, item in responses.items():
+            indicator = Indicator.objects.filter(id=key).first()
+            if not indicator:
+                raise serializers.ValidationError(f'Invalid indicator ID provided: "{key}"')
+            #first check if the item should be visible
+            sbv = self.__should_be_visible(indicator, responses, respondent, task)
+            print(sbv)
+            #then check what the value is
+            val = item.get('value', None)
+            #if this should be visible and the indicator is required, but there is no value, raise an error
+            if sbv and val in [[], None, ''] and indicator.required:
+                raise serializers.ValidationError(f'Indicator {indicator.name} is required.')
+            # if this shouldn't be visible but a value was sent anyway, raise an error
+            if not sbv and val not in [[], None, '']:
+                raise serializers.ValidationError(f'Indicator {indicator.name} does not meet the criteria to be answered.')
+            if sbv:
+                print(key)
+                self.__value_valid(indicator, val)
+            
+            
+    
+        return attrs
+    def __make_response(self, interaction, indicator, data):
+        if data.get('value') in [[], None, '']:
+            return
+        if indicator.type == Indicator.Type.MULTI:
+            options = data.get('value')
+            for option in options:
+                response = Response.objects.create(
+                    interaction=interaction,
+                    indicator=indicator,
+                    response_option_id=option,
+                    response_date=data.get('date', interaction.interaction_date),
+                    response_location=data.get('location', interaction.interaction_location),
+                )
+        else:
+            boolVal = data.get('value') if indicator.type == Indicator.Type.BOOL else None
+            option = data.get('value') if indicator.type == Indicator.Type.SINGLE else None
+            text = data.get('value') if not boolVal and not option else None
+
+            response = Response.objects.create(
+                interaction=interaction,
+                indicator=indicator,
+                response_value=text,
+                response_boolean=boolVal,
+                response_option=option,
+                response_date=data.get('date', interaction.interaction_date),
+                response_location=data.get('location', interaction.interaction_location),
+            )
+    def create(self, validated_data):
+        user = self.context['request'].user
+        response_data = validated_data.pop('response_data', [])
+        interaction = Interaction.objects.create(**validated_data)
+        for key, data in response_data.items():
+            indicator = Indicator.objects.filter(id=key).first()
+            self.__make_response(interaction, indicator, data)
+        interaction.created_by = user
+        interaction.save()
+        return interaction
+
+    def update(self, instance, validated_data):
+        user = self.context['request'].user
+        response_data = validated_data.pop('response_data', [])
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        Response.objects.filter(interaction=instance).delete()
+        for key, data in response_data.items():
+            indicator = Indicator.objects.filter(id=key).first()
+            self.__make_response(instance, indicator, data)
+        instance.updated_by = user
+        instance.save()
+        return instance

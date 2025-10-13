@@ -6,7 +6,7 @@ User = get_user_model()
 
 class Assessment(models.Model):
     name = models.CharField(max_length = 255, verbose_name='Assessment Name')
-    description = models.TextField(verbose_name='Description')
+    description = models.TextField(verbose_name='Description', null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -37,6 +37,7 @@ class Indicator(models.Model):
     category = models.CharField(max_length=25, choices=Category.choices, default=Category.ASS)
     assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE, null=True, blank=True)
     match_options = models.ForeignKey('self', blank=True, null=True, on_delete=models.SET_NULL)
+    allow_none = models.BooleanField(default=False)
     order = models.PositiveIntegerField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -92,6 +93,11 @@ class LogicCondition(models.Model):
         C = 'contains', _('Contains'),
         DNC = '!contains', _('Does Not Contain'),
     
+    class ExtraChoices(models.TextChoices):
+        ANY= 'any', _('Any')
+        ALL= 'all', _('All')
+        NONE= 'none', _('None')
+
     RESPONDENT_VALUE_CHOICES = {
         'sex': [{'value': 'M', 'label': 'Male'}, {'value': 'F', 'label': 'Female'}, {'value': 'NB', 'label': 'Non Binary'}],
         'hiv_positive': [{'value': True, 'label': 'HIV Positive'}, {'value': False, 'label': 'HIV Negative'}],
@@ -115,6 +121,7 @@ class LogicCondition(models.Model):
         null=True, blank=True,
         on_delete=models.SET_NULL
     )
+    condition_type = models.CharField(max_length=10, choices=ExtraChoices.choices, default=ExtraChoices.ANY, null=True, blank=True)
     value_boolean = models.BooleanField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)

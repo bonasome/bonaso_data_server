@@ -2,6 +2,7 @@ from django.utils.timezone import now
 from datetime import date, datetime, timedelta
 from django.db.models import Q
 from respondents.models import Interaction, Respondent
+from indicators.models import Option
 from flags.utils import create_flag, resolve_flag
 from projects.models import ProjectOrganization
 from events.models import EventOrganization
@@ -55,104 +56,89 @@ def respondent_flag_check(respondent, user):
         _maybe_create_flag(flags, respondent, fifth_digit_reason, user)
         _maybe_create_flag(flags, respondent, sex_reason, user)
 
+def check_logic(c, response_info, assessment, respondent):
+    if not c or not response_info or not assessment or not respondent:
+        return False
 
-def interaction_flag_check(interaction, user, downstream=False):
-    '''
-    Create flags for an interaction automatically for the following reason:
-        -Multiple interactions over a 30 day period when not expressly allowed
+    if c.source_type == 'assessment':
+        # Find the prerequisite indicator
+        prereq = c.source_indicator
+        if not prereq:
+            return False
 
-    User is a required param since the user will be set as the caused_by property, which will determine
-    who is alerted to the flag.
-
-    Downstream lets the function know if this is a fully new update or if this is verifying dependent indicators.
-    '''
-
-    if not interaction.interaction_date or not interaction.task or not interaction.respondent:
-        return
-    
-    outstanding_flags = interaction.flags.filter(auto_flagged=True)
-
-    #Rule 1: Check if multiple interactions have occured within 30 days of each other
-    date_value = None
-    if isinstance(interaction.interaction_date, str):
-        date_value = datetime.strptime(interaction.interaction_date, "%Y-%m-%d").date()
-    elif isinstance(interaction.interaction_date, datetime):
-        date_value = interaction.interaction_date.date()
-    elif isinstance(interaction.interaction_date, date):
-        date_value = interaction.interaction_date
-    if not date_value:
-        return
-    
-    past_thirty_days = date_value - timedelta(days=30)
-    next_thirty_days = date_value + timedelta(days=30)
-    last_year = date_value - timedelta(days=365)
-
-    reason = (
-        f'Respondent "{interaction.respondent}" has had an interaction associated '
-        f'with task "{interaction.task.indicator.name}" within 30 days of this interaction.'
-    )
-    if not downstream and not interaction.task.indicator.allow_repeat:
-        if Interaction.objects.filter(
-            interaction_date__lte=next_thirty_days,
-            interaction_date__gte=past_thirty_days,
-            respondent=interaction.respondent, task__indicator=interaction.task.indicator
-        ).exclude(pk=interaction.pk).exists():
-            if not outstanding_flags.filter(reason=reason).exists():
-                create_flag(interaction, reason, user, 'suspicious')
+        # Determine required value based on type
+        if prereq.type in ['single', 'multi']:
+            req_val = c.condition_type or c.value_option
+        elif prereq.type in ['boolean']:
+            req_val = c.value_boolean
         else:
-            resolve_flag(outstanding_flags, reason)
-                
-    #Rule 2: Check if the indicator requires a prerequsiite that does not exist
-    prerequisites = interaction.task.indicator.prerequisites
-    for prerequisite in prerequisites.all():
-        if prerequisite:
-            prereqs = Interaction.objects.filter(
-                respondent=interaction.respondent,
-                task__indicator=prerequisite,
-                interaction_date__gte=last_year,
-                interaction_date__lte=interaction.interaction_date,
-            )
-            reason = (
-                    f'Indicator requires task "{prerequisite.name}" to have a valid interaction with this respondent within the past year. Make sure the prerequisite interaction is not in the future.'
-                )
-            if not prereqs.exists():
-                if not outstanding_flags.filter(reason=reason).exists():
-                    create_flag(interaction, reason, user, 'missing_prerequisite')
-            else:
-                resolve_flag(outstanding_flags, reason)
+            req_val = c.value_text
+        # Get the actual stored value
+        prereq_val = response_info.get(str(c.source_indicator.id), {}).get('value')
+        # Special logic for multi with any/none/all
+        if prereq.type == 'multi' and c.condition_type in ['any', 'none', 'all']:
+            prereq_val = prereq_val or []
+            if req_val == 'any':
+                return len(prereq_val) > 0
+            elif req_val == 'none':
+                return prereq_val in [[]]
+            elif req_val == 'all':
+                return len(prereq_val) == Option.objects.filter(indicator=prereq).count()
 
-                #Rule 3: If match categories is enabled, the dependent interaction's subcategories must be a subset
-                if interaction.task.indicator.match_subcategories_to == prerequisite:
-                    most_recent = prereqs.order_by('-interaction_date').first()
-                    reason = (f'The selected subcategories for task "{interaction.task.indicator.name}" do not match with the parent interaction associated with task "{most_recent.task.indicator.name}". This interaction will be flagged until the subcategories match.')
-                    current_ids = set(
-                        InteractionSubcategory.objects.filter(interaction=interaction)
-                        .values_list("subcategory_id", flat=True)
-                    )
-                    previous_ids = set(most_recent.subcategories.values_list('id', flat=True))
-                    if not current_ids.issubset(previous_ids):
-                        if not outstanding_flags.filter(reason=reason).exists():
-                            create_flag(interaction, reason, user, 'missing_prerequisite')
-                    else:
-                        resolve_flag(outstanding_flags, reason)
+        # Special logic for single with any/none/all
+        if prereq.type == 'single' and c.condition_type in ['any', 'none', 'all']:
+            # single is a single string or None
+            prereq_val = prereq_val or None
+            if req_val == 'any':
+                return bool(prereq_val)
+            elif req_val == 'none':
+                return prereq_val in [None]
+            elif req_val == 'all':
+                return False  # impossible
 
-    #Rule 3: Check for a required attribute
-    required_attributes = interaction.task.indicator.required_attributes.all() 
-    if required_attributes.exists():
-        respondent_attrs = set(interaction.respondent.special_attribute.values_list('id', flat=True))
-        
-        for attribute in required_attributes:
-            reason = (
-                f'Task "{interaction.task.indicator.name}" requires the respondent to have the special attribute "{attribute.name}". This interaction will be flagged so long as the respondent does not have the selected attribute.'
-            )
-            
-            if attribute.id not in respondent_attrs:
-                if not outstanding_flags.filter(reason=reason).exists():
-                    create_flag(interaction, reason, user, 'missing_prerequisite')
-            else:
-                resolve_flag(outstanding_flags, reason)
-                
+        # Multi-select value check
+        if prereq.type == 'multi':
+            if c.operator == '=':
+                return prereq_val and req_val in prereq_val
+            if c.operator == '!=':
+                return not prereq_val or req_val not in prereq_val
+        else:
+            # Direct comparison for single/text/boolean
+            if c.operator == '=':
+                return prereq_val == req_val
+            if c.operator == '!=':
+                return prereq_val != req_val
 
+        # Greater / Less than comparisons
+        if c.operator in ['>', '<']:
+            try:
+                if c.operator == '>':
+                    return float(req_val) > float(prereq_val)
+                else:
+                    return float(req_val) < float(prereq_val)
+            except (TypeError, ValueError):
+                print("Cannot compare a non-integer.")
+                return False
+
+        # Contains and not contains (text match)
+        if c.operator == 'contains':
+            return str(req_val).lower() in str(prereq_val).lower()
+        if c.operator == '!contains':
+            return str(req_val).lower() not in str(prereq_val).lower()
+
+        return False
+
+    elif c.source_type == 'respondent':
+        req_val = c.value_text
+        prereq_val = respondent.get(c.respondent_field)
+
+        if c.operator == '=':
+            return prereq_val == req_val
+        if c.operator == '!=':
+            return prereq_val != req_val
+        return False
+
+    return False
 
 def update_m2m_status(model, through_model, respondent, name_list, related_field='attribute'):
     """
@@ -217,38 +203,6 @@ def check_event_perm(user, event, project_id):
         if valid_host or is_participant:
             return True
         return False
-        
-
-def topological_sort(tasks):
-    from collections import defaultdict, deque
-
-    graph = defaultdict(list)
-    in_degree = defaultdict(int)
-
-    for task in tasks:
-        if task.indicator.prerequisite:
-            graph[task.indicator.prerequisite.id].append(task.indicator.id)
-            in_degree[task.indicator.id] += 1
-        else:
-            in_degree[task.indicator.id] += 0
-
-    id_map = {task.indicator.id: task for task in tasks}
-
-    queue = deque([id for id in in_degree if in_degree[id] == 0])
-    sorted_ids = []
-
-    while queue:
-        current = queue.popleft()
-        sorted_ids.append(current)
-        for dependent in graph[current]:
-            in_degree[dependent] -= 1
-            if in_degree[dependent] == 0:
-                queue.append(dependent)
-
-    if len(sorted_ids) != len(tasks):
-        raise Exception("Cycle detected in prerequisites")
-    
-    return [id_map[i] for i in sorted_ids]
 
 def dummy_dob_calc(age_range, created_at):
     '''

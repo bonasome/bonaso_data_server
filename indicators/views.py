@@ -81,7 +81,8 @@ class IndicatorViewSet(RoleRestrictedViewSet):
             "source_types": get_enum_choices(LogicCondition.SourceType),
             "respondent_fields": get_enum_choices(LogicCondition.RespondentField),
             "operators": get_enum_choices(LogicCondition.Operator),
-            "respondent_choices": LogicCondition.RESPONDENT_VALUE_CHOICES
+            "respondent_choices": LogicCondition.RESPONDENT_VALUE_CHOICES,
+            "condition_types": get_enum_choices(LogicCondition.ExtraChoices),
         })
 
 class AssessmentViewSet(RoleRestrictedViewSet):
@@ -96,15 +97,13 @@ class AssessmentViewSet(RoleRestrictedViewSet):
         queryset = Assessment.objects.all()
         user = self.request.user
         #expects organizations=1,2,3,4
-        exclude_org_param = self.request.query_params.get('exclude_organization') 
-        if exclude_org_param:
-            ids = Task.objects.filter(organization_id=exclude_org_param).values_list('assessment_id', flat=True)
+        exclude_org_param = self.request.query_params.get('exclude_organization')
+        exclude_project_param = self.request.query_params.get('exclude_project') 
+        if exclude_org_param and exclude_project_param:
+            ids = Task.objects.filter(assessment__isnull=False, organization_id=exclude_org_param, project_id=exclude_project_param).values_list('assessment_id', flat=True)
+            print(ids)
             queryset = queryset.exclude(id__in=ids)
 
-        exclude_project_param = self.request.query_params.get('exclude_project')
-        if exclude_project_param:
-            ids = Task.objects.filter(project_id=exclude_project_param).values_list('assessment_id', flat=True)
-            queryset = queryset.exclude(id__in=ids)
         return queryset
 
     def get_serializer_class(self):

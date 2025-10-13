@@ -11,7 +11,7 @@ class LogicConditionSerializer(serializers.ModelSerializer):
     class Meta:
         model=LogicCondition
         fields = [
-            'id', 'operator', 'source_type', 'source_indicator', 'respondent_field', 'value_text', 
+            'id', 'operator', 'source_type', 'source_indicator', 'respondent_field', 'value_text', 'condition_type',
             'value_option', 'value_boolean', 'created_at', 'created_by', 'updated_by', 'updated_at'
         ]
 
@@ -32,9 +32,9 @@ class OptionSerializer(serializers.ModelSerializer):
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
     class Meta:
-        model=Assessment
+        model=Option
         fields = [
-            'id', 'name', 'type', 'options', 'created_by', 'created_at', 'updated_by', 'updated_at', 'deprecated'
+            'id', 'name', 'created_by', 'created_at', 'updated_by', 'updated_at', 'deprecated'
         ]
 
 class IndicatorSerializer(serializers.ModelSerializer):
@@ -62,7 +62,11 @@ class IndicatorSerializer(serializers.ModelSerializer):
     def get_display_name(self, obj):
         return str(obj)  # Uses obj.__str__()
     def get_options(self, obj):
-        opts = Option.objects.filter(indicator=obj)
+        opts = []
+        if obj.match_options:
+            opts = Option.objects.filter(indicator=obj.match_options, deprecated=False)
+        else:
+            opts = Option.objects.filter(indicator=obj, deprecated=False)
         return OptionSerializer(opts, many=True).data
 
     def get_logic(self, obj):
@@ -73,7 +77,8 @@ class IndicatorSerializer(serializers.ModelSerializer):
         model=Indicator
         fields = [
             'id', 'display_name', 'name', 'type', 'options', 'order',  'created_by', 'created_at', 'updated_by', 'updated_at',
-            'assessment_id', 'options_data', 'logic', 'logic_data', 'match_options', 'match_options_id', 'category',
+            'assessment_id', 'options_data', 'logic', 'logic_data', 'match_options', 'match_options_id', 'category', 'allow_none',
+            'required',
         ]
 
     def validate(self, attrs):
@@ -89,6 +94,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
 
         ind_type = attrs.get('type')
         options_data = attrs.get('options_data') or []
+        match_options = attrs.get('match_options', None)
         if ind_type in [Indicator.Type.SINGLE, Indicator.Type.MULTI]:
             if not options_data and not attrs.get('match_options'):
                 raise serializers.ValidationError("This indicator type requires options.")
@@ -120,10 +126,23 @@ class IndicatorSerializer(serializers.ModelSerializer):
                     
                     if prereq.type in [Indicator.Type.MULTI, Indicator.Type.SINGLE]: #if it is linked to options...
                         option = condition.get('value_option', None) # pull the value_option field (an int id)
-                        if option is None:
-                            raise serializers.ValidationError('An option is required for this condition.') #raise error if blank
-                        if not option in Option.objects.filter(indicator_id=prereq_id).values_list('id', flat=True): # raise error if not a valid option
-                            raise serializers.ValidationError(f'"{option}" is not a valid option for this indicator')
+                        special = condition.get('condition_type')
+                        if option is None and special not in dict(LogicCondition.ExtraChoices.choices):
+                            raise serializers.ValidationError('An option or condition type is required for this condition.') #raise error if blank
+                        if not special:
+                            try:
+                                option = int(option)
+                            except (TypeError, ValueError):
+                                raise serializers.ValidationError(f'Invalid option ID: {option}')
+                            if not match_options and not option in Option.objects.filter(indicator_id=prereq_id).values_list('id', flat=True): # raise error if not a valid option
+                                raise serializers.ValidationError(f'"{option}" is not a valid option for this indicator')
+                            elif match_options:
+                                prereq_indicator = Indicator.objects.filter(id=prereq_id).first()
+                                if not prereq_indicator:
+                                    raise serializers.ValidationError(f'Prerequisite indicator {prereq_id} does not exist')
+                                match_to = prereq_indicator.match_options
+                                if not option in Option.objects.filter(indicator=match_to).values_list('id', flat=True):
+                                    raise serializers.ValidationError(f'"{option}" is not a valid option for this indicator')
                     
                     elif prereq.type == Indicator.Type.BOOL and not condition.get('value_boolean') in [True, False]:
                         raise serializers.ValidationError('Please provide a true/false to check when creating a condition.')
@@ -154,13 +173,20 @@ class IndicatorSerializer(serializers.ModelSerializer):
                 existing = Option.objects.filter(id=id).first()
             if existing:
                 existing.name = option.get('name')
-                existing.deprecated = option.get('deprecated')
+                existing.deprecated = False
+                existing.save()
             else:
-                Option.objects.create(
+                new = Option.objects.create(
                     indicator=indicator,
                     name=option.get('name'),
-                    deprecated=option.get('deprecated', False),
+                    deprecated=False,
                 )
+                option['id'] = new.id
+        existing_options = set(Option.objects.filter(indicator=indicator).values_list('id', flat=True))
+        submitted_options = set([opt['id'] for opt in options_data if 'id' in opt])
+        to_deprecate = existing_options - submitted_options
+        Option.objects.filter(id__in=to_deprecate).update(deprecated=True)
+
     def __set_logic(self, user, indicator, logic_data):
         if len(logic_data) == 0:
             return
@@ -186,7 +212,10 @@ class IndicatorSerializer(serializers.ModelSerializer):
             op = condition.get('operator')
             value_text = condition.get('value_text', None)
             value_boolean = condition.get('value_boolean', None)
-            value_option = Option.objects.filter(id=condition.get('value_option_id')).first() if condition.get('value_option_id') else None
+            value_option = Option.objects.filter(id=condition.get('value_option')).first() if condition.get('value_option') else None
+            condition_type = condition.get('condition_type', None)
+            if condition_type:
+                value_option = None
             prereq = None
             ind_id = condition.get('source_indicator', None)
             if ind_id:
@@ -199,6 +228,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
                 operator=op,
                 value_text=value_text,
                 value_option=value_option,
+                condition_type=condition_type,
                 value_boolean=value_boolean,
                 source_indicator= prereq,
                 respondent_field=respondent_field,

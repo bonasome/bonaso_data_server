@@ -7,7 +7,7 @@ import uuid
 
 from django.contrib.auth import get_user_model
 User = get_user_model()
-from indicators.models import Option
+from indicators.models import Option, Indicator
 from projects.models import Task
 from events.models import Event
 
@@ -301,7 +301,10 @@ class Interaction(models.Model):
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='interaction_updated_by')
 
 class Response(models.Model):
-    interaction = models.ForeignKey(Respondent, on_delete=models.CASCADE)
-    response_value = models.CharField(max_length=255)
-    response_option = models.ForeignKey(Option, on_delete=models.PROTECT)
-    response_date = models.DateField(null=True)
+    interaction = models.ForeignKey(Interaction, on_delete=models.PROTECT)
+    indicator = models.ForeignKey(Indicator, on_delete=models.PROTECT)
+    response_value = models.CharField(max_length=255, blank=True, null=True)
+    response_option = models.ForeignKey(Option, on_delete=models.PROTECT, blank=True, null=True)
+    response_boolean = models.BooleanField(blank=True, null=True)
+    response_date = models.DateField(null=True, blank=True)
+    response_location = models.TextField(null=True, blank=True)

@@ -23,9 +23,10 @@ from projects.utils import ProjectPermissionHelper, test_child_org
 from indicators.models import Indicator
 from respondents.models import Interaction
 from respondents.utils import get_enum_choices
-from events.models import Event, DemographicCount
+from events.models import Event
 from messaging.models import Announcement
 from messaging.serializers import AnnouncementSerializer
+from aggregates.models import AggregateGroup
 
 today = date.today().isoformat() #get today's date for reference
 
@@ -101,7 +102,7 @@ class ProjectViewSet(RoleRestrictedViewSet):
                 status=status.HTTP_409_CONFLICT
             )
         #as well as projects that have an interaction or event count associated with them
-        if Interaction.objects.filter(task__project = instance).exists() or DemographicCount.objects.filter(task__project=instance).exists():
+        if Interaction.objects.filter(task__project = instance).exists() or AggregateGroup.objects.filter(project=instance).exists():
             return Response(
                 {"detail": ("This project has data associated with it, and therefore cannot be deleted.")},
                 status=status.HTTP_409_CONFLICT
@@ -321,7 +322,7 @@ class ProjectViewSet(RoleRestrictedViewSet):
                     )
             #prevent removal if there is data associated with this org for this project
             if Interaction.objects.filter(task__organization__id = org_link.organization.id, task__project=project
-                ).exists() or DemographicCount.objects.filter(task__organization__id=org_link.organization.id, task__project=project
+                ).exists() or AggregateGroup.objects.filter(organization=org_link.organization, project=project
                 ).exists():
                  return Response(
                         {"detail": "You cannot remove an organization from a project when they have active tasks."},
@@ -455,9 +456,11 @@ class TaskViewSet(RoleRestrictedViewSet):
                 {"detail": "You cannot delete a task that has interactions associated with it."},
                 status=status.HTTP_409_CONFLICT
             )
-        if DemographicCount.objects.filter(task=instance).exists():
+        if AggregateGroup.objects.filter(
+                Q(project=instance.project, organization=instance.organization, indicator__assessment=instance.assessment)| 
+                Q(project=instance.project, organization=instance.organization, indicator=instance.indicator)).exists():
             return Response(
-                {"detail": "You cannot delete a task that has event counts associated with it."},
+                {"detail": "You cannot delete a task that has aggregate counts associated with it."},
                 status=status.HTTP_409_CONFLICT
             )
         if Target.objects.filter(task=instance).exists():

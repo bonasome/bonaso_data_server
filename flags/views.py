@@ -135,7 +135,7 @@ class FlagViewSet(RoleRestrictedViewSet):
         ALLOWED_FLAG_MODELS = {
             "respondents.respondent",
             "respondents.interaction",
-            "events.demographiccount",
+            "aggregates.aggregatecount",
             "social.socialmediapost"
         }
         #check perms

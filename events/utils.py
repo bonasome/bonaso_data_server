@@ -1,4 +1,4 @@
-from events.models import DemographicCount
+
 from flags.utils import create_flag, resolve_flag
 
 '''

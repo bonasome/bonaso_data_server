@@ -3,7 +3,8 @@ from django.db.models import Q
 from collections import defaultdict
 
 from respondents.models import Respondent, Interaction
-from events.models import Event, DemographicCount
+from events.models import Event
+from aggregates.models import AggregateGroup
 from indicators.models import Indicator
 from organizations.models import Organization
 from projects.models import Project, Task, ProjectActivity, ProjectDeadline, Target, Client
@@ -24,7 +25,7 @@ def get_user_activity(user):
         ProjectActivity,
         ProjectDeadline,
         Event,
-        DemographicCount,
+        AggregateGroup,
         SocialMediaPost,
         NarrativeReport,
         Organization,

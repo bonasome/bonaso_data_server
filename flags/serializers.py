@@ -31,7 +31,7 @@ class FlagSerializer(serializers.ModelSerializer):
             ct = ContentType.objects
             self.ct_respondent = ct.get(app_label='respondents', model='respondent')
             self.ct_interaction = ct.get(app_label='respondents', model='interaction')
-            self.ct_demo_count = ct.get(app_label='events', model='demographiccount')
+            self.ct_count = ct.get(app_label='aggregates', model='aggregatecount')
             self.ct_social_post = ct.get(app_label='social', model='socialmediapost')
             if obj.content_type == self.ct_respondent:
                 return {
@@ -51,12 +51,12 @@ class FlagSerializer(serializers.ModelSerializer):
                     'display': str(obj.target)
                 }
 
-            elif obj.content_type == self.ct_demo_count:
+            elif obj.content_type == self.ct_count:
                 return {
                     'id': obj.target.id,
-                    'parent': obj.target.event_id if obj.target.event else None,
-                    'project': obj.target.task.project_id if obj.target.task else None,
-                    'organization': obj.target.task.organization_id if obj.target.task else None,
+                    'parent': obj.target.group_id if obj.target.group else None,
+                    'project': None,
+                    'organization': obj.target.organization_id if obj.target.organization else None,
                     'display': str(obj.target)
                 }
 

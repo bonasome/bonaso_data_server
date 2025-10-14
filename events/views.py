@@ -20,8 +20,8 @@ from users.restrictviewset import RoleRestrictedViewSet
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
-from events.models import Event, DemographicCount, EventTask, EventOrganization
-from events.serializers import EventSerializer, DCSerializer
+from events.models import Event, EventTask, EventOrganization
+from events.serializers import EventSerializer
 from events.utils import get_schema_key, make_key, count_flag_logic
 from organizations.models import Organization
 from projects.models import Task, ProjectOrganization

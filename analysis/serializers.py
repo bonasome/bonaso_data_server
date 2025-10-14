@@ -13,7 +13,6 @@ from projects.serializers import ProjectListSerializer, Target
 from profiles.serializers import ProfileListSerializer
 from indicators.models import Indicator
 from indicators.serializers import IndicatorSerializer
-from events.models import DemographicCount
 from collections import defaultdict
 from respondents.models import Interaction
 

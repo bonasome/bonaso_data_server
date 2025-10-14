@@ -2,6 +2,7 @@ from django.shortcuts import render, redirect
 from rest_framework.response import Response
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
+from django.db.models import Q
 from django.db import transaction
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
@@ -14,7 +15,6 @@ from indicators.serializers import IndicatorSerializer, Assessment, AssessmentSe
 from projects.models import Task, Target
 from respondents.models import Interaction
 from respondents.utils import get_enum_choices
-from events.models import DemographicCount
 
 
 class IndicatorViewSet(RoleRestrictedViewSet):
@@ -31,9 +31,62 @@ class IndicatorViewSet(RoleRestrictedViewSet):
         '''
         put perms here
         '''
+        project_param = self.request.query_params.get('project')
+        if project_param:
+            direct_indicators = Task.objects.filter(
+                indicator__isnull=False, 
+                project_id=project_param
+            ).values_list('indicator_id', flat=True)
+
+            # Assessments linked to tasks
+            assessment_ids = Task.objects.filter(
+                assessment__isnull=False, 
+                project_id=project_param
+            ).values_list('assessment_id', flat=True)
+
+            # Indicators that belong to those assessments
+            assessment_indicators = Indicator.objects.filter(
+                assessment_id__in=assessment_ids
+            ).values_list('id', flat=True)
+            valid_ids = list(direct_indicators) + list(assessment_indicators)
+            queryset = queryset.filter(id__in=valid_ids)
+        
+        org_param = self.request.query_params.get('organization')
+        if org_param:
+            direct_indicators = Task.objects.filter(
+                indicator__isnull=False, 
+                organization_id=org_param
+            ).values_list('indicator_id', flat=True)
+
+            # Assessments linked to tasks
+            assessment_ids = Task.objects.filter(
+                assessment__isnull=False, 
+                organization_id=org_param
+            ).values_list('assessment_id', flat=True)
+
+            # Indicators that belong to those assessments
+            assessment_indicators = Indicator.objects.filter(
+                assessment_id__in=assessment_ids
+            ).values_list('id', flat=True)
+            valid_ids = list(direct_indicators) + list(assessment_indicators)
+            queryset = queryset.filter(id__in=valid_ids)
+        
+        agg_param = self.request.query_params.get('allow_aggregate')
+        if agg_param:
+            agg_param = agg_param in ['true', '1']
+            queryset = queryset.filter(allow_aggregate=agg_param)
+        
         exclude_cat_param = self.request.query_params.get('exclude_category')
         if exclude_cat_param:
             queryset = queryset.exclude(category=exclude_cat_param)
+        
+        exclude_org_param = self.request.query_params.get('exclude_organization')
+        exclude_project_param = self.request.query_params.get('exclude_project') 
+        if exclude_org_param and exclude_project_param:
+            ids = Task.objects.filter(indicator__isnull=False, organization_id=exclude_org_param, project_id=exclude_project_param).values_list('indicator_id', flat=True)
+            print(ids)
+            queryset = queryset.exclude(id__in=ids)
+
         return queryset
     
     @action(detail=True, methods=['patch'], url_path='change-order')

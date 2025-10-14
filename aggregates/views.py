@@ -20,13 +20,10 @@ from users.restrictviewset import RoleRestrictedViewSet
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
-from events.models import Event, DemographicCount, EventTask, EventOrganization
-from events.serializers import EventSerializer, DCSerializer
-from events.utils import get_schema_key, make_key, count_flag_logic
-from organizations.models import Organization
 from aggregates.models import AggregateCount, AggregateGroup
 from aggregates.serializers import AggregateCountSerializer, AggregatGroupSerializer
 from projects.models import Task, ProjectOrganization
+from respondents.models import Respondent, RespondentAttributeType, KeyPopulation, DisabilityType
 from respondents.utils import get_enum_choices
 
 
@@ -67,3 +64,23 @@ class AggregateViewSet(RoleRestrictedViewSet):
             AggregateCount.objects.filter(group=instance).delete()
             instance.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+    
+    @action(detail=False, methods=['get'], url_path='meta')
+    def get_breakdowns_meta(self, request):
+        '''
+        Map the front end can use to get prettier names for the user. 
+        '''
+        breakdowns = {
+            'sex': get_enum_choices(Respondent.Sex),
+            'age_range': get_enum_choices(Respondent.AgeRanges),
+            'district': get_enum_choices(Respondent.District),
+            'kp_type': get_enum_choices(KeyPopulation.KeyPopulations),
+            'disability_type': get_enum_choices(DisabilityType.DisabilityTypes),
+            'special_attribute': get_enum_choices(RespondentAttributeType.Attributes),
+            'citizenship': get_enum_choices(AggregateCount.Citizenship),
+            'hiv_status': get_enum_choices(AggregateCount.HIVStatus),
+            'pregnancy': get_enum_choices(AggregateCount.Pregnancy),
+
+
+        }
+        return Response(breakdowns)

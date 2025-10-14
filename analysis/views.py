@@ -25,7 +25,6 @@ from indicators.models import Indicator
 
 from analysis.serializers import DashboardSettingSerializer, DashboardSettingListSerializer, DashboardIndicatorChartSerializer, PivotTableListSerializer, PivotTableSerializer, LineListSerializer, LineListListSerializer, RequestLogSerializer
 from analysis.models import DashboardSetting, IndicatorChartSetting, ChartField, DashboardIndicatorChart, ChartFilter, ChartIndicator, PivotTable, LineList, RequestLog
-from events.models import DemographicCount
 from respondents.utils import get_enum_choices
 
 from datetime import datetime

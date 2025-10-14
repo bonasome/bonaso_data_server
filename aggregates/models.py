@@ -15,8 +15,8 @@ class AggregateGroup(models.Model):
     project = models.ForeignKey(Project, on_delete=models.PROTECT)
     start = models.DateField()
     end = models.DateField()
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='count_created_by')
-    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='count_updated_by')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='group_created_by')
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='group_updated_by')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -67,7 +67,7 @@ class AggregateCount(models.Model):
         'districts': Respondent.District.values,
 
     }
-    batch = models.ForeignKey(AggregateGroup, on_delete=models.CASCADE)
+    group = models.ForeignKey(AggregateGroup, on_delete=models.CASCADE)
     value = models.PositiveIntegerField() #numeric value
     sex = models.CharField(max_length = 2, choices=Respondent.Sex.choices, null=True, blank=True)
     age_range = models.CharField(max_length = 25, choices=Respondent.AgeRanges.choices, null=True, blank=True)
@@ -86,7 +86,7 @@ class AggregateCount(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ('indicator', 'sex', 'age_range', 'citizenship', 'organization', 'project',
+        unique_together = ('group', 'sex', 'age_range', 'citizenship',
                            'hiv_status', 'pregnancy', 'disability_type', 'kp_type', 'attribute_type', 'option')
     
     def __str__(self):

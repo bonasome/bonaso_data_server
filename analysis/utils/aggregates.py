@@ -1,7 +1,7 @@
 from django.db.models import Q, Count
 from respondents.models import Interaction
 from projects.models import Target, ProjectOrganization
-from events.models import DemographicCount, Event
+from events.models import Event
 from itertools import product
 from datetime import date
 from collections import defaultdict

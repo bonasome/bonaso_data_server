@@ -4,7 +4,6 @@ from rest_framework.exceptions import PermissionDenied
 from django.db import transaction
 from datetime import date
 
-from events.models import Event, DemographicCount, EventTask, EventOrganization
 from profiles.serializers import ProfileListSerializer
 from organizations.models import Organization
 from organizations.serializers import OrganizationListSerializer
@@ -18,6 +17,7 @@ from flags.utils import create_flag
 from flags.models import Flag
 class AggregateCountSerializer(serializers.ModelSerializer):
     option = OptionSerializer(read_only=True)
+    option_id = serializers.PrimaryKeyRelatedField(queryset=Option.objects.all(), write_only=True, source='option')
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
 
@@ -26,6 +26,7 @@ class AggregateCountSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'option',
+            'option_id',
             'sex',
             'age_range',
             'citizenship',
@@ -52,14 +53,18 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
     indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True, source='indicator')
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
+    counts_data = AggregateCountSerializer(write_only=True, many=True, required=True)
 
-    counts = AggregateCountSerializer(many=True)
+    counts = serializers.SerializerMethodField()
+    def get_counts(self, obj):
+        counts = AggregateCount.objects.filter(group=obj)
+        return AggregateCountSerializer(counts, many=True).data
 
     class Meta:
         model = AggregateGroup
         fields = [
             'id', 'organization', 'indicator', 'project', 'organization_id', 'indicator_id', 'project_id',
-            'start', 'end', 'created_by', 'created_at', 'updated_by', 'updated_at'
+            'start', 'end', 'created_by', 'created_at', 'updated_by', 'updated_at', 'counts', 'counts_data'
         ]
         
 
@@ -67,7 +72,7 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
         option = data.get('option')
         if indicator.type in [Indicator.Type.MULTI, Indicator.Type.SINGLE] and not option:
             raise serializers.ValidationError("Option is required for this indicator type.")
-        else:
+        elif option and not indicator.type in [Indicator.Type.MULTI, Indicator.Type.SINGLE]:
             # For all other indicator types, option must NOT be provided
             if option:
                 raise serializers.ValidationError(
@@ -101,22 +106,38 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
 
             if not (is_own_org or is_child_org):
                 raise PermissionDenied("You do not have permission to create aggregates not related to your organization.")
-
+         #check for overlaps
+        start =attrs.get('start')
+        end=attrs.get('end')
+        if start and end:
+            overlaps = AggregateGroup.objects.filter(
+                indicator=indicator,
+                project=proj,
+                organization=org,
+                start__lte=end,
+                end__gte=start,
+            )
+            if self.instance:
+                overlaps = overlaps.exclude(pk=self.instance.pk)
+        if overlaps.exists():
+            raise serializers.ValidationError("This aggregate overlaps with an existing aggregate in the same time period.")
+        
         # ✅ Boolean or select indicators should map to an option
         if indicator.category in [Indicator.Category.SOCIAL, Indicator.Category.EVENTS, Indicator.Category.ORGS]: #these should be linked to another object via a task
             raise serializers.ValidationError('Aggregates are not allowed for this indicator category.')
         if indicator.type in [Indicator.Type.TEXT]:
-            raise serializers.ValidationError("Aggregates not allowed for this type.")
+            raise serializers.ValidationError("Aggregates not allowed for this indicator type.")
         if not indicator.allow_aggregate:
-            raise serializers.ValidationError("Aggregates not allowed for this type.")
+            raise serializers.ValidationError("Aggregates not allowed for this indicator.")
         
-        counts = attrs.get('counts', [])
+        counts = attrs.get('counts_data', [])
         breakdown_keys_set = None
 
         for row in counts:
             self.__validate_row(indicator, row)
-            self.__check_logic(indicator, org, attrs.get('start'), attrs.get('end'), row)
-            row_keys = set(k for k, v in row.items() if k in AggregateCount.DEMOGRAPHIC_VALIDATORS and v is not None)
+            print(row)
+            row_keys = set(k for k, v in row.items() if k in AggregateCount.DEMOGRAPHIC_VALIDATORS or k == 'option' and v is not None)
+            print(row_keys)
             if breakdown_keys_set is None:
                 breakdown_keys_set = row_keys
             elif row_keys != breakdown_keys_set:
@@ -186,7 +207,7 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         user = self.context.get('request').user if self.context.get('request') else None
-        rows = validated_data.pop('counts')
+        rows = validated_data.pop('counts_data')
         with transaction.atomic():
             group = AggregateGroup.objects.create(**validated_data)
             group.created_by = user
@@ -198,11 +219,11 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
             saved_instances = AggregateCount.objects.bulk_create(instances)
             for count in saved_instances:
                 self.__check_logic(group.indicator, group.organization, group.start, group.end, count, user)
-        return saved_instances
+        return group
     
     def update(self, instance, validated_data):
         user = self.context.get('request').user if self.context.get('request') else None
-        rows = validated_data.pop('counts')
+        rows = validated_data.pop('counts_data')
         with transaction.atomic():
             for attr, value in validated_data.items():
                 setattr(instance, attr, value)
@@ -216,4 +237,4 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
             saved_instances = AggregateCount.objects.bulk_create(instances)
             for count in saved_instances:
                 self.__check_logic(instance.indicator, instance.organization, instance.start, instance.end, count, user)
-        return saved_instances
+        return instance

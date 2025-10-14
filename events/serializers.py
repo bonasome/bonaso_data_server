@@ -4,7 +4,7 @@ from rest_framework.exceptions import PermissionDenied
 from django.db import transaction
 from datetime import date
 
-from events.models import Event, DemographicCount, EventTask, EventOrganization
+from events.models import Event, EventTask, EventOrganization
 from profiles.serializers import ProfileListSerializer
 from organizations.models import Organization
 from organizations.serializers import OrganizationListSerializer
@@ -14,19 +14,6 @@ from flags.serializers import FlagSerializer
 from indicators.models import Indicator
 
 
-class DCSerializer(serializers.ModelSerializer):
-    '''
-    Used to view counts. Since counts are a bit complex, we handle update/creation in a dedicated action in the
-    viewset.
-    '''
-    flags = FlagSerializer(read_only=True, many=True)
-    organization=OrganizationListSerializer(read_only=True)
-    task = TaskSerializer(read_only=True)
-    created_by = ProfileListSerializer(read_only=True)
-    updated_by = ProfileListSerializer(read_only=True)
-    class Meta:
-        model=DemographicCount
-        fields = '__all__'
         
 class EventSerializer(serializers.ModelSerializer):
     '''

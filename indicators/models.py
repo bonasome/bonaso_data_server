@@ -30,6 +30,7 @@ class Indicator(models.Model):
         SOCIAL = 'social', _('Social Media')
         EVENTS = 'events', _('Number of Events / Outreach')
         ORGS = 'orgs', _('Organizations Capacitated')
+        MISC = 'misc', _('Other Category')
 
     name = models.CharField(max_length=255)
     required = models.BooleanField(default=False)
@@ -38,6 +39,7 @@ class Indicator(models.Model):
     assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE, null=True, blank=True)
     match_options = models.ForeignKey('self', blank=True, null=True, on_delete=models.SET_NULL)
     allow_none = models.BooleanField(default=False)
+    allow_aggregate = models.BooleanField(default=False)
     order = models.PositiveIntegerField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -78,13 +80,10 @@ class LogicCondition(models.Model):
 
     class SourceType(models.TextChoices):
         ASS = 'assessment', _('Indicator in This Assessment')
-        IND = 'indicator', _('Any Previous Indicator')
         RES = 'respondent', _('Respondent Field')
     class RespondentField(models.TextChoices):
         SEX = 'sex', _('Sex')
         HIV = 'hiv_status', _('HIV Status')
-        AGE = 'age', _('Age')
-        PREG = 'pregnancy_status', _('Pregnancy Status')
     class Operator(models.TextChoices):
         EQUALS = '=', _('Equals'),
         NE = '!=', _('Not Equals'),

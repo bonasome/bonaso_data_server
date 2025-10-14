@@ -7,6 +7,7 @@ urlpatterns = [
     path('api/users/', include('users.urls')),
     path('api/organizations/', include('organizations.urls')),
     path('api/record/', include('respondents.urls')),
+    path('api/aggregates/' , include('aggregates.urls')),
     path('api/indicators/', include('indicators.urls')),
     path('api/activities/', include('events.urls')),
     path('api/manage/', include('projects.urls')),

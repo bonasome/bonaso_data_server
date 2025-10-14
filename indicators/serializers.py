@@ -78,7 +78,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'display_name', 'name', 'type', 'options', 'order',  'created_by', 'created_at', 'updated_by', 'updated_at',
             'assessment_id', 'options_data', 'logic', 'logic_data', 'match_options', 'match_options_id', 'category', 'allow_none',
-            'required',
+            'required', 'allow_aggregate',
         ]
 
     def validate(self, attrs):
@@ -159,6 +159,14 @@ class IndicatorSerializer(serializers.ModelSerializer):
                     if field in LogicCondition.RESPONDENT_VALUE_CHOICES.keys: #make sure the value_text prop contains a valid value for that field
                         if not condition.get('value_text') in LogicCondition.RESPONDENT_VALUE_CHOICES[field]:
                             raise serializers.ValidationError(f'"{condition.get("value_text")}" is not a valid choice for respondent field {field}.')
+        if attrs.get('cateogry') in [Indicator.Category.SOCIAL, Indicator.Category.EVENTS, Indicator.Category.ORGS]: #these should be linked to another object via a task
+            if attrs.get('allow_aggregate', False):
+                raise serializers.ValidationError('Aggregates are not allowed for this indicator category.')
+        if ind_type in [Indicator.Type.TEXT]:
+            if attrs.get('allow_aggregate', False):
+                raise serializers.ValidationError('Aggregates are not allowed for this indicator type.')    
+
+        
         return attrs
     
     def __set_options(self, user, indicator, options_data):
@@ -235,6 +243,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
                 created_by = user
             )
 
+        
     def create(self, validated_data):
         user = self.context['request'].user
         

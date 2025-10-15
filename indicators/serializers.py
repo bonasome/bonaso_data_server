@@ -85,16 +85,19 @@ class IndicatorSerializer(serializers.ModelSerializer):
         user = self.context['request'].user
         if user.role != 'admin':
             raise PermissionDenied('You do not have permission to create an indicator')
-        if attrs.get('category') == Indicator.Category.ASS and not attrs.get('assessment_id'):
+        if attrs.get('category') == Indicator.Category.ASS and not attrs.get('assessment'):
             raise serializers.ValidationError("Assessment is required for this category")
-        if attrs.get('category') == Indicator.Category.ASS:
-            assessment = Assessment.objects.filter(id=attrs.get('assessment_id')).first()
-            if not assessment:
-                raise serializers.ValidationErrors('Must provide a valid assessment.')
 
         ind_type = attrs.get('type')
         options_data = attrs.get('options_data') or []
         match_options = attrs.get('match_options', None)
+        
+        if match_options:
+            if ind_type != Indicator.Type.MULTI:
+                return serializers.ValidationError("Only Multiselect indicators can support match options.")
+            if match_options.type != Indicator.Type.MULTI:
+                return serializers.ValidationError("Only Multiselect indicators can be used as a reference for match_options.")
+       
         if ind_type in [Indicator.Type.SINGLE, Indicator.Type.MULTI]:
             if not options_data and not attrs.get('match_options'):
                 raise serializers.ValidationError("This indicator type requires options.")
@@ -104,9 +107,13 @@ class IndicatorSerializer(serializers.ModelSerializer):
                 if name in seen:
                     raise serializers.ValidationError('You cannot have the same name for two options.')
                 seen.append(name)
+        
 
         logic_data = attrs.get('logic_data', {})
         # if logic data
+        if logic_data and attrs.get('category') != Indicator.Category.ASS:
+            raise serializers.ValidationError('Logic cannot be applied to this indicator.')
+        
         if logic_data:
             #if conditions are not provided or the list is empty, throw an error
             if not logic_data.get('conditions', []):
@@ -117,26 +124,53 @@ class IndicatorSerializer(serializers.ModelSerializer):
                 st = condition.get('source_type')
                 # if a indicator field (either this assessment or including previous ones)
                 
-                if st in [LogicCondition.SourceType.ASS, LogicCondition.SourceType.IND]:
+                if st in [LogicCondition.SourceType.ASS]:
                     prereq_id = condition.get('source_indicator') #grab the indicator id
                     prereq = Indicator.objects.filter(id=prereq_id).first() #make sure this indicator exists
                     
                     if not prereq:
                         raise serializers.ValidationError('A valid indicator is required.')
-                    
-                    if prereq.type in [Indicator.Type.MULTI, Indicator.Type.SINGLE]: #if it is linked to options...
-                        option = condition.get('value_option', None) # pull the value_option field (an int id)
-                        special = condition.get('condition_type')
-                        if option is None and special not in dict(LogicCondition.ExtraChoices.choices):
+                    operator = condition.get('operator')
+                    if operator not in LogicCondition.Operator.values:
+                        raise serializers.ValidationError(f'Invalid operator "{operator}".')
+                    if prereq.type in [Indicator.Type.MULTI, Indicator.Type.BOOL, Indicator.Type.SINGLE]:
+                        if operator not in [LogicCondition.Operator.EQUALS, LogicCondition.Operator.NE]:
+                            raise serializers.ValidationError('Indicators of this type can only accept "equal to" or "not equal to" as the operator.')
+                    if operator in [LogicCondition.Operator.GT, LogicCondition.Operator.LT]:
+                        print(prereq.type)
+                        if prereq.type not in [Indicator.Type.INT]:
+                            raise serializers.ValidationError('This operator can only be applied to indicators that accept a number.')
+                        value = condition.get('value_text')
+                        try:
+                            value = int(value)
+                        except (TypeError, ValueError):
+                            raise serializers.ValidationError(f'Greater Than/Less Than requires a number')
+                    condition_type = condition.get('condition_type')
+                    if condition_type and prereq.type not in [Indicator.Type.MULTI, Indicator.Type.SINGLE]:
+                        raise serializers.ValidationError('Condition types only apply to indicators with manually created options.')
+        
+                    if condition_type == LogicCondition.ExtraChoices.ALL and prereq.type != Indicator.Type.MULTI:
+                        raise serializers.ValidationError('Cannot apply "all" to a single select question.')
+                    if condition_type == LogicCondition.ExtraChoices.NONE and not prereq.allow_none:
+                        raise serializers.ValidationError('Cannot apply "none" to an indicator that does not allow for a none option.')
+                    if operator in [LogicCondition.Operator.DNC, LogicCondition.Operator.C] and prereq.type not in [Indicator.Type.TEXT]:
+                        raise serializers.ValidationError('This operator can only be applied to indicators that accept open text responses.')
+
+                    option = condition.get('value_option', None)
+                    if prereq.type in [Indicator.Type.MULTI, Indicator.Type.SINGLE]: #if it is linked to options... # pull the value_option field (an int id)
+                        if condition_type and option:
+                            raise serializers.ValidationError('Provide either a condition type or an option.')
+                        valid_extra_choices = [c[0] for c in LogicCondition.ExtraChoices.choices]
+                        if option is None and condition_type not in valid_extra_choices:
                             raise serializers.ValidationError('An option or condition type is required for this condition.') #raise error if blank
-                        if not special:
+                        if not condition_type:
                             try:
                                 option = int(option)
                             except (TypeError, ValueError):
                                 raise serializers.ValidationError(f'Invalid option ID: {option}')
-                            if not match_options and not option in Option.objects.filter(indicator_id=prereq_id).values_list('id', flat=True): # raise error if not a valid option
+                            if not prereq.match_options and not option in Option.objects.filter(indicator_id=prereq_id).values_list('id', flat=True): # raise error if not a valid option
                                 raise serializers.ValidationError(f'"{option}" is not a valid option for this indicator')
-                            elif match_options:
+                            elif prereq.match_options:
                                 prereq_indicator = Indicator.objects.filter(id=prereq_id).first()
                                 if not prereq_indicator:
                                     raise serializers.ValidationError(f'Prerequisite indicator {prereq_id} does not exist')
@@ -144,22 +178,35 @@ class IndicatorSerializer(serializers.ModelSerializer):
                                 if not option in Option.objects.filter(indicator=match_to).values_list('id', flat=True):
                                     raise serializers.ValidationError(f'"{option}" is not a valid option for this indicator')
                     
-                    elif prereq.type == Indicator.Type.BOOL and not condition.get('value_boolean') in [True, False]:
+                    if prereq.type not in [Indicator.Type.MULTI, Indicator.Type.SINGLE] and option:
+                        raise serializers.ValidationError('Only multi and single select indicators can accept an option property.')
+
+                    bool = condition.get('value_boolean')
+                    if prereq.type == Indicator.Type.BOOL and not bool in [True, False]:
                         raise serializers.ValidationError('Please provide a true/false to check when creating a condition.')
-        
-                    elif prereq.type in [Indicator.Type.TEXT, Indicator.Type.INT] and condition.get('value_text') in [None, '']: #otherwise there should be a free response, make sure some value is provided
+                    
+                    if prereq.type not in [Indicator.Type.BOOL] and bool:
+                        raise serializers.ValidationError('Only yes/no indicators can accept an boolean property.')
+                    
+                    if prereq.type in [Indicator.Type.TEXT, Indicator.Type.INT] and condition.get('value_text') in [None, '']: #otherwise there should be a free response, make sure some value is provided
                         raise serializers.ValidationError('Please provide a value to check when creating a condition.')
-                
+                    
+                    if prereq.type in [Indicator.Type.INT]:
+                        try:
+                            valid = int(condition.get('value_text'))
+                        except (TypeError, ValueError):
+                            raise serializers.ValidationError(f'Logic relying on a numeric indicator must have a valid number.')
+                        
                 #else if this is checking against a respondent field
-                
                 elif st == LogicCondition.SourceType.RES:
                     field = condition.get('respondent_field')
-                    if not field or field not in LogicCondition.RespondentField.choices: #make sure its a valid field
+                    if not field or field not in LogicCondition.RespondentField.values: #make sure its a valid field
                         raise serializers.ValidationError('Not a valid respondent field')
-                    if field in LogicCondition.RESPONDENT_VALUE_CHOICES.keys: #make sure the value_text prop contains a valid value for that field
-                        if not condition.get('value_text') in LogicCondition.RESPONDENT_VALUE_CHOICES[field]:
+                    if field in LogicCondition.RESPONDENT_VALUE_CHOICES.keys(): #make sure the value_text prop contains a valid value for that field
+                        if not condition.get('value_text') in [o.get('value') for o in LogicCondition.RESPONDENT_VALUE_CHOICES[field]]:
                             raise serializers.ValidationError(f'"{condition.get("value_text")}" is not a valid choice for respondent field {field}.')
-        if attrs.get('cateogry') in [Indicator.Category.SOCIAL, Indicator.Category.EVENTS, Indicator.Category.ORGS]: #these should be linked to another object via a task
+        
+        if attrs.get('category') in [Indicator.Category.SOCIAL, Indicator.Category.EVENTS, Indicator.Category.ORGS]: #these should be linked to another object via a task
             if attrs.get('allow_aggregate', False):
                 raise serializers.ValidationError('Aggregates are not allowed for this indicator category.')
         if ind_type in [Indicator.Type.TEXT]:
@@ -310,6 +357,9 @@ class AssessmentSerializer(serializers.ModelSerializer):
     
     def create(self, validated_data):
         user = self.context['request'].user
+        user = self.context['request'].user
+        if user.role != 'admin':
+            raise PermissionDenied('You do not have permission to create an indicator')
         ass = Assessment.objects.create(**validated_data)
         ass.created_by = user
         ass.save()
@@ -317,6 +367,10 @@ class AssessmentSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         user = self.context['request'].user
+        if user.role != 'admin':
+            raise PermissionDenied('You do not have permission to create an indicator')
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
         instance.updated_by = user
         instance.save()
         return instance

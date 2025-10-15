@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 from projects.models import Project, Client, Task
 from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, RespondentAttributeType
 from organizations.models import Organization
-from indicators.models import Indicator
+from indicators.models import Assessment
 from datetime import date
 from respondents.utils import calculate_age_range, dummy_dob_calc
 User = get_user_model()
@@ -386,11 +386,11 @@ class RespondentViewSetTest(APITestCase):
             description='Second project',
             created_by=self.admin,
         )
-        indicator = Indicator.objects.create(code='1', name='Test Ind')
+        assessment = Assessment.objects.create(name='Test Ass')
         project.organizations.set([self.org])
-        task = Task.objects.create(project=project, organization=self.org, indicator=indicator)
+        task = Task.objects.create(project=project, organization=self.org, assessment=assessment)
 
-        interaction = Interaction.objects.create(respondent=self.respondent_full, interaction_date='2025-06-23', task=task)
+        interaction = Interaction.objects.create(respondent=self.respondent_full, interaction_date='2025-06-23', task=task, interaction_location='There')
         response = self.client.delete(f'/api/record/respondents/{self.respondent_full.id}/')
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         

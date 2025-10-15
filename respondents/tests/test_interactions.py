@@ -6,10 +6,9 @@ from django.urls import reverse
 from django.contrib.auth import get_user_model
 
 from projects.models import Project, Client, Task, ProjectOrganization
-from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, InteractionSubcategory, RespondentAttributeType
+from respondents.models import Respondent, Interaction, RespondentAttributeType, Response
 from organizations.models import Organization
-from events.models import Event
-from indicators.models import Indicator
+from indicators.models import Indicator, Assessment, LogicCondition, Option, LogicGroup
 from datetime import date, timedelta
 User = get_user_model()
 
@@ -70,24 +69,13 @@ class InteractionViewSetTest(APITestCase):
             created_by=self.admin,
         )
 
-        self.indicator = Indicator.objects.create(code='1', name='Parent')
-        self.child_indicator = Indicator.objects.create(code='2', name='Child')
-        self.child_indicator.prerequisites.set([self.indicator])
-        self.not_in_project = Indicator.objects.create(code='3', name='Unrelated')
-        
-        self.req1 = RespondentAttributeType.objects.create(name='PLWHIV')
-        self.req2 = RespondentAttributeType.objects.create(name='CHW')
+        self.assessment_exists = Assessment.objects.create(name='Exists')
+        self.indicator = Indicator.objects.create(name='You answered this', assessment=self.assessment_exists, type=Indicator.Type.BOOL)
 
-        self.attr_indicator = Indicator.objects.create(code='5001', name='I NEED AN ATTRIBUTE')
-        self.attr_indicator.required_attributes.set([self.req1, self.req2])
-
-        self.task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.indicator)
-        self.prereq_task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.child_indicator)
-        self.attr_task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.attr_indicator)
-        self.child_task = Task.objects.create(project=self.project, organization=self.child_org, indicator=self.indicator)
-        self.other_task =Task.objects.create(project=self.project, organization=self.other_org, indicator=self.indicator)
-
-        self.inactive_task = Task.objects.create(project=self.planned_project, organization=self.parent_org, indicator=self.indicator)
+        self.task_exists = Task.objects.create(project=self.project, organization=self.parent_org, assessment=self.assessment_exists)
+        self.child_task = Task.objects.create(project=self.project, organization=self.child_org, assessment=self.assessment_exists)
+        self.other_task =Task.objects.create(project=self.project, organization=self.other_org, assessment=self.assessment_exists)
+        self.inactive_task = Task.objects.create(project=self.planned_project, organization=self.parent_org, assessment=self.assessment_exists)
 
         self.respondent= Respondent.objects.create(
             is_anonymous=True,
@@ -95,7 +83,7 @@ class InteractionViewSetTest(APITestCase):
             village='Testingplace',
             district= Respondent.District.CENTRAL,
             citizenship='test',
-            sex = Respondent.Sex.FEMALE,
+            sex = Respondent.Sex.MALE,
         )
         self.respondent2= Respondent.objects.create(
             is_anonymous=True,
@@ -113,31 +101,188 @@ class InteractionViewSetTest(APITestCase):
             citizenship='test',
             sex = Respondent.Sex.FEMALE,
         )
+        self.req1 = RespondentAttributeType.objects.create(name='PLWHIV')
+        self.req2 = RespondentAttributeType.objects.create(name='CHW')
 
-        self.interaction = Interaction.objects.create(interaction_date=self.today, interaction_location='there', respondent=self.respondent, task=self.task, created_by=self.data_collector)
-        self.interaction2 = Interaction.objects.create(interaction_date=self.today, respondent=self.respondent2, interaction_location='there',task=self.task, created_by=self.officer)
-        self.interaction_child = Interaction.objects.create(interaction_date=self.today, respondent=self.respondent, interaction_location='there',task=self.child_task)
-        self.interaction_other = Interaction.objects.create(interaction_date=self.today, respondent=self.respondent, interaction_location='there',task=self.other_task)
+        self.interaction = Interaction.objects.create(interaction_date=self.today, interaction_location='there', respondent=self.respondent, task=self.task_exists, created_by=self.data_collector)
 
-        self.event = Event.objects.create(
-            name='Event',
-            start='2024-07-09',
-            end='2024-07-10',
-            location='here',
-            host=self.parent_org
-        )
-        self.event.tasks.set([self.task, self.child_task])
-        self.event.organizations.set([self.parent_org, self.child_org])
+        self.assessment = Assessment.objects.create(name='ass')
+        self.task = Task.objects.create(project=self.project, organization=self.parent_org, assessment=self.assessment)
 
-        self.other_event = Event.objects.create(
-            name='Event',
-            start='2024-07-09',
-            end='2024-07-10',
-            location='here',
-            host=self.other_org
-        )
-        self.other_event.organizations.set([self.other_org])
-        self.other_event.tasks.set([self.other_task])
+        self.indicator_1 = Indicator.objects.create(name='Screened for NCDs', assessment=self.assessment, type=Indicator.Type.MULTI, required=True)
+        self.option1= Option.objects.create(name='BMI', indicator=self.indicator_1)
+        self.option2= Option.objects.create(name='Blood Pressure', indicator=self.indicator_1)
+        self.option3= Option.objects.create(name='Blood Glucose', indicator=self.indicator_1)
+        
+        self.indicator_1_1 = Indicator.objects.create(name='Blood Pressure Reading', assessment=self.assessment, type=Indicator.Type.INT, required=False)
+        self.g11 = LogicGroup.objects.create(group_operator='AND', indicator=self.indicator_1_1)
+        self.c111 = LogicCondition.objects.create(group=self.g11, source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_1, value_option=self.option2, operator=LogicCondition.Operator.EQUALS)
+        
+        self.indicator_2 = Indicator.objects.create(name='Referred for NCDs', assessment=self.assessment, type=Indicator.Type.MULTI, allow_none=True, match_options=self.indicator_1, required=True)
+        self.g2 = LogicGroup.objects.create(group_operator='AND', indicator=self.indicator_2)
+        self.c21 = LogicCondition.objects.create(group=self.g2,source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_1, condition_type=LogicCondition.ExtraChoices.ANY, operator=LogicCondition.Operator.EQUALS)
+
+        self.indicator_3 = Indicator.objects.create(name='What Blood Treatment Referred', assessment=self.assessment, type=Indicator.Type.SINGLE, required=True)
+        self.option4= Option.objects.create(name='Treatment 1', indicator=self.indicator_3)
+        self.option5= Option.objects.create(name='Treatment 2', indicator=self.indicator_3)
+        self.g3 = LogicGroup.objects.create(group_operator='OR', indicator=self.indicator_3)
+        self.c31 = LogicCondition.objects.create(group=self.g3, source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_2, value_option=self.option2, operator=LogicCondition.Operator.EQUALS)
+        self.c32 = LogicCondition.objects.create(group=self.g3,source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_2, value_option=self.option3, operator=LogicCondition.Operator.EQUALS)
+
+        self.indicator_4 = Indicator.objects.create(name='Treatment 2 for BMI?', assessment=self.assessment, type=Indicator.Type.BOOL, required=True)
+        self.g4 = LogicGroup.objects.create(group_operator='AND', indicator=self.indicator_4)
+        self.c41 = LogicCondition.objects.create(group=self.g4,source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_2, value_option=self.option1, operator=LogicCondition.Operator.EQUALS)
+        self.c42 = LogicCondition.objects.create(group=self.g4,source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_3, value_option=self.option5, operator=LogicCondition.Operator.EQUALS)
+        self.c43 = LogicCondition.objects.create(group=self.g4,source_type=LogicCondition.SourceType.RES, respondent_field='sex', value_text='M', operator=LogicCondition.Operator.EQUALS)
+
+        self.indicator_5 = Indicator.objects.create(name='Number of Sessions Needed', assessment=self.assessment, type=Indicator.Type.INT, required=True)
+        self.g5 = LogicGroup.objects.create(group_operator='AND', indicator=self.indicator_5)
+        self.c51 = LogicCondition.objects.create(group=self.g5,source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_4, value_boolean=True)
+
+        self.indicator_6 = Indicator.objects.create(name='Reason for Number > 5', assessment=self.assessment, type=Indicator.Type.TEXT, required=True)
+        self.g6 = LogicGroup.objects.create(group_operator='AND', indicator=self.indicator_6)
+        self.c61 = LogicCondition.objects.create(group=self.g6,source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_5, value_text=5, operator=LogicCondition.Operator.GT)
+
+        self.indicator_7 = Indicator.objects.create(name='You found the secret!', assessment=self.assessment, type=Indicator.Type.TEXT, required=True)
+        self.g7 = LogicGroup.objects.create(group_operator='AND', indicator=self.indicator_7)
+        self.c71 = LogicCondition.objects.create(group=self.g7, source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_6, value_text='secret', operator=LogicCondition.Operator.C)
+        self.c71 = LogicCondition.objects.create(group=self.g7,source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_6, value_text='loser', operator=LogicCondition.Operator.DNC)
+        
+
+    def test_create_ir(self):
+        self.client.force_authenticate(user=self.data_collector)
+        valid_payload = {
+            'task_id': self.task.id,
+            'respondent_id': self.respondent.id,
+            'interaction_date': '2025-01-01',
+            'interaction_location': 'There',
+            'response_data': {
+                self.indicator_1.id: {
+                    'value': [self.option1.id, self.option2.id],
+                },
+                self.indicator_1_1.id: {
+                    'value': '',
+                },
+                self.indicator_2.id: {
+                    'value': [self.option1.id, self.option2.id],
+                },
+                self.indicator_3.id: {
+                    'value': self.option5.id,
+                },
+                self.indicator_4.id: {
+                    'value': True,
+                },
+                self.indicator_5.id: {
+                    'value': 6,
+                },
+                self.indicator_6.id: {
+                    'value': 'secret tt',
+                },
+                self.indicator_7.id: {
+                    'value': 'Yay!',
+                },
+            }
+        }
+        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        ir = Interaction.objects.filter(task=self.task).first()
+        answers = Response.objects.filter(interaction=ir)
+        self.assertEqual(answers.count(), 9) # 1_1 should not be filled since it was not required, +2 for extra options
+
+        sing = answers.filter(indicator=self.indicator_3).first()
+        self.assertEqual(sing.response_option, self.option5)
+        multi = answers.filter(indicator=self.indicator_1)
+        self.assertEqual(multi.count(), 2)
+
+        boolA = answers.filter(indicator=self.indicator_4).first()
+        self.assertEqual(boolA.response_boolean, True)
+        num = answers.filter(indicator=self.indicator_5).first()
+        self.assertEqual(num.response_value, '6')
+        txt = answers.filter(indicator=self.indicator_6).first()
+        self.assertEqual(txt.response_value, 'secret tt')
+
+    def test_bad_logic(self):
+        self.client.force_authenticate(user=self.data_collector)
+        invalid_payload = {
+            'task_id': self.task.id,
+            'respondent_id': self.respondent.id,
+            'interaction_date': '2025-01-01',
+            'interaction_location': 'There',
+            'response_data': {
+                self.indicator_1.id: {
+                    'value': [self.option1.id],
+                },
+                self.indicator_1_1.id: {
+                    'value': '70',
+                },
+                self.indicator_2.id: {
+                    'value': [self.option1.id],
+                },
+            }
+        }
+        response = self.client.post('/api/record/interactions/', invalid_payload, format='json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        
+        valid_payload = {
+            'task_id': self.task.id,
+            'respondent_id': self.respondent.id,
+            'interaction_date': '2025-01-01',
+            'interaction_location': 'There',
+            'response_data': {
+                self.indicator_1.id: {
+                    'value': [self.option1.id, self.option2.id],
+                },
+                self.indicator_1_1.id: {
+                    'value': '',
+                },
+                self.indicator_2.id: {
+                    'value': [self.option1.id, self.option2.id],
+                },
+                self.indicator_3.id: {
+                    'value': self.option5.id,
+                },
+                self.indicator_4.id: {
+                    'value': True,
+                },
+                self.indicator_5.id: {
+                    'value': 6,
+                },
+                self.indicator_6.id: {
+                    'value': 'secret loser',
+                },
+                self.indicator_7.id: {
+                    'value': 'Yay!',
+                },
+            }
+        }
+        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_mismatched_subcats(self):
+        self.client.force_authenticate(user=self.data_collector)
+        valid_payload = {
+            'task_id': self.task.id,
+            'respondent_id': self.respondent.id,
+            'interaction_date': '2025-01-01',
+            'interaction_location': 'There',
+            'response_data': {
+                self.indicator_1.id: {
+                    'value': [self.option1.id],
+                },
+                self.indicator_2.id: {
+                    'value': [self.option1.id, self.option2.id],
+                },
+                self.indicator_3.id: {
+                    'value': self.option4.id,
+                },
+            }
+        }
+        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_interaction_view(self):
         '''
@@ -177,58 +322,7 @@ class InteractionViewSetTest(APITestCase):
         response = self.client.post('/api/record/interactions/', valid_payload, format='json')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-    
-    def test_attach_event(self):
-        '''
-        A user can attach an interaction to a specific event.
-        '''
-        self.client.force_authenticate(user=self.data_collector)
-        valid_payload = {
-            'task_id': self.task.id, #task linked to a child organization
-            'interaction_date': '2025-04-15',
-            'interaction_location': 'That place that sells chili',
-            'event_id': self.event.id,
-            'respondent': self.respondent.id,
-        }
-        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
-        print(response.json())
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        ir = Interaction.objects.filter(task=self.task, interaction_date=date(2025, 4, 15)).first()
-        self.assertEqual(ir.event.id, self.event.id)
-    
-    def test_attach_event_perms_associate(self):
-        '''
-        A user can attach an interaction to an event they are an associate with (i.e., attached child org).
-        '''
-        self.client.force_authenticate(user=self.officer)
-        valid_payload = {
-            'task_id': self.child_task.id, #task linked to a child organization
-            'interaction_date': '2025-04-15',
-            'interaction_location': 'That place that sells chili',
-            'event_id': self.event.id,
-            'respondent': self.respondent.id,
-        }
-        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
-        print(response.json())
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        ir = Interaction.objects.filter(task=self.child_task, interaction_date=date(2025, 4, 15)).first()
-        self.assertEqual(ir.event.id, self.event.id)
 
-    def test_attach_event_perms_wrong_event(self):
-        '''
-        A user can attach an interaction to an event they are an associate with (i.e., attached child org).
-        '''
-        self.client.force_authenticate(user=self.manager)
-        valid_payload = {
-            'task_id': self.task.id, #task linked to a child organization
-            'interaction_date': '2025-04-15',
-            'interaction_location': 'That place that sells chili',
-            'event_id': self.other_event.id,
-            'respondent': self.respondent.id,
-        }
-        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
-        print(response.json())
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_dc_org_only(self):
         '''

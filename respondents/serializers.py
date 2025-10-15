@@ -435,7 +435,7 @@ class ResponseSerializer(serializers.ModelSerializer):
         model=Response
         fields = [
             'id', 'response_value', 'response_option', 'response_boolean', 'response_date', 'indicator', 
-            'response_location',
+            'response_location', 'comments',
         ]
         
 
@@ -481,6 +481,8 @@ class InteractionSerializer(serializers.ModelSerializer):
         return True
     
     def __value_valid(self, indicator, val):
+        if not val and not indicator.required:
+            return
         if indicator.type == Indicator.Type.MULTI:
             if not isinstance(val, list):
                 raise serializers.ValidationError('A list is expected for this indicator.')
@@ -495,7 +497,7 @@ class InteractionSerializer(serializers.ModelSerializer):
             if val == 'none' and indicator.allow_none:
                 val = None
             else:
-                valid = self.__options_valid(option, indicator)
+                valid = self.__options_valid(val, indicator)
                 if not valid:
                     raise serializers.ValidationError(f'ID {val} is not valid for indicator {indicator.name}.')
         if indicator.type == Indicator.Type.INT:
@@ -515,16 +517,49 @@ class InteractionSerializer(serializers.ModelSerializer):
                 if logic_group.group_operator == LogicGroup.Operator.AND:   
                     for condition in conditions.all():
                         passed = check_logic(c=condition, response_info=responses, assessment=task.assessment, respondent=respondent)
-                        print(indicator.name, passed)
                         if not passed:
                             return False
                 if logic_group.group_operator == LogicGroup.Operator.OR:   
                     for condition in conditions.all():
                         passed = check_logic(condition, responses, task.assessment, respondent)
+                        print(passed)
                         if passed:
                             return True
                     return False
-        return True    
+        return True   
+
+    def __match_options(self, indicator, responses, task):
+        # 1. Validate setup
+        if not indicator.match_options:
+            raise serializers.ValidationError('Match options is not configured for this indicator.')
+
+        if indicator.type != Indicator.Type.MULTI or indicator.match_options.type != Indicator.Type.MULTI:
+            raise serializers.ValidationError('Invalid match options setup.')
+
+        # 2. Get prerequisite response
+        prereq = responses.get(str(indicator.match_options.id))
+        if not prereq:
+            raise serializers.ValidationError(f'Prerequisite values for {indicator.match_options.name} not provided.')
+
+        # 3. Get current response
+        response = responses.get(str(indicator.id))
+        if not response:
+            raise serializers.ValidationError(f'Values for {indicator.name} not provided.')
+
+        # 4. Extract values safely
+        prereq_val = prereq.get('value', []) or []
+        val = response.get('value', []) or []
+
+        if not isinstance(prereq_val, list) or not isinstance(val, list):
+            raise serializers.ValidationError('Indicator values must be lists of option IDs.')
+
+        # 5. SUBSET CHECK (correct order)
+        if not set(val).issubset(set(prereq_val)):
+            raise serializers.ValidationError(
+                f'Values for "{indicator.name}" must be a subset of the values provided for "{indicator.match_options.name}".'
+            )
+        
+
     def validate(self, attrs):
         user = self.context['request'].user
         if user.role == 'client':
@@ -561,7 +596,6 @@ class InteractionSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(f'Invalid indicator ID provided: "{key}"')
             #first check if the item should be visible
             sbv = self.__should_be_visible(indicator, responses, respondent, task)
-            print(sbv)
             #then check what the value is
             val = item.get('value', None)
             #if this should be visible and the indicator is required, but there is no value, raise an error
@@ -574,13 +608,14 @@ class InteractionSerializer(serializers.ModelSerializer):
                     "details": {"indicator_id": indicator.id}
                 })
             if sbv:
-                print(key)
                 self.__value_valid(indicator, val)
+                if indicator.match_options:
+                    self.__match_options(indicator, responses, task)
             
             
     
         return attrs
-    def __make_response(self, interaction, indicator, data):
+    def __make_response(self, interaction, indicator, data, user):
         if data.get('value') in [[], None, '', 'none', ['none']]:
             return
         if indicator.type == Indicator.Type.MULTI:
@@ -597,15 +632,16 @@ class InteractionSerializer(serializers.ModelSerializer):
             boolVal = data.get('value') if indicator.type == Indicator.Type.BOOL else None
             option = data.get('value') if indicator.type == Indicator.Type.SINGLE else None
             text = data.get('value') if not boolVal and not option else None
-
             response = Response.objects.create(
                 interaction=interaction,
                 indicator=indicator,
                 response_value=text,
                 response_boolean=boolVal,
-                response_option=option,
+                response_option_id=option,
                 response_date=data.get('date', interaction.interaction_date),
                 response_location=data.get('location', interaction.interaction_location),
+                comments=data.get('comments', None),
+                created_by=user,
             )
     def create(self, validated_data):
         user = self.context['request'].user
@@ -613,7 +649,7 @@ class InteractionSerializer(serializers.ModelSerializer):
         interaction = Interaction.objects.create(**validated_data)
         for key, data in response_data.items():
             indicator = Indicator.objects.filter(id=key).first()
-            self.__make_response(interaction, indicator, data)
+            self.__make_response(interaction, indicator, data, user)
         interaction.created_by = user
         interaction.save()
         return interaction
@@ -626,7 +662,7 @@ class InteractionSerializer(serializers.ModelSerializer):
         Response.objects.filter(interaction=instance).delete()
         for key, data in response_data.items():
             indicator = Indicator.objects.filter(id=key).first()
-            self.__make_response(instance, indicator, data)
+            self.__make_response(instance, indicator, data, user)
         instance.updated_by = user
         instance.save()
         return instance

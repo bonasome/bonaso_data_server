@@ -114,12 +114,12 @@ class AggregatesTest(APITestCase):
         }
         response = self.client.post(f'/api/aggregates/', valid_payload, content_type='application/json')
         print(response.json())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        group = AggregateGroup.objects.filter(start='2025-01-01', end='2025-01-03')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        group = AggregateGroup.objects.filter(start='2025-01-01', end='2025-01-03').first()
         counts = AggregateCount.objects.filter(group=group)
-        check_val = counts.filter(option=self.option2)
+        check_val = counts.filter(option=self.option2).first()
         self.assertEqual(counts.count(), 2)
-        self.assertEqual(check_val.count, 5)
+        self.assertEqual(check_val.value, 5)
         self.assertEqual(check_val.created_by, self.admin)
     
     def test_count_creation_no_options(self):
@@ -143,11 +143,8 @@ class AggregatesTest(APITestCase):
         }
         response = self.client.post(f'/api/aggregates/', valid_payload, content_type='application/json')
         print(response.json())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        group = AggregateGroup.objects.filter(start='2025-01-01', end='2025-01-03')
-        counts = AggregateCount.objects.filter(group=group)
-        check_val = counts.first(option=self.option2)
-        self.assertEqual(counts.count(), 1)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        check_val = AggregateCount.objects.filter(group__indicator=self.bool_indicator).first()
         self.assertEqual(check_val.value, 50)
     
     def test_duplicate_rows(self):
@@ -294,11 +291,10 @@ class AggregatesTest(APITestCase):
         }
         response = self.client.post(f'/api/aggregates/', valid_payload, content_type='application/json')
         print(response.json())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        count = AggregateCount.objects.filter(indicator=self.indicator2).first()
-        flags = count.flags
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        count = AggregateCount.objects.filter(group__indicator=self.indicator2).first()
         self.assertEqual(count.flags.count(), 1)
-        self.assertIn(count.flags.filter(resolved=False).first().reason, 'requires a corresponding count')
+        self.assertIn('requires a corresponding count', count.flags.filter(resolved=False).first().reason)
 
         valid_payload = {
             'indicator_id': self.indicator.id,
@@ -322,12 +318,12 @@ class AggregatesTest(APITestCase):
         }
         response = self.client.post(f'/api/aggregates/', valid_payload, content_type='application/json')
         print(response.json())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.prereq_count = AggregateCount.objects.filter(indicator=self.indicator).first()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.prereq_count = AggregateCount.objects.filter(group__indicator=self.indicator).first()
 
 
         self.assertEqual(count.flags.filter(resolved=False).count(), 1)
-        self.assertIn(count.flags.first().reason, 'higher than the corresponding value')
+        self.assertIn('higher than the corresponding value', count.flags.filter(resolved=False).first().reason)
 
         valid_payload = {
             'indicator_id': self.indicator.id,
@@ -349,11 +345,11 @@ class AggregatesTest(APITestCase):
                 },
             ]
         }
-        response = self.client.post(f'/api/aggregates/{self.prereq_count.id}/', valid_payload, content_type='application/json')
+        response = self.client.patch(f'/api/aggregates/{self.prereq_count.id}/', valid_payload, content_type='application/json')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         
-        self.assertEqual(count.flags.filter(resolved=True).count(), 1)
+        self.assertEqual(count.flags.filter(resolved=True).count(), 2)
         self.assertEqual(count.flags.filter(resolved=False).count(), 0)
     
 
@@ -433,7 +429,7 @@ class AggregatesTest(APITestCase):
             ]
         }
         response = self.client.post(f'/api/aggregates/', valid_payload, content_type='application/json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         #should also work
         valid_payload = {
@@ -457,7 +453,7 @@ class AggregatesTest(APITestCase):
             ]
         }
         response = self.client.post(f'/api/aggregates/', valid_payload, content_type='application/json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
     
     def test_perm_fail_wrong_org(self):
         '''

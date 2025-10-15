@@ -302,8 +302,14 @@ class Interaction(models.Model):
 class Response(models.Model):
     interaction = models.ForeignKey(Interaction, on_delete=models.PROTECT)
     indicator = models.ForeignKey(Indicator, on_delete=models.PROTECT)
+    comments = models.TextField(null=True, blank=True)
     response_value = models.CharField(max_length=255, blank=True, null=True)
     response_option = models.ForeignKey(Option, on_delete=models.PROTECT, blank=True, null=True)
     response_boolean = models.BooleanField(blank=True, null=True)
     response_date = models.DateField(null=True, blank=True)
     response_location = models.TextField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='response_created_by')
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='response_updated_by')

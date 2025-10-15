@@ -426,7 +426,7 @@ class TaskViewSet(RoleRestrictedViewSet):
         Special mobile action to get all tasks that are active so the user can download all of their tasks at once.
         '''
         queryset = self.get_queryset()
-        queryset = queryset.filter(indicator__status=Indicator.Status.ACTIVE, project__status=Project.Status.ACTIVE, indicator__indicator_type=Indicator.IndicatorType.RESPONDENT)
+        queryset = queryset.filter(project__status=Project.Status.ACTIVE, assessment__isnull=False, indicator__isnull=True)
         # No pagination
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
@@ -463,7 +463,8 @@ class TaskViewSet(RoleRestrictedViewSet):
                 {"detail": "You cannot delete a task that has aggregate counts associated with it."},
                 status=status.HTTP_409_CONFLICT
             )
-        if Target.objects.filter(task=instance).exists():
+        if Target.objects.filter(Q(project=instance.project, indicator=instance.indicator, organization=instance.organization) |
+                                Q(project=instance.project, organization=instance.organization, indicator__assessmnent=instance.assessment)).exists():
             return Response(
                 {"detail": "You cannot delete a task has targets associated with it."},
                 status=status.HTTP_409_CONFLICT
@@ -551,7 +552,7 @@ class TargetViewSet(RoleRestrictedViewSet):
             queryset= Target.objects.all()
 
         elif user.role == 'client' and client_org:
-            queryset= Target.objects.filter(task__project__client = client_org)
+            queryset= Target.objects.filter(project__client = client_org)
 
         else:
             child_orgs = ProjectOrganization.objects.filter(
@@ -559,9 +560,9 @@ class TargetViewSet(RoleRestrictedViewSet):
             ).values_list('organization', flat=True)
 
             queryset = Target.objects.filter(
-                Q(task__organization=user.organization) | Q(task__organization__in=child_orgs)
+                Q(organization=user.organization) | Q(organization__in=child_orgs)
             ).filter(
-                task__project__status=Project.Status.ACTIVE
+                project__status=Project.Status.ACTIVE
             )
 
         #url params
@@ -594,7 +595,7 @@ class TargetViewSet(RoleRestrictedViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        if user.role != 'admin' and not test_child_org(user, instance.task.organization, instance.task.project):
+        if user.role != 'admin' and not test_child_org(user, instance.organization, instance.project):
             return Response(
                 {"detail": "You do not have permission to delete this target."},
                 status=status.HTTP_403_FORBIDDEN

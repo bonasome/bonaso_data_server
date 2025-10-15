@@ -6,11 +6,10 @@ from django.urls import reverse
 from django.contrib.auth import get_user_model
 from datetime import date
 from profiles.models import FavoriteObject
-from projects.models import Project, ProjectOrganization, Task
+from projects.models import Project, ProjectOrganization
 from organizations.models import Organization
 from projects.models import Project, Client
 from respondents.models import Respondent, Interaction
-from indicators.models import Indicator
 User = get_user_model()
 
 class ProfileViewSetTest(APITestCase):
@@ -63,12 +62,6 @@ class ProfileViewSetTest(APITestCase):
             sex = Respondent.Sex.FEMALE,
             created_by=self.admin
         )
-        self.indicator = Indicator.objects.create(code='1', name='Parent', created_by=self.admin)
-        
-        self.task = Task.objects.create(project=self.project, organization=self.parent, indicator=self.indicator, created_by=self.admin)
-        self.interaction = Interaction.objects.create(interaction_date=date(2024, 12, 12), interaction_location='there', respondent=self.respondent, task=self.task, created_by=self.data_collector)
-        self.interaction.updated_by =self.admin
-        self.interaction.save()
 
     def test_admin_see_all(self):
         '''

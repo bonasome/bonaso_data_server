@@ -116,7 +116,7 @@ class Target(models.Model):
     amount = models.IntegerField(verbose_name= 'Target Amount', blank=True, null=True)
     start = models.DateField('Target Start Date')
     end = models.DateField('Target Conclusion Date')
-    related_to = models.ForeignKey(Task, related_name='related_to_task', on_delete=models.CASCADE, blank=True, null=True) #task to use for target amount
+    related_to = models.ForeignKey(Indicator, related_name='related_to_indicator', on_delete=models.CASCADE, blank=True, null=True) #task to use for target amount
     percentage_of_related = models.IntegerField(validators=[MinValueValidator(0), MaxValueValidator(100)], null=True, blank=True) #percentage of that task to achieve
 
     created_at = models.DateTimeField(auto_now_add=True)

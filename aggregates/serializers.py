@@ -3,7 +3,7 @@ from rest_framework.exceptions import PermissionDenied
 
 from django.db import transaction
 from django.db.models import Q
-from datetime import date
+from datetime import datetime, date
 
 from profiles.serializers import ProfileListSerializer
 from organizations.models import Organization
@@ -34,7 +34,7 @@ class AggregatGroupListSerializer(serializers.ModelSerializer):
 
 class AggregateCountSerializer(serializers.ModelSerializer):
     option = OptionSerializer(read_only=True)
-    option_id = serializers.PrimaryKeyRelatedField(queryset=Option.objects.all(), write_only=True, source='option')
+    option_id = serializers.PrimaryKeyRelatedField(queryset=Option.objects.all(), write_only=True, source='option', required=False, allow_null=True)
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
 
@@ -89,7 +89,7 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
         option = data.get('option')
         if indicator.type in [Indicator.Type.MULTI, Indicator.Type.SINGLE] and not option:
             raise serializers.ValidationError("Option is required for this indicator type.")
-        elif option and not indicator.type in [Indicator.Type.MULTI, Indicator.Type.SINGLE]:
+        elif indicator.type not in [Indicator.Type.MULTI, Indicator.Type.SINGLE]:
             # For all other indicator types, option must NOT be provided
             if option:
                 raise serializers.ValidationError(
@@ -132,6 +132,8 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
 
         if start > end:
             raise serializers.ValidationError("Start must be before the end.")
+        if start > date.today():
+            raise serializers.ValidationError('Cannot record aggregates for the future.')
         
         if start and end:
             overlaps = AggregateGroup.objects.filter(
@@ -227,16 +229,17 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
                 continue
             else:
                 # Logic: prereq must exist and be >= this value
+                msg = f'Indicator "{indicator.name}" requires a corresponding count for {prereq.name}.'
                 if not find_count:
-                    msg = f'Indicator "{indicator.name}" requires a corresponding count for {prereq.name}.'
                     create_flag(count, msg, user, Flag.FlagReason.MPRE)
                 else:
+                    resolve_flag(flags, msg)
+                if find_count:
                     msg = f'Value for this count may not be higher than the corresponding value from {prereq.name}.'
                     if val is not None and (find_count.value is None or val > find_count.value):
                         create_flag(count, msg, user, Flag.FlagReason.MPRE)
                     else:
-                        if flags.filter(msg=msg).exists():
-                            resolve_flag(flags, msg)
+                        resolve_flag(flags, msg)
 
         # Check downstream counts recursively
         self.__check_downstream(indicator, organization, start, end, count, user, visited)
@@ -254,7 +257,7 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
             ds_ind = c.group.indicator
             conditions = LogicCondition.objects.filter(group__indicator=ds_ind, source_indicator=indicator)
             if conditions.exists():
-                self.__check_logic(ds_ind, organization, c.start, c.end, c, user, visited)
+                self.__check_logic(ds_ind, organization, start, end, c, user, visited)
 
     def create(self, validated_data):
         user = self.context.get('request').user if self.context.get('request') else None

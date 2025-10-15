@@ -122,7 +122,7 @@ class LogicCondition(models.Model):
         null=True, blank=True,
         on_delete=models.SET_NULL
     )
-    condition_type = models.CharField(max_length=10, choices=ExtraChoices.choices, default=ExtraChoices.ANY, null=True, blank=True)
+    condition_type = models.CharField(max_length=10, choices=ExtraChoices.choices, null=True, blank=True)
     value_boolean = models.BooleanField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)

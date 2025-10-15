@@ -8,7 +8,7 @@ from django.contrib.auth import get_user_model
 from projects.models import Project, Client, Task, Target, ProjectOrganization
 from respondents.models import Respondent, Interaction
 from organizations.models import Organization
-from indicators.models import Indicator
+from indicators.models import Indicator, Assessment
 from flags.utils import create_flag
 from datetime import date
 User = get_user_model()
@@ -74,21 +74,24 @@ class TargetViewSetTest(APITestCase):
             created_by=self.admin,
         )
 
-        self.indicator = Indicator.objects.create(code='1', name='Parent')
-        self.child_indicator = Indicator.objects.create(code='2', name='Child')
-        self.child_indicator.prerequisites.set([self.indicator])
-        self.not_in_project = Indicator.objects.create(code='3', name='Unrelated')
+        self.assessment = Assessment.objects.create(name='Ass')
+        self.indicator_ass = Indicator.objects.create(name='Are you here?', assessment=self.assessment, type=Indicator.Type.BOOL, allow_aggregate=True)
+        self.assessment2 = Assessment.objects.create(name='Ass 2 Ass')
 
-        self.task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.indicator)
+        self.indicator = Indicator.objects.create(name='Standalone', category=Indicator.Category.EVENTS)
 
-        self.child_task = Task.objects.create(project=self.project, organization=self.child_org, indicator=self.indicator)
-        self.other_task = Task.objects.create(project=self.project, organization=self.other_org, indicator=self.indicator)
-
-        self.inactive_task = Task.objects.create(project=self.planned_project, organization=self.parent_org, indicator=self.indicator)
+        self.not_in_project_indicator = Indicator.objects.create(name='Standalone II', category=Indicator.Category.EVENTS)
         
-        self.child_target = Target.objects.create(task=self.child_task, amount=50, start='2024-04-01', end='2024-04-30')
-        self.target = Target.objects.create(task=self.task, amount=50, start='2024-06-01', end='2024-06-30')
-        self.other_target = Target.objects.create(task=self.other_task, amount=50, start='2024-06-01', end='2024-06-30')
+        self.ass_task = Task.objects.create(project=self.project, organization=self.parent_org, assessment=self.assessment)
+        self.task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.indicator)
+        self.other_task = Task.objects.create(project=self.project, organization=self.other_org, assessment=self.assessment)
+        self.child_task = Task.objects.create(project=self.project, organization=self.child_org, assessment=self.assessment)
+        self.child_task_ind = Task.objects.create(project=self.project, organization=self.child_org, indicator=self.indicator)
+        self.inactive_task = Task.objects.create(project=self.planned_project, organization=self.parent_org, assessment=self.assessment)
+        
+        self.child_target = Target.objects.create(indicator=self.indicator, project=self.project, organization=self.child_org, amount=50, start='2024-04-01', end='2024-04-30')
+        self.target = Target.objects.create(indicator=self.indicator, project=self.project, organization=self.parent_org, amount=50, start='2024-06-01', end='2024-06-30')
+        self.other_target = Target.objects.create(indicator=self.indicator, project=self.project, organization=self.other_org, amount=50, start='2024-06-01', end='2024-06-30')
         
         self.respondent_full = Respondent.objects.create(
             is_anonymous=False, 
@@ -127,15 +130,16 @@ class TargetViewSetTest(APITestCase):
         '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
-            'task_id': self.task.id,
+            'indicator_id': self.indicator_ass.id,
+            'organization_id': self.parent_org.id,
+            'project_id': self.project.id,
             'amount': 60,
             'start': '2024-07-01',
             'end': '2024-07-31'
         }
         response = self.client.post('/api/manage/targets/', valid_payload, format='json')
-        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        target=Target.objects.filter(task=self.task.id, amount=60).first()
+        target=Target.objects.filter(indicator=self.indicator_ass.id, amount=60).first()
         self.assertEqual(target.created_by, self.admin)
     
     def test_target_patch(self):
@@ -159,15 +163,32 @@ class TargetViewSetTest(APITestCase):
         '''
         self.client.force_authenticate(user=self.manager)
         valid_payload = {
-            'task_id': self.child_task.id,
+            'indicator_id': self.indicator_ass.id,
+            'organization_id': self.child_org.id,
+            'project_id': self.project.id,
             'amount': 60,
             'start': '2024-07-01',
             'end': '2024-07-31'
         }
         response = self.client.post('/api/manage/targets/', valid_payload, format='json')
-        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
     
+    def test_target_mistmatch_ind(self):
+        '''
+        Higher roles are allowed to create targets for child orgs.
+        '''
+        self.client.force_authenticate(user=self.admin)
+        valid_payload = {
+            'indicator_id': self.indicator.id,
+            'organization_id': self.other_org.id,
+            'project_id': self.project.id,
+            'amount': 60,
+            'start': '2024-07-01',
+            'end': '2024-07-31'
+        }
+        response = self.client.post('/api/manage/targets/', valid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_task_patch_non_child(self):
         '''
         But not others or themsevles.
@@ -177,7 +198,6 @@ class TargetViewSetTest(APITestCase):
             'amount': 70,
         }
         response = self.client.patch(f'/api/manage/targets/{self.other_target.id}/', valid_payload, format='json')
-        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         
         valid_payload = {
@@ -218,31 +238,69 @@ class TargetViewSetTest(APITestCase):
         '''
         Also make sure that targets can be created with realtive amounts.
         '''
-        rel_task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.child_indicator)
-        interaction1 = Interaction.objects.create(respondent=self.respondent_full, interaction_date=date(2024,7,2), task=self.task, interaction_location='here')
-        interaction2 = Interaction.objects.create(respondent=self.respondent_full, interaction_date=date(2024,7,2), task=self.task, interaction_location='here')
-        create_flag(instance=interaction2, reason="Test reason", caused_by=self.admin)
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
-            'task_id': rel_task.id,
-            'related_to_id': self.task.id,
+            'indicator_id': self.indicator_ass.id,
+            'organization_id': self.child_org.id,
+            'project_id': self.project.id,
+            'related_to_id': self.indicator.id,
             'percentage_of_related': 75,
             'start': '2024-07-01',
             'end': '2024-07-31'
         }
         response = self.client.post('/api/manage/targets/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        target = Target.objects.filter(task=rel_task).first()
-        response = self.client.get(f'/api/manage/targets/{target.id}/')
-        print(response.json())
 
     def test_target_create_rel_wrong(self):
-        rel_task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.child_indicator)
         #related to not with same org/project
         self.client.force_authenticate(user=self.admin)
         invalid_payload = {
-            'task_id': rel_task.id,
-            'related_to_id': self.other_task.id,
+            'indicator_id': self.indicator_ass.id,
+            'organization_id': self.child_org.id,
+            'project_id': self.project.id,
+            'related_to_id': self.not_in_project_indicator.id,
+            'percentage_of_related': 75,
+            'start': '2024-07-01',
+            'end': '2024-07-31'
+        }
+        response = self.client.post('/api/manage/targets/', invalid_payload, format='json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        
+        #impossible target, like cmon, not cool bro
+        invalid_payload = {
+            'indicator_id': self.indicator_ass.id,
+            'organization_id': self.child_org.id,
+            'project_id': self.project.id,
+            'related_to_id': self.indicator.id,
+            'percentage_of_related': 107,
+            'start': '2024-07-01',
+            'end': '2024-07-31'
+        }
+        response = self.client.post('/api/manage/targets/', invalid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        #or referencing self, not allowed and not a bro move
+        invalid_payload = {
+            'indicator_id': self.indicator_ass.id,
+            'organization_id': self.child_org.id,
+            'project_id': self.project.id,
+            'related_to_id': self.indicator_ass.id,
+            'percentage_of_related': 75,
+            'start': '2024-07-01',
+            'end': '2024-07-31'
+        }
+        response = self.client.post('/api/manage/targets/', invalid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_target_mismatched_amounts(self):
+        self.client.force_authenticate(user=self.admin)
+        invalid_payload = {
+            'indicator_id': self.indicator_ass.id,
+            'organization_id': self.child_org.id,
+            'project_id': self.project.id,
+            'amount': 80,
+            'related_to_id': self.indicator_ass.id,
             'percentage_of_related': 75,
             'start': '2024-07-01',
             'end': '2024-07-31'
@@ -250,47 +308,13 @@ class TargetViewSetTest(APITestCase):
         response = self.client.post('/api/manage/targets/', invalid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         
-        #impossible target, like cmon, not cool bro
         invalid_payload = {
-            'task_id': rel_task.id,
-            'related_to_id': self.task.id,
-            'percentage_of_related': 107,
-            'start': '2025-07-01',
-            'end': '2025-07-31'
-        }
-        response = self.client.post('/api/manage/targets/', invalid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-        #or referencing self, not allowed and not a bro move
-        invalid_payload = {
-            'task_id': rel_task.id,
-            'related_to_id': rel_task.id,
-            'percentage_of_related': 75,
-            'start': '2025-07-01',
-            'end': '2025-07-31'
-        }
-        response = self.client.post('/api/manage/targets/', invalid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_target_mismatched_amounts(self):
-        rel_task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.child_indicator)
-        self.client.force_authenticate(user=self.admin)
-        invalid_payload = {
-            'task_id': rel_task.id,
-            'amount': 80,
-            'related_to_id': self.task.id,
-            'percentage_of_related': 75,
-            'start': '2025-07-01',
-            'end': '2025-07-31'
-        }
-        response = self.client.post('/api/manage/targets/', invalid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        
-        invalid_payload = {
-            'task_id': rel_task.id,
-            'related_to_id': self.task.id,
-            'start': '2025-07-01',
-            'end': '2025-07-31'
+            'indicator_id': self.indicator_ass.id,
+            'organization_id': self.child_org.id,
+            'project_id': self.project.id,
+            'related_to_id': self.indicator_ass.id,
+            'start': '2024-07-01',
+            'end': '2024-07-31'
         }
         response = self.client.post('/api/manage/targets/', invalid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -300,7 +324,9 @@ class TargetViewSetTest(APITestCase):
         #should fail since there's already a target for this task in this time period
         self.client.force_authenticate(user=self.admin)
         invalid_payload = {
-            'task_id': self.task.id,
+            'indicator_id': self.indicator.id,
+            'organization_id': self.parent_org.id,
+            'project_id': self.project.id,
             'amount': 60,
             'start': '2024-06-01',
             'end': '2024-06-30',
@@ -313,13 +339,14 @@ class TargetViewSetTest(APITestCase):
         #start before end
         self.client.force_authenticate(user=self.admin)
         invalid_payload = {
-            'task_id': self.task.id,
+            'indicator_id': self.indicator_ass.id,
+            'organization_id': self.child_org.id,
+            'project_id': self.project.id,
             'amount': 60,
-            'start': '2025-09-01',
-            'end': '2025-05-30',
+            'start': '2024-09-01',
+            'end': '2024-05-30',
         }
         response = self.client.post('/api/manage/targets/', invalid_payload, format='json')
-        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         #invalid format
@@ -327,17 +354,9 @@ class TargetViewSetTest(APITestCase):
             'task_id': self.task.id,
             'amount': 60,
             'start': '2025-06-012',
-            'end': '20253-05-30',
+            'end': '202565-05-30',
         }
         response = self.client.post('/api/manage/targets/', invalid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-        #on patch too for good measure
-        invalid_payload = {
-
-            'end': '2025-05-30',
-        }
-        response = self.client.patch(f'/api/manage/targets/{self.target.id}/', invalid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
     
     

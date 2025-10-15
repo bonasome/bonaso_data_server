@@ -65,14 +65,16 @@ def check_logic(c, response_info, assessment, respondent):
         prereq = c.source_indicator
         if not prereq:
             return False
-
+        req_val=None
         # Determine required value based on type
         if prereq.type in ['single', 'multi']:
-            req_val = c.condition_type or c.value_option
+            req_val = c.condition_type if c.condition_type in ['any', 'none', 'all'] else c.value_option.id
         elif prereq.type in ['boolean']:
             req_val = c.value_boolean
         else:
             req_val = c.value_text
+        if not req_val:
+            return False
         # Get the actual stored value
         prereq_val = response_info.get(str(c.source_indicator.id), {}).get('value')
         # Special logic for multi with any/none/all
@@ -99,6 +101,7 @@ def check_logic(c, response_info, assessment, respondent):
         # Multi-select value check
         if prereq.type == 'multi':
             if c.operator == '=':
+                print(prereq_val, req_val)
                 return prereq_val and req_val in prereq_val
             if c.operator == '!=':
                 return not prereq_val or req_val not in prereq_val
@@ -110,14 +113,13 @@ def check_logic(c, response_info, assessment, respondent):
                 return prereq_val != req_val
 
         # Greater / Less than comparisons
-        if c.operator in ['>', '<']:
+        if c.operator in ['>', '<'] and prereq.type == 'integer':
             try:
                 if c.operator == '>':
-                    return float(req_val) > float(prereq_val)
-                else:
                     return float(req_val) < float(prereq_val)
+                else:
+                    return float(req_val) > float(prereq_val)
             except (TypeError, ValueError):
-                print("Cannot compare a non-integer.")
                 return False
 
         # Contains and not contains (text match)
@@ -130,7 +132,7 @@ def check_logic(c, response_info, assessment, respondent):
 
     elif c.source_type == 'respondent':
         req_val = c.value_text
-        prereq_val = respondent.get(c.respondent_field)
+        prereq_val = getattr(respondent, c.respondent_field)
 
         if c.operator == '=':
             return prereq_val == req_val

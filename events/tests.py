@@ -65,19 +65,14 @@ class EventViewSetTest(APITestCase):
         child_link.save()
 
         #create some indicators and some tasks
-        self.indicator = Indicator.objects.create(code='1', name='Parent')
-        self.new_indicator = Indicator.objects.create(code='2', name='New')
-        self.prerequisite_indicator = Indicator.objects.create(code='p', name='Prereq')
-        self.child_indicator = Indicator.objects.create(code='c', name='Child')
-        self.child_indicator.prerequisites.set([self.prerequisite_indicator])
+        self.indicator_event = Indicator.objects.create(name='Number of Events Held', category=Indicator.Category.EVENTS)
+        self.indicator_org = Indicator.objects.create(name='Number of Orgs Trained at Event', category=Indicator.Category.ORGS)
 
-        self.task = Task.objects.create(indicator=self.indicator, project=self.project, organization=self.parent_org)
-        self.child_task = Task.objects.create(indicator=self.indicator, project=self.project, organization=self.child_org)
-        self.new_task = Task.objects.create(indicator=self.new_indicator, project=self.project, organization=self.parent_org)
-        self.other_task = Task.objects.create(indicator=self.indicator, project=self.project, organization=self.other_org)
+        self.task = Task.objects.create(indicator=self.indicator_event, project=self.project, organization=self.parent_org)
+        self.child_task = Task.objects.create(indicator=self.indicator_event, project=self.project, organization=self.child_org)
+        self.new_task = Task.objects.create(indicator=self.indicator_event, project=self.project, organization=self.parent_org)
+        self.other_task = Task.objects.create(indicator=self.indicator_event, project=self.project, organization=self.other_org)
 
-        self.prereq_task = Task.objects.create(indicator=self.prerequisite_indicator, project=self.project, organization=self.child_org)
-        self.dependent_task = Task.objects.create(indicator=self.child_indicator, project=self.project, organization=self.child_org)
 
         #create a few sample events
         self.event = Event.objects.create(

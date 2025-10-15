@@ -122,12 +122,7 @@ class EventSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def update(self, instance, validated_data):
         user = self.context.get('request').user if self.context.get('request') else None
-        start = validated_data.get('start', instance.start)
         #validation to make sure that changing event dates doesn't create confusion with counts already existing
-        if start > date.today() and DemographicCount.objects.filter(event=instance).exists():
-            raise serializers.ValidationError(
-                "You cannot set an event for the future if it already has counts associated with it."
-            )
         organizations = validated_data.pop('organizations', [])
         tasks = validated_data.pop('tasks', [])
 

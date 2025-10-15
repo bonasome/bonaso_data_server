@@ -81,9 +81,11 @@ class LogicCondition(models.Model):
     class SourceType(models.TextChoices):
         ASS = 'assessment', _('Indicator in This Assessment')
         RES = 'respondent', _('Respondent Field')
+        
     class RespondentField(models.TextChoices):
         SEX = 'sex', _('Sex')
         HIV = 'hiv_status', _('HIV Status')
+
     class Operator(models.TextChoices):
         EQUALS = '=', _('Equals'),
         NE = '!=', _('Not Equals'),

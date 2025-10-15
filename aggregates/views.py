@@ -21,7 +21,7 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 
 from aggregates.models import AggregateCount, AggregateGroup
-from aggregates.serializers import AggregateCountSerializer, AggregatGroupSerializer
+from aggregates.serializers import AggregateCountSerializer, AggregatGroupSerializer, AggregatGroupListSerializer
 from projects.models import Task, ProjectOrganization
 from respondents.models import Respondent, RespondentAttributeType, KeyPopulation, DisabilityType
 from respondents.utils import get_enum_choices
@@ -31,6 +31,12 @@ class AggregateViewSet(RoleRestrictedViewSet):
     queryset = AggregateGroup.objects.all().prefetch_related('counts')
     serializer_class = AggregatGroupSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return AggregatGroupListSerializer #for index components
+        else:
+            return AggregatGroupSerializer #for dedicated views
 
     def get_queryset(self):
         user = self.request.user

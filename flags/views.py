@@ -113,7 +113,7 @@ class FlagViewSet(RoleRestrictedViewSet):
             "models": [
                 {'value': "respondents.respondent", 'label': 'Respondent'},
                 {'value':"respondents.interaction",'label': 'Interaction'},
-                {'value':"events.demographiccount",'label': 'Demographic Count from Event'},
+                {'value':"aggregates.aggregatecount",'label': 'Aggregate Count'},
                 {'value':"social.socialmediapost", 'label': 'Social Media Post'},
             ]
         })

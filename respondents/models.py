@@ -13,8 +13,7 @@ from events.models import Event
 
 '''
 The respondent model relies on a variety of TextChoices. These are both used to control inputs but also
-are used during analysis for demographic splits. IF YOU MAKE ANY CHANGES TO ANY OF THE CATEGORIES HERE, MAKE
-SURE YOU MIRROR THEM IN events/models --> DemographicCount.
+are used during analysis for demographic splits. 
 '''
 
 

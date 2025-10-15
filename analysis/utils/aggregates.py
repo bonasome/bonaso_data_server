@@ -24,7 +24,7 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
     - user (user instance): the user making the request for permissions
     - indicator (indicator instance): the indicator whose data is to be aggregated
     - params (dict): a dictionary of params with true or false values denoting whether this aggregates 
-        should be split by that param (accepts any of the breakdown fields found in the DemographicCount model)
+        should be split by that param (accepts any of the breakdown fields found in the respondents/aggregatecounts model)
     - split (string, optional): split the data into periods (month, quarter)
     - project (project instance, optional): scope data to specific project
     - organization (organization instance, optional): scope data to specific organization

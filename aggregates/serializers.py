@@ -2,19 +2,36 @@ from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 
 from django.db import transaction
+from django.db.models import Q
 from datetime import date
 
 from profiles.serializers import ProfileListSerializer
 from organizations.models import Organization
 from organizations.serializers import OrganizationListSerializer
-from projects.models import ProjectOrganization,Project
+from projects.models import ProjectOrganization,Project, Task
 from projects.serializers import ProjectListSerializer
 from flags.serializers import FlagSerializer
-from indicators.models import Indicator, Option, LogicCondition, LogicGroup
+from indicators.models import Indicator, Option, LogicCondition, LogicGroup, Assessment
 from indicators.serializers import IndicatorSerializer, OptionSerializer
 from aggregates.models import AggregateCount, AggregateGroup
-from flags.utils import create_flag
+from flags.utils import create_flag, resolve_flag
 from flags.models import Flag
+
+class AggregatGroupListSerializer(serializers.ModelSerializer):
+    organization = OrganizationListSerializer(read_only=True)
+    project = ProjectListSerializer(read_only=True)
+    indicator = IndicatorSerializer(read_only=True)
+
+    created_by = ProfileListSerializer(read_only=True)
+    updated_by = ProfileListSerializer(read_only=True)
+
+    class Meta:
+        model = AggregateGroup
+        fields = [
+            'id', 'organization', 'indicator', 'project',
+            'start', 'end', 'created_by', 'created_at', 'updated_by', 'updated_at'
+        ]
+
 class AggregateCountSerializer(serializers.ModelSerializer):
     option = OptionSerializer(read_only=True)
     option_id = serializers.PrimaryKeyRelatedField(queryset=Option.objects.all(), write_only=True, source='option')
@@ -37,7 +54,7 @@ class AggregateCountSerializer(serializers.ModelSerializer):
             'kp_type',
             'attribute_type',
             'value',  
-            'created_by', 
+        'created_by', 
             'updated_by', 
             'created_at',
             'updated_at',
@@ -106,9 +123,16 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
 
             if not (is_own_org or is_child_org):
                 raise PermissionDenied("You do not have permission to create aggregates not related to your organization.")
-         #check for overlaps
+        assessments = Assessment.objects.filter(id=indicator.assessment_id).values_list('id', flat=True)
+        if not Task.objects.filter(Q(organization=org, project=proj, indicator=indicator) | Q(organization=org, project=proj, assessment_id__in=assessments)):
+            raise serializers.ValidationError('There is no task associated with this indicator for this project/organiation.')
+        #check for overlaps
         start =attrs.get('start')
         end=attrs.get('end')
+
+        if start > end:
+            raise serializers.ValidationError("Start must be before the end.")
+        
         if start and end:
             overlaps = AggregateGroup.objects.filter(
                 indicator=indicator,
@@ -157,53 +181,80 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
             
         return attrs
     
-    def __check_logic(self, indicator, organization, start, end, count, user):
+    def __check_logic(self, indicator, organization, start, end, count, user, visited=None):
+        if visited is None:
+            visited = set()
+        
+        key = (indicator.id, count.id)
+        if key in visited:
+            return
+        visited.add(key)
+
+        flags = count.flags.filter(auto_flagged=True)
         logic_group = LogicGroup.objects.filter(indicator=indicator).first()
         if not logic_group:
             return
+
         conditions = LogicCondition.objects.filter(group=logic_group, source_type=LogicCondition.SourceType.ASS)
         if not conditions.exists():
             return
+
         val = count.value
+
         for condition in conditions.all():
             prereq = condition.source_indicator
             filters = {
-                'group__start__gte': start,
-                'group__end__lte': end,
+                'group__start__lt': end,
+                'group__end__gt': start,
                 'group__indicator': prereq,
                 'group__organization': organization,
             }
-            # dynamically add demographic fields
             for field in ['sex', 'age_range', 'kp_type', 'disability_type', 'hiv_status', 'pregnancy', 'district', 'citizenship', 'attribute_type']:
                 value = getattr(count, field)
                 if value is not None:
                     filters[field] = value
             if count.option_id is not None:
                 filters['option_id'] = count.option_id
+
             find_count = AggregateCount.objects.filter(**filters).first()
-            '''
-            In an assessment, this prereq would not be visible if this was being answered
-            therefore, the prereq value should either not exist at all or be less than the value for this
-            to simulate a series of assessments being taken where the prereq has no value while this has value
-            '''
-            if condition.condition_type == LogicCondition.ExtraChoices.NONE or condition.value_boolean == False:
-                # if the prereq should not be answered for this question to be visible, but its count is greater than this one,
-                # that implies that there was a logical error somehwere
-                if find_count and find_count.value is not None and find_count.value > val:
-                    msg = f'Indicator "{indicator.name}" requires that a corresponding count for {prereq.name} be less than this count.'
-                    create_flag(count, msg, user, Flag.FlagReason.MPRE)
+
+            # Logic: NONE / False condition
+            if condition.condition_type == LogicCondition.ExtraChoices.NONE or condition.value_boolean is False:
+                '''
+                Skip "negative" logic (i.e., false, nothing selected), since aggregate formats only 
+                collect "positive data"
+                '''
+                continue
             else:
-                '''
-                Otherwise, the prereq count must have been selected in some capacity (be true, have a number 
-                inputed, or have one or more options selected), and therefore this value should never be more
-                than the value inputted for the corresponding prereq row
-                '''
+                # Logic: prereq must exist and be >= this value
                 if not find_count:
                     msg = f'Indicator "{indicator.name}" requires a corresponding count for {prereq.name}.'
                     create_flag(count, msg, user, Flag.FlagReason.MPRE)
-                elif find_count.value is None or val > find_count.value:
+                else:
                     msg = f'Value for this count may not be higher than the corresponding value from {prereq.name}.'
-                    create_flag(count, msg, user, Flag.FlagReason.MPRE)
+                    if val is not None and (find_count.value is None or val > find_count.value):
+                        create_flag(count, msg, user, Flag.FlagReason.MPRE)
+                    else:
+                        if flags.filter(msg=msg).exists():
+                            resolve_flag(flags, msg)
+
+        # Check downstream counts recursively
+        self.__check_downstream(indicator, organization, start, end, count, user, visited)
+
+
+    def __check_downstream(self, indicator, organization, start, end, count, user, visited):
+        # find all counts overlapping this range
+        filters = {
+            'group__start__lt': end,
+            'group__end__gt': start,
+            'group__organization': organization,
+        }
+        potential_downstream = AggregateCount.objects.filter(**filters)
+        for c in potential_downstream:
+            ds_ind = c.group.indicator
+            conditions = LogicCondition.objects.filter(group__indicator=ds_ind, source_indicator=indicator)
+            if conditions.exists():
+                self.__check_logic(ds_ind, organization, c.start, c.end, c, user, visited)
 
     def create(self, validated_data):
         user = self.context.get('request').user if self.context.get('request') else None
@@ -217,8 +268,10 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
                 for row in rows
             ]
             saved_instances = AggregateCount.objects.bulk_create(instances)
+            visited = set()
             for count in saved_instances:
-                self.__check_logic(group.indicator, group.organization, group.start, group.end, count, user)
+                self.__check_logic(group.indicator, group.organization, group.start, group.end, count, user, visited)
+                self.__check_downstream(group.indicator, group.organization, group.start, group.end, count, user, visited)
         return group
     
     def update(self, instance, validated_data):
@@ -235,6 +288,8 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
                 for row in rows
             ]
             saved_instances = AggregateCount.objects.bulk_create(instances)
+            visited = set()
             for count in saved_instances:
-                self.__check_logic(instance.indicator, instance.organization, instance.start, instance.end, count, user)
+                self.__check_logic(instance.indicator, instance.organization, instance.start, instance.end, count, user, visited)
+                self.__check_downstream(instance.indicator, instance.organization, instance.start, instance.end, count, user, visited)
         return instance

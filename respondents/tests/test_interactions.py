@@ -261,7 +261,7 @@ class InteractionViewSetTest(APITestCase):
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_create_mismatched_subcats(self):
+    def test_mismatched_subcats(self):
         self.client.force_authenticate(user=self.data_collector)
         valid_payload = {
             'task_id': self.task.id,
@@ -281,6 +281,41 @@ class InteractionViewSetTest(APITestCase):
             }
         }
         response = self.client.post('/api/record/interactions/', valid_payload, format='json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_missing_req(self):
+        self.client.force_authenticate(user=self.data_collector)
+        invalid_payload = {
+            'task_id': self.task.id,
+            'respondent_id': self.respondent.id,
+            'interaction_date': '2025-01-01',
+            'interaction_location': 'There',
+            'response_data': {
+                self.indicator_2.id: {
+                    'value': [self.option1.id],
+                },
+            }
+        }
+        response = self.client.post('/api/record/interactions/', invalid_payload, format='json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        invalid_payload = {
+            'task_id': self.task.id,
+            'respondent_id': self.respondent.id,
+            'interaction_date': '2025-01-01',
+            'interaction_location': 'There',
+            'response_data': {
+                self.indicator_1.id: {
+                    'value': [],
+                },
+                self.indicator_2.id: {
+                    'value': [self.option1.id],
+                },
+            }
+        }
+        response = self.client.post('/api/record/interactions/', invalid_payload, format='json')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 

@@ -590,14 +590,12 @@ class InteractionSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Assessment dates cannot be in the future.')
         responses = attrs.get('response_data')
 
-        for key, item in responses.items():
-            indicator = Indicator.objects.filter(id=key).first()
-            if not indicator:
-                raise serializers.ValidationError(f'Invalid indicator ID provided: "{key}"')
+        for indicator in Indicator.objects.filter(assessment=task.assessment).all():
             #first check if the item should be visible
             sbv = self.__should_be_visible(indicator, responses, respondent, task)
             #then check what the value is
-            val = item.get('value', None)
+            response = responses.get(str(indicator.id), None)
+            val = response.get('value', None) if response else None
             #if this should be visible and the indicator is required, but there is no value, raise an error
             if sbv and val in [[], None, ''] and indicator.required:
                 raise serializers.ValidationError(f'Indicator {indicator.name} is required.')

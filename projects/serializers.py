@@ -237,11 +237,10 @@ class TargetSerializer(serializers.ModelSerializer):
     
     related_to = TaskSerializer(read_only=True)
     related_to_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True, required=False, allow_null=True, source='related_to')
-    # related_as_number = serializers.SerializerMethodField()
-    # achievement = serializers.SerializerMethodField()
+    related_as_number = serializers.SerializerMethodField()
+    achievement = serializers.SerializerMethodField()
     display_name = serializers.SerializerMethodField()
 
-    '''
     def get_related_as_number(self, obj):
         user = self.context.get('request').user
         if not obj.related_to:
@@ -251,7 +250,7 @@ class TargetSerializer(serializers.ModelSerializer):
     def get_achievement(self, obj):
         user = self.context.get('request').user
         return get_achievement(user, obj)
-    '''
+    
     def get_display_name(self, obj):
         return str(obj)
     
@@ -259,7 +258,7 @@ class TargetSerializer(serializers.ModelSerializer):
         model = Target
         fields = [
             'id', 'indicator', 'indicator_id', 'start', 'end', 'amount','related_to', 'related_to_id', 
-            'percentage_of_related', 'display_name',
+            'percentage_of_related', 'display_name', 'achievement', 'related_as_number',
             'organization', 'organization_id', 'project', 'project_id'
         ]
 

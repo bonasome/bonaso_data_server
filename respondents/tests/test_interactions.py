@@ -718,34 +718,3 @@ class InteractionViewSetTest(APITestCase):
         response = self.client.delete(f'/api/record/interactions/{self.interaction.id}/')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
     
-
-    def test_flag_too_close(self):
-        '''
-        If not disabled, interactions with the same respondent/task within 30 days should trigger a flag
-        for review.
-        '''
-        self.client.force_authenticate(user=self.admin)
-        response = self.client.post('/api/record/interactions/', {
-            'interaction_date': date(2025, 6, 5),
-            'interaction_location': 'That place that sells chili',
-            'respondent': self.respondent3.id,
-            'task_id': self.task.id
-        }, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        ir = Interaction.objects.get(interaction_date=date(2025, 6, 5), task=self.task, respondent=self.respondent3)
-        self.assertEqual(ir.flags.count(), 0)
-        
-        
-        response = self.client.post('/api/record/interactions/', {
-            'interaction_date': date(2025, 6, 7),
-            'interaction_location': 'That place that sells chili',
-            'respondent': self.respondent3.id,
-            'task_id': self.task.id
-        }, format='json')
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        new_ir = Interaction.objects.get(interaction_date=date(2025, 6, 7), task=self.task, respondent=self.respondent3)
-        self.assertEqual(new_ir.flags.count(), 1)
-        flag = new_ir.flags.first()
-        self.assertIn('within 30 days of this interaction', flag.reason)

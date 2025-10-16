@@ -60,7 +60,7 @@ class EventSerializer(serializers.ModelSerializer):
         new_links = []
         for task in tasks:
             org = task.organization
-            if task.indicator.indicator_type == Indicator.IndicatorType.SOCIAL:
+            if task.indicator.category not in [Indicator.Category.EVENTS, Indicator.Category.ORGS]:
                 raise serializers.ValidationError(f"Task '{task.indicator.name}' may not be assigned to an event. Please consider creating a social post instead.")
             if user.role != 'admin':
                  if not org == user.organization and not ProjectOrganization.objects.filter(organization=org, parent_organization=user.organization, project=task.project).exists():

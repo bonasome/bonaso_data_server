@@ -123,7 +123,7 @@ class TablesViewSet(RoleRestrictedViewSet):
         params = {}
         table_params = [param.name for param in table.params.all()]
         params = {}
-        for cat in ['id', 'age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'option', 'platform', 'metric', 'organization']:
+        for cat in ['id', 'age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'option', 'platform', 'district', 'metric', 'organization']:
             params[cat] = cat in table_params
         #pull aggregates based on params
         aggregates = aggregates_switchboard(

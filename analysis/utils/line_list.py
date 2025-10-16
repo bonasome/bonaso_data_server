@@ -1,8 +1,9 @@
 from datetime import date
-from respondents.models import Interaction
+from respondents.models import Response
+from indicators.models import Indicator
 from projects.models import ProjectOrganization
 from analysis.utils.aggregates import get_hiv_statuses, get_pregnancies
-def prep_line_list(user, start=None, end=None, indicator=None, project=None, organization=None, cascade=False):
+def prep_line_list(user, start=None, end=None, assessment=None, project=None, organization=None, cascade=False):
     '''
     Collect a list of interactions and return them as an array of set rows for a line list
     - user (user instance): used to check permissions
@@ -13,7 +14,7 @@ def prep_line_list(user, start=None, end=None, indicator=None, project=None, org
     - organization (organization instance, optional): only collect interactions whose task is related to this org
     - cascade (boolean, optional): if project and organization are provided, also collect interactions from child organizations
     '''
-    queryset= Interaction.objects.all()
+    queryset= Response.objects.all()
     
     #start with perms
     if user.role == 'admin':
@@ -30,16 +31,16 @@ def prep_line_list(user, start=None, end=None, indicator=None, project=None, org
         accessible_orgs.append(user.organization.id)
         
         queryset = queryset.filter(
-            task__organization__in=accessible_orgs
+            interaction__task__organization__in=accessible_orgs
         )
     else:
         queryset = queryset.filter(created_by=user)
 
-    if indicator:
-        queryset = queryset.filter(task__indicator=indicator)
+    if assessment:
+        queryset = queryset.filter(interaction__task__assessment=assessment)
     #handle additional parameters
     if project:
-        queryset=queryset.filter(task__project=project)
+        queryset=queryset.filter(interaction__task__project=project)
     
     if organization:
         # if project, organization, and cascade, also fetch data from any child orgs
@@ -52,38 +53,31 @@ def prep_line_list(user, start=None, end=None, indicator=None, project=None, org
             accessible_orgs.append(organization.id)
             
             queryset = queryset.filter(
-                task__organization__in=accessible_orgs
+                interaction__task__organization__in=accessible_orgs
             )
         else:
-            queryset=queryset.filter(task__organization=organization)
+            queryset=queryset.filter(interaction__task__organization=organization)
     #time filters
     if start:
-        queryset=queryset.filter(interaction_date__gte=start)
+        queryset=queryset.filter(response_date__gte=start)
     if end:
-        queryset=queryset.filter(interaction_date__lte=end)
+        queryset=queryset.filter(response_date__lte=end)
     
-    #prefetch related information used to build the line list
-    queryset = queryset.select_related(
-        'respondent',
-        'task',
-        'task__indicator',
-        'task__organization',
-        'task__project',
-    ).prefetch_related(
-        'respondent__kp_status',
-        'respondent__disability_status',
-        'respondent__special_attribute',
-    )
-    
-    subcategories = get_interaction_subcats(queryset)
-    respondent_ids = {i.respondent_id for i in queryset}
+    respondent_ids = {r.interaction.respondent_id for r in queryset}
     hiv_status_map = get_hiv_statuses(respondent_ids=respondent_ids)
     pregnancies_map = get_pregnancies(respondent_ids=respondent_ids)
 
     rows = [] #stores the line list items
     #loop through each interaction and build a row object
-    for i, ir in enumerate(queryset):
-        respondent = ir.respondent
+    for i, r in enumerate(queryset):
+        value = None
+        if r.indicator.type in [Indicator.Type.MULTI, Indicator.Type.SINGLE]:
+            value = r.response_option.name if r.response_option else None
+        if r.indicator.type in [Indicator.Type.BOOL]:
+            value = r.response_boolean
+        else:
+            value = r.response_value 
+        respondent = r.interaction.respondent
         row = {
             'index': i,
             'is_anonymous': respondent.is_anonymous,
@@ -102,28 +96,18 @@ def prep_line_list(user, start=None, end=None, indicator=None, project=None, org
             'comments': respondent.comments,
             'kp_status': [kp.name for kp in respondent.kp_status.all()],
             'disability_status': [d.name for d in respondent.disability_status.all()],
-            'indicator': str(ir.task.indicator),
-            'interaction_date': ir.interaction_date,
-            'interaction_location': ir.interaction_location,
-            'organization': str(ir.task.organization),
-            'project': str(ir.task.project),
-            'numeric_component': ir.numeric_component or None,
-            'subcategory': None,
-            'flagged': (ir.flags.filter(resolved=False).count() > 0 or respondent.flags.filter(resolved=False).count() > 0)
+            'indicator': str(r.indicator),
+            'interaction_date': r.response_date,
+            'interaction_location': r.response_location,
+            'organization': str(r.interaction.task.organization),
+            'project': str(r.interaction.task.project),
+            'value': value,
+            'flagged': (r.interaction.flags.filter(resolved=False).count() > 0 or respondent.flags.filter(resolved=False).count() > 0)
         }
-        hiv_status_list = hiv_status_map.get(ir.respondent.id, [])
-        row['hiv_status'] = any(hs.date_positive <= ir.interaction_date for hs in hiv_status_list)
+        hiv_status_list = hiv_status_map.get(respondent.id, [])
+        row['hiv_status'] = any(hs.date_positive <= r.response_date for hs in hiv_status_list)
 
         preg_list = pregnancies_map.get(respondent.id, [])
-        row['pregnant'] = any(p.term_began <= ir.interaction_date <= (p.term_ended or date.today()) for p in preg_list)
-        #we'll treat each subcat is its own row
-        subcats = subcategories.filter(interaction=ir)
-        if subcats:
-            for subcat in subcats:
-                subset_row = row.copy()
-                subset_row['subcategory'] = subcat.subcategory.name
-                subset_row['numeric_component'] = subcat.numeric_component or None
-                rows.append(subset_row)
-        else:
-            rows.append(row)
+        row['pregnant'] = any(p.term_began <= r.response_date <= (p.term_ended or date.today()) for p in preg_list)
+        rows.append(row)
     return rows

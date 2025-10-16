@@ -13,7 +13,8 @@ from users.restrictviewset import RoleRestrictedViewSet
 from indicators.models import Indicator, Assessment, LogicCondition, LogicGroup
 from indicators.serializers import IndicatorSerializer, Assessment, AssessmentSerializer, AssessmentListSerializer
 from projects.models import Task, Target
-from respondents.models import Interaction
+from respondents.models import Response, Interaction
+from aggregates.models import AggregateGroup
 from respondents.utils import get_enum_choices
 
 
@@ -121,6 +122,54 @@ class IndicatorViewSet(RoleRestrictedViewSet):
             Indicator.objects.bulk_update(inds, ['order'])
         return Response({'status': 'ok'}, status=200)
     
+    def destroy(self, request, *args, **kwargs):
+        '''
+        Only admins can delete indicators, and not if the respondent has interactions associated with them.
+        '''
+        user = request.user
+        instance = self.get_object()
+
+        # Prevent deletion if respondent has interactions
+        if Response.objects.filter(indicator_id=instance.id).exists():
+            return Response(
+                {
+                    "detail": (
+                        "You cannot delete an indicator that has an interaction associated with them. "
+                    )
+                },
+                status=status.HTTP_409_CONFLICT
+            )
+
+        if AggregateGroup.objects.filter(indicator_id=instance.id).exists():
+            return Response(
+                {
+                    "detail": (
+                        "You cannot delete an indicator that has an aggregate count associated with it. "
+                    )
+                },
+                status=status.HTTP_409_CONFLICT
+            )
+        
+        if Target.objects.filter(indicator_id=instance.id).exists():
+            return Response(
+                {
+                    "detail": (
+                        "You cannot delete an assessment that has a target associated with it. "
+                    )
+                },
+                status=status.HTTP_409_CONFLICT
+            )
+
+        # Permission check: only admin can delete
+        if user.role != 'admin':
+            return Response(
+                {"detail": "You do not have permission to delete this item."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Perform deletion
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=False, methods=['get'], url_path='meta')
     def get_meta(self, request):
@@ -164,3 +213,50 @@ class AssessmentViewSet(RoleRestrictedViewSet):
             return AssessmentListSerializer
         else:
             return AssessmentSerializer
+
+    def destroy(self, request, *args, **kwargs):
+        '''
+        Only admins can delete indicators, and not if the respondent has interactions associated with them.
+        '''
+        user = request.user
+        if user.role != 'admin':
+            return Response(
+                {"detail": "You do not have permission to delete this item."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        instance = self.get_object()
+
+        # Prevent deletion if respondent has interactions
+        if Interaction.objects.filter(assessment_id=instance.id).exists():
+            return Response(
+                {
+                    "detail": (
+                        "You cannot delete an assessment that has an interaction associated with them. "
+                    )
+                },
+                status=status.HTTP_409_CONFLICT
+            )
+
+        if AggregateGroup.objects.filter(indicator__assessment_id=instance.id).exists():
+            return Response(
+                {
+                    "detail": (
+                        "You cannot delete an assessment that has an aggregate count associated with it. "
+                    )
+                },
+                status=status.HTTP_409_CONFLICT
+            )
+        if Target.objects.filter(indicator__assessment_id=instance.id).exists():
+            return Response(
+                {
+                    "detail": (
+                        "You cannot delete an assessment that has a target associated with it. "
+                    )
+                },
+                status=status.HTTP_409_CONFLICT
+            )
+        
+        # Perform deletion
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)

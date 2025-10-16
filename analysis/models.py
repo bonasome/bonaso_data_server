@@ -1,7 +1,7 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
-from indicators.models import Indicator
+from indicators.models import Assessment, Indicator
 from projects.models import Project
 from organizations.models import Organization
 User = get_user_model()
@@ -159,7 +159,7 @@ class LineList(models.Model):
     as filters. 
     '''
     name = models.CharField(max_length=255, null=True, blank=True)
-    indicator = models.ForeignKey(Indicator, on_delete=models.CASCADE, null=True)
+    assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE, null=True)
     project = models.ForeignKey(Project, on_delete=models.SET_NULL, null=True)
     organization = models.ForeignKey(Organization, on_delete=models.SET_NULL, null=True)
     cascade_organization = models.BooleanField(default=False) #will also include child organizations of the selected organization if project/organization are provided

@@ -90,10 +90,10 @@ def get_achievement(user, target, related=None):
             organization=target.organization,
             filters=None
         )
-        valid_responses = valid_responses.order_by('interaction__respondent_id').distinct('interaction__respondent_id')
+        valid_responses = valid_responses.order_by('interaction_id').distinct('interaction_id')
         # add the correct amount to the total, either by numeric component or just the raw count
         if indicator.type == Indicator.Type.INT:
-            total += sum(r.value_text or 0 for r in valid_responses)
+            total += sum(r.response_value or 0 for r in valid_responses)
         else:
             total += valid_responses.count()
 

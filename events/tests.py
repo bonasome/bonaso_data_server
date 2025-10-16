@@ -5,11 +5,10 @@ from rest_framework import status
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 
-from events.models import Event, EventOrganization, EventTask, DemographicCount
+from events.models import Event, EventOrganization, EventTask
 from projects.models import Project, Client, Task, ProjectOrganization
-from respondents.models import Respondent, Interaction
 from organizations.models import Organization
-from indicators.models import Indicator, IndicatorSubcategory
+from indicators.models import Indicator
 from datetime import date, timedelta
 
 User = get_user_model()

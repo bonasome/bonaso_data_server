@@ -56,8 +56,8 @@ class SocialPostViewSetTest(APITestCase):
         child_link.save()
 
 
-        self.indicator = Indicator.objects.create(code='1', name='Parent', indicator_type='social')
-        self.indicator_2 = Indicator.objects.create(code='2', name='Second', indicator_type='social')
+        self.indicator = Indicator.objects.create(name='First', category=Indicator.Category.SOCIAL)
+        self.indicator_2 = Indicator.objects.create(name='Second', category=Indicator.Category.SOCIAL)
         self.task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.indicator)
         self.task_2 = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.indicator_2)
         

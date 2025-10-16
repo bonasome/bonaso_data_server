@@ -86,7 +86,5 @@ class AggregateViewSet(RoleRestrictedViewSet):
             'citizenship': get_enum_choices(AggregateCount.Citizenship),
             'hiv_status': get_enum_choices(AggregateCount.HIVStatus),
             'pregnancy': get_enum_choices(AggregateCount.Pregnancy),
-
-
         }
         return Response(breakdowns)

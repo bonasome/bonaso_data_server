@@ -1,7 +1,7 @@
 from datetime import date
 from respondents.models import Interaction
 from projects.models import ProjectOrganization
-from analysis.utils.aggregates import get_hiv_statuses, get_pregnancies, get_interaction_subcats
+from analysis.utils.aggregates import get_hiv_statuses, get_pregnancies
 def prep_line_list(user, start=None, end=None, indicator=None, project=None, organization=None, cascade=False):
     '''
     Collect a list of interactions and return them as an array of set rows for a line list

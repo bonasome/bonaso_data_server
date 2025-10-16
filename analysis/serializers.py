@@ -104,7 +104,7 @@ class PivotTableSerializer(serializers.ModelSerializer):
         table_params = [param.name for param in obj.params.all()]
         #determine what params/breakdowns the user wants and format them as an object
         params = {}
-        for cat in ['id', 'age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory', 'platform', 'metric']:
+        for cat in ['id', 'age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'option', 'platform', 'metric', 'district']:
             params[cat] = cat in table_params
 
         #collec the aggregates
@@ -186,7 +186,7 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
         '''
         #based on legend/stack, get list of params to break the data down by
         params = {}
-        for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory', 'platform', 'metric', 'organization']:
+        for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'option', 'platform', 'metric', 'organization', 'district']:
             params[cat] = (cat == obj.legend) or (cat == obj.stack)
         # collect model filters
         filters = self.get_filters(obj)

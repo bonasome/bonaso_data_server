@@ -293,6 +293,7 @@ class Interaction(models.Model):
     comments = models.TextField(null=True, blank=True)
     interaction_date = models.DateField()
     interaction_location = models.CharField(max_length=255, null=True, blank=True, verbose_name='Interaction Location')
+    flags = GenericRelation('flags.Flag', related_query_name='flags')
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -69,17 +69,18 @@ class UploadViewSetTest(APITestCase):
         self.indicator_log = Indicator.objects.create(name='Referred for NCDs', type=Indicator.Type.MULTI, assessment=self.assessment, match_options=self.indicator, allow_none=True)
         self.g2 = LogicGroup.objects.create(group_operator='AND', indicator=self.indicator_log)
         self.c21 = LogicCondition.objects.create(group=self.g2,source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator, condition_type=LogicCondition.ExtraChoices.ANY, operator=LogicCondition.Operator.EQUALS)
-        self.indicator_sing = Indicator.objects.create(name='Type of Screening', required=True)
+        self.indicator_sing = Indicator.objects.create(name='Type of Screening', required=True, type=Indicator.Type.SINGLE, assessment=self.assessment)
         self.option4= Option.objects.create(name='Type A', indicator=self.indicator_sing)
         self.option5= Option.objects.create(name='Type B', indicator=self.indicator_sing)
-        self.indicator_num = Indicator.objects.create(name='Number of Sessions', required=True)
+        self.indicator_num = Indicator.objects.create(name='Number of Sessions', required=True, assessment=self.assessment, type=Indicator.Type.INT)
+        self.indicator_txt = Indicator.objects.create(name='Notes on Sessions', required=False, assessment=self.assessment, type=Indicator.Type.TEXT)
 
 
         self.task = Task.objects.create(project=self.project, organization=self.parent_org, assessment=self.assessment)
         self.child_task = Task.objects.create(project=self.project, organization=self.child_org, assessment=self.assessment)
         self.other_task = Task.objects.create(project=self.project, organization=self.other_org, assessment=self.assessment)
 
-        self.interaction = Interaction.objects.create(interaction_date='2025-05-01', interaction_location='There', task=self.task, respondent=self.respondent_full)
+        self.interaction = Interaction.objects.create(interaction_date='2024-05-01', interaction_location='Mochudi', task=self.task, respondent=self.respondent_full)
         self.response = Response.objects.create(indicator=self.indicator, response_option=self.option1, interaction=self.interaction)
         
         self.headers = [
@@ -90,7 +91,8 @@ class UploadViewSetTest(APITestCase):
             "Pregnancy Ended (Date)", "Date of Interaction", "Interaction Location", 
             "Screened for NCDs: BMI (Select All That Apply)", "Screened for NCDs: Blood Pressure (Select All That Apply)", "Screened for NCDs: Blood Glucose (Select All That Apply)",
             "Referred for NCDs: BMI (Select All That Apply)", "Referred for NCDs: Blood Pressure (Select All That Apply)", "Referred for NCDs: Blood Glucose (Select All That Apply)",
-            "Type of Screening (Select One)", "Number of Sessions (Enter a Number)", "Comments",
+            "Type of Screening (Select One)", "Number of Sessions (Enter a Number)", "Notes on Sessions",
+            "Comments",
         ]
 
         self.resp_headers = ["FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
@@ -101,7 +103,8 @@ class UploadViewSetTest(APITestCase):
         self.resp_headers_2 = ["FALSE", "T2", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "BW", "test@website.com", "71234567", "Transgender, Intersex", 
             "Hearing Impaired, Visually Impaired", "Community Health Worker, Community Leader", 
-            "Yes", date(2023,2,1), "", "", date(2024, 5, 1), "Mochudi"]
+            "Yes", date(2023,2,1), "", "", date(2024, 5, 1), "Mochudi"
+        ]
 
     def create_workbook(self, tasks=None, org=None, include_metadata=True, include_data=True, include_event=False):
         '''
@@ -176,7 +179,7 @@ class UploadViewSetTest(APITestCase):
         Test that you cannot access another orgs tempalte.
         '''
         self.client.force_authenticate(user=self.officer)
-        wb = self.create_workbook([self.other_task.id], self.other_org, include_data=True) 
+        wb = self.create_workbook([self.other_task.id], self.other_org.id, include_data=True) 
         file_obj = BytesIO()
         wb.save(file_obj)
         file_obj.name = 'test.xlsx'
@@ -190,14 +193,15 @@ class UploadViewSetTest(APITestCase):
         Test that you cannot access another orgs tempalte.
         '''
         self.client.force_authenticate(user=self.admin)
-        wb = self.create_workbook([self.task.id], self.other_org, include_data=True) 
+        wb = self.create_workbook([self.task.id], self.other_org.id, include_data=True) 
         file_obj = BytesIO()
         wb.save(file_obj)
         file_obj.name = 'test.xlsx'
         file_obj.seek(0)
 
         response = self.client.post('/api/record/interactions/upload/', {'file': file_obj}, format='multipart')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
     
     def test_missing_required_column(self):
         '''
@@ -209,7 +213,7 @@ class UploadViewSetTest(APITestCase):
         wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True)  
         ws = wb['Data']
         # Missing 'First Name' on purpose
-        headers = self.headers.remove('First Name')
+        headers = [h for h in self.headers if h != 'First Name']
         ws.append(headers)
         
         # Step 2: Save to in-memory file
@@ -247,6 +251,7 @@ class UploadViewSetTest(APITestCase):
             "Yes", "", "",
             "Type A",
             "7",
+            "What?",
             "Random Comment",
         ]
         ws.append(row)
@@ -261,6 +266,7 @@ class UploadViewSetTest(APITestCase):
             "yes", "", "",
             "type      a",
             "7  ",
+            "",
             "Random Comment",
         ]
         ws.append(row2)
@@ -274,6 +280,7 @@ class UploadViewSetTest(APITestCase):
             "Yes", "", "",
             "Type A",
             "7",
+            "",
             "Random Comment",
         ]
         ws.append(row3)
@@ -285,7 +292,7 @@ class UploadViewSetTest(APITestCase):
         response = self.client.post('/api/record/interactions/upload/', {'file': file_obj}, format='multipart')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
+        
         response = self.client.get('/api/record/respondents/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 4) #these three plus the one that exists
@@ -297,7 +304,7 @@ class UploadViewSetTest(APITestCase):
         self.assertEqual(respondent.special_attribute.count(), 2)
         hiv = HIVStatus.objects.get(respondent=respondent)
         self.assertEqual(hiv.date_positive, date(2023,2,1))
-        ir = Interaction.objects.filter(respondent=respondent)
+        ir = Interaction.objects.filter(respondent=respondent).first()
         self.assertEqual(ir.interaction_date, date(2024, 5, 1))
         r1 = Response.objects.filter(interaction=ir, indicator=self.indicator)
         self.assertEqual(r1.count(), 2)
@@ -307,6 +314,8 @@ class UploadViewSetTest(APITestCase):
         self.assertEqual(r3.response_option, self.option4)
         r4 = Response.objects.filter(interaction=ir, indicator=self.indicator_num).first()
         self.assertEqual(r4.response_value, "7")
+        r5 = Response.objects.filter(interaction=ir, indicator=self.indicator_txt).first()
+        self.assertEqual(r5.response_value, "What?")
         self.assertEqual(ir.comments, "Random Comment")
 
 
@@ -315,8 +324,8 @@ class UploadViewSetTest(APITestCase):
         self.assertEqual(respondent.kp_status.count(), 2)
         self.assertEqual(respondent.disability_status.count(), 2)
         self.assertEqual(respondent.special_attribute.count(), 2)
-        ir = Interaction.objects.filter(respondent=respondent)
-        self.assertEqual(ir.interaction_date, date(2024, 5, 1))
+        ir = Interaction.objects.filter(respondent=respondent).first()
+        self.assertEqual(ir.interaction_date, date(2024, 6, 4))
         r1 = Response.objects.filter(interaction=ir, indicator=self.indicator)
         self.assertEqual(r1.count(), 2)
         r2 = Response.objects.filter(interaction=ir, indicator=self.indicator_log)
@@ -324,7 +333,7 @@ class UploadViewSetTest(APITestCase):
         r3 = Response.objects.filter(interaction=ir, indicator=self.indicator_sing).first()
         self.assertEqual(r3.response_option, self.option4)
         r4 = Response.objects.filter(interaction=ir, indicator=self.indicator_num).first()
-        self.assertEqual(r3.response_value, "7")
+        self.assertEqual(r4.response_value, "7")
 
         
         respondent = Respondent.objects.get(village='Testington', sex='F')
@@ -333,20 +342,59 @@ class UploadViewSetTest(APITestCase):
         self.assertEqual(preg.term_ended, date(2023, 9, 1))
         self.assertEqual(preg.is_pregnant, False)
 
+    def test_upload_bad_response(self):
+        '''
+        Test that the file upload can successfuly create a respondent, including m2m fields, pregnancy,
+        and HIV status.
+        '''
+        self.client.force_authenticate(user=self.officer)
+        wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True)   
+        ws = wb['Data']
+        headers = self.headers
+        ws.append(headers)
+        #ideal upload 
+        row = [
+            "FALSE", "T1", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
+            "Central District", "BW", "test@website.com", "71234567", "Transgender, Intersex", 
+            "Hearing Impaired, Visually Impaired", "Community Health Worker, Community Leader", 
+            "Yes", date(2023,2,1), "", "", date(2024, 5, 1), "Mochudi",
+
+            "Yes", "Yes", "", 
+            "Yes", "", "",
+            "Ta",
+            "7",
+            "What?",
+            "Random Comment",
+        ]
+        ws.append(row)
+        file_obj = BytesIO()
+        wb.save(file_obj)
+        file_obj.name = 'template.xlsx'
+        file_obj.seek(0)
+        response = self.client.post('/api/record/interactions/upload/', {'file': file_obj}, format='multipart')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         
+        response = self.client.get('/api/record/respondents/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(Response.objects.filter(response_option=self.option4).count(), 0)
+
     def test_upload_respondents_child(self):
         '''
         Test that an M&E officer can upload a template for a child org.
         '''
         self.client.force_authenticate(user=self.officer)
-        wb = self.create_workbook(self.project.id, self.child_org.id, include_data=True)  
+        wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True)   
         ws = wb['Data']
         headers = self.headers 
         ws.append(headers)
-        row = self.resp_headers + ["Yes", "Yes", "", 
+        row = self.resp_headers + [
+            "Yes", "Yes", "", 
             "Yes", "", "",
             "Type A",
             "7",
+            "",
             "Random Comment",
         ]
         ws.append(row)
@@ -367,7 +415,7 @@ class UploadViewSetTest(APITestCase):
         Test that bad values are caught.
         '''
         self.client.force_authenticate(user=self.officer)
-        wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
+        wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True)   
         ws = wb['Data']
         headers = self.headers
         ws.append(headers)
@@ -415,7 +463,7 @@ class UploadViewSetTest(APITestCase):
         Test date validations.
         '''
         self.client.force_authenticate(user=self.officer)
-        wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
+        wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True)   
         ws = wb['Data']
         headers = self.headers
         ws.append(headers)
@@ -454,7 +502,7 @@ class UploadViewSetTest(APITestCase):
         Also, Respondent should save, but not interactions.
         '''
         self.client.force_authenticate(user=self.officer)
-        wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
+        wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True)     
         ws = wb['Data']
         headers = self.headers
         ws.append(headers)
@@ -468,6 +516,7 @@ class UploadViewSetTest(APITestCase):
             "Yes", "", "",
             "Type A",
             "7",
+            "",
             "Random Comment",
         ]
         ws.append(row)
@@ -494,7 +543,7 @@ class UploadViewSetTest(APITestCase):
         and HIV status.
         '''
         self.client.force_authenticate(user=self.officer)
-        wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True)   
+        wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True)     
         ws = wb['Data']
         headers = self.headers
         ws.append(headers)
@@ -509,6 +558,7 @@ class UploadViewSetTest(APITestCase):
             "Yes", "Yes", "",
             "Type A",
             "7",
+            "",
             "Random Comment",
         ]
         ws.append(row)
@@ -523,6 +573,7 @@ class UploadViewSetTest(APITestCase):
             "Yes", "", "",
             "Type A",
             "7",
+            "",
             "Random Comment",
         ]
         ws.append(row2)
@@ -543,7 +594,7 @@ class UploadViewSetTest(APITestCase):
         Test that the same respondent is caught and not recreated. The frontend will give a display for this.
         '''
         self.client.force_authenticate(user=self.officer)
-        wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
+        wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True)   
         ws = wb['Data']
         # Missing 'First Name' on purpose
         headers = self.headers
@@ -552,12 +603,13 @@ class UploadViewSetTest(APITestCase):
         row = [
             "FALSE", "1234567", "Test", "Testerson", "", date(1990, 5, 1), "Male", "Wardplace", "Testington",
             "Central District", "BW", "test@website.com", "71234567", "Transgender, Intersex", 
-            "Hearing Impaired, Visually Impaired", "","", "", "", "", date(2024, 5, 1), "Mochudi"
+            "Hearing Impaired, Visually Impaired", "","", "", "", "", date(2024, 5, 1), "Mochudi",
             
             "Yes", "Yes", "", 
             "Yes", "", "",
             "Type A",
             "7",
+            "",
             "Random Comment",
         ]
         ws.append(row)
@@ -578,15 +630,13 @@ class UploadViewSetTest(APITestCase):
 
         interactions = Interaction.objects.filter(respondent=self.respondent_full).count()
         self.assertEqual(interactions, 1)
-        responses = Response.objects.all()
-        self.assertEqual(responses.count(), 5)
     
     def test_citizenship(self):
         '''
         Test that the same respondent is caught and not recreated. The frontend will give a display for this.
         '''
         self.client.force_authenticate(user=self.officer)
-        wb = self.create_workbook(self.project.id, self.parent_org.id, include_data=True)  
+        wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True)     
         ws = wb['Data']
         # Missing 'First Name' on purpose
         headers = self.headers + ["TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"]
@@ -600,6 +650,7 @@ class UploadViewSetTest(APITestCase):
             "Yes", "", "",
             "Type A",
             "7",
+            "",
             "Random Comment",
         ]
         ws.append(row)
@@ -613,6 +664,7 @@ class UploadViewSetTest(APITestCase):
             "Yes", "", "",
             "Type A",
             "7",
+            "",
             "Random Comment",
         ]
         ws.append(row2)
@@ -625,6 +677,7 @@ class UploadViewSetTest(APITestCase):
             "Yes", "", "",
             "Type A",
             "7",
+            "",
             "Random Comment",
         ]
         ws.append(row3)

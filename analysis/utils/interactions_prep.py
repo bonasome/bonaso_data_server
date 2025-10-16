@@ -1,6 +1,6 @@
 from datetime import date
 from analysis.utils.periods import get_month_string, get_quarter_string
-
+from indicators.models import Indicator
 #convert names as they appear in the demographic count model/filters to how they appear on the respondent model
 FIELD_MAP = {
     'kp_type': 'kp_status',
@@ -16,9 +16,9 @@ M2M_MAP = {
 }
 
 #list of valid fields to pull by, make sure this is updated if any demographic splits are added or removed
-fields = ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'organization']
+fields = ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'organization', 'option', 'district']
 
-def build_keys(interaction, pregnancies_map, hiv_status_map, interaction_subcats, include_subcats):
+def build_keys(response, pregnancies_map, hiv_status_map):
     """
     Returns dict mapping frozenset keys -> numeric values (default to 1 if no subcats/numeric)
     - interaction (interaction instance): interaction to build keys for
@@ -36,60 +36,44 @@ def build_keys(interaction, pregnancies_map, hiv_status_map, interaction_subcats
         get_field = FIELD_MAP.get(field, field)
         
         if field == 'organization':
-            base_keys.add(interaction.task.organization.name)
+            base_keys.add(response.interaction.task.organization.name)
+        elif field == 'option':
+            base_keys.add(response.response_option.name)
         elif field == 'pregnancy':
             is_pregnant = any(
-                p.term_began <= interaction.interaction_date <= (p.term_ended or date.today())
-                for p in pregnancies_map.get(interaction.respondent.id, [])
+                p.term_began <= response.response_date <= (p.term_ended or date.today())
+                for p in pregnancies_map.get(response.interaction.respondent.id, [])
             )
             base_keys.add('pregnant' if is_pregnant else 'not_pregnant')
 
         elif field == 'hiv_status':
             is_positive = any(
-                hs.date_positive <= interaction.interaction_date
-                for hs in hiv_status_map.get(interaction.respondent.id, [])
+                hs.date_positive <= response.response_date
+                for hs in hiv_status_map.get(response.interaction.respondent.id, [])
             )
             base_keys.add('hiv_positive' if is_positive else 'hiv_negative')
 
         #if its an M2M field, add all the values to the keys, the parent will check if its a subset
         elif field in M2M_MAP:
-            m2m_field = getattr(interaction.respondent, FIELD_MAP[field])
+            m2m_field = getattr(response.interaction.respondent, FIELD_MAP[field])
             base_keys.update(m2m_field.values_list('name', flat=True))  # assumes prefetched
         else:
-            val = getattr(interaction.respondent, get_field)
+            val = getattr(response.interaction.respondent, get_field)
             if field == 'citizenship':
                 val = 'citizen' if val and val.lower() == 'bw' else 'non_citizen'
             base_keys.add(val)
-        base_keys.add(get_month_string(interaction.interaction_date))
-        base_keys.add(get_quarter_string(interaction.interaction_date))
+        base_keys.add(get_month_string(response.response_date))
+        base_keys.add(get_quarter_string(response.response_date))
     keys = {}
 
-    # Case: no subcat split/subcat does not have a number, in either case returning one key works 
-    # if no subcat is required, we can treat this as one combined unit with one lump sum
-    # if subcat is required, but there is no number, we can combine it as one key since the value will alwasy be 1
-    if not include_subcats or not interaction.task.indicator.require_numeric:
-        key = frozenset(base_keys)
-        if interaction.task.indicator.subcategories.exists():
-            amount = 0
-            subcat_names = set()
-
-            for cat in interaction_subcats.filter(interaction=interaction):
-                if interaction.task.indicator.require_numeric:
-                    amount += cat.numeric_component or 0
-                subcat_names.add(cat.subcategory.name)
-            if not interaction.task.indicator.require_numeric:
-                amount = 1
-            key = frozenset(key | subcat_names)
-        elif interaction.task.indicator.require_numeric:
-            amount = interaction.numeric_component or 0
-        else:
-            amount = 1
-        keys[key] = amount
-        return keys
-
-    # Case: subcat split and number required, in which case each key will have a differnet value that needs to be added
-    for cat in interaction_subcats.filter(interaction=interaction):
-        key = frozenset(base_keys | {cat.subcategory.name})
-        keys[key] = cat.numeric_component or 0
-
+    key = frozenset(base_keys)
+    amount = 0
+    if response.indicator.type == Indicator.Type.INT:
+        try:
+            amount = int(response.response_value)
+        except:
+            print('Warning, invalid value.')
+    else:
+        amount = 1
+    keys[key] = amount
     return keys

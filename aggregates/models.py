@@ -32,15 +32,6 @@ class AggregateCount(models.Model):
     We also have a business logic rule that one task can only have one set of counts (visualize it like a table).
     There's a nascent idea to allow organizations breakdowns (for training maybe) but right now that field is dormant.
     '''
-
-    '''
-    Counts rely on a variety of TextChoices. These are both used to control inputs but also
-    are used during analysis for demographic splits. IF YOU MAKE ANY CHANGES TO ANY OF THE CATEGORIES HERE, MAKE
-    SURE YOU MIRROR THEM IN respondents/models (if applicable).
-
-    Also, there are several files in the analysis tool check view.py and /utils that use lists of fields for calculating
-    params, consider updating those as well. 
-    '''
     
     #keep these three here
     class Citizenship(models.TextChoices):
@@ -80,6 +71,7 @@ class AggregateCount(models.Model):
     attribute_type = models.CharField(max_length = 25, choices=RespondentAttributeType.Attributes.choices, null=True, blank=True)
     option= models.ForeignKey(Option, on_delete=models.PROTECT, null=True, blank=True)
     flags = GenericRelation('flags.Flag', related_query_name='flags')
+    
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='count_created_by')
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='count_updated_by')
     created_at = models.DateTimeField(auto_now_add=True)

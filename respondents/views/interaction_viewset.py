@@ -866,6 +866,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                         f"Date of interaction '{interaction_date}' at column: {doi_col}, row: {i} is invalid. "
                         "Double check the format and make sure that it is not in the future."
                     )
+                interaction_date = parsed
             else:
                 row_errors.append(
                     f"Date of interaction at column: {doi_col}, row: {i} is required. "
@@ -892,6 +893,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
             for assessment_id in assessments:
                 response_data = {}
                 for indicator in Indicator.objects.filter(assessment_id=assessment_id).order_by('order'):
+                    print(indicator.name)
                     col = None
                     val = None
                     if indicator.type == Indicator.Type.MULTI:
@@ -908,14 +910,23 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     else:
                         col = get_indicator_column(indicator)
                         val = str(get_indicator_value(row, indicator))
-                        val = val.lower().replace(' ', '')
+                        val = val.lower().replace(' ', '') if indicator.type != Indicator.Type.TEXT else val
                         if val == 'none' and indicator.type == Indicator.Type.SINGLE and indicator.allow_none:
                             val == 'none'
                         elif val in ['', 'none', 'na', 'n/a', 'unsure', 'maybe']:
                             continue
                     if indicator.type == Indicator.Type.SINGLE:
-                        if val not in [o.name.lower().replace(' ', '') for o in Option.objects.filter(indicator=indicator)]:
-                            row_warnings.append(f'Could not parse value at column: {col}, row: {i}. Please enter a valid option.')
+                        valid_map = {
+                            o.name.lower().replace(' ', ''): o.id
+                            for o in Option.objects.filter(indicator=indicator).all()
+                        }
+                        if val not in valid_map:
+                            row_warnings.append(
+                                f'Could not parse value at column: {col}, row: {i}. Please enter a valid option.'
+                            )
+                        else:
+                            val = valid_map[val]
+
                     if indicator.type == Indicator.Type.BOOL:
                         if val in ['yes', 'true', '1']:
                             val = True
@@ -940,7 +951,6 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 lookup_fields = {
                     'respondent': respondent,
                     'interaction_date': interaction_date,
-                    'interaction_location': interaction_location,
                     'task': task,
                 }
 
@@ -952,7 +962,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     instance=instance,
                     data={
                         'respondent_id': respondent.id,
-                        'interaction_date': interaction_date.date(),
+                        'interaction_date': interaction_date,
                         'interaction_location': interaction_location,
                         'task_id': task.id,
                         'response_data': response_data,
@@ -966,7 +976,6 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 except ValidationError as e:
                     # Flatten error details for easier reading
                     error_details = serializer.errors
-                    print(error_details)
                     details = error_details.get("details", {})
                     indicator_id = str(details.get("indicator_id", "?"))  # convert to str
                     col = indicator_columns.get(indicator_id, "?")

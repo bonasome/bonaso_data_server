@@ -6,7 +6,7 @@ from itertools import product
 from datetime import date
 from collections import defaultdict
 from indicators.models import Indicator
-from analysis.utils.collection import get_event_counts_from_indicator, get_interactions_from_indicator, get_hiv_statuses, get_pregnancies, get_interaction_subcats, get_events_from_indicator, get_posts_from_indicator
+from analysis.utils.collection import get_counts_from_indicator, get_interactions_from_indicator, get_hiv_statuses, get_pregnancies, get_interaction_subcats, get_events_from_indicator, get_posts_from_indicator
 from analysis.utils.periods import get_month_string, get_quarter_string, get_month_strings_between, get_quarter_strings_between
 from analysis.utils.interactions_prep import build_keys
 
@@ -42,9 +42,9 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
         #Selecting this will ignore any numeric component to the interaction and just raw count unique respondents
         interactions = get_repeats(interactions, n)
     counts=[] #default counts to empty list
-    if not repeat_only: #only collect counts if repear is disabled
+    if not repeat_only: #only collect counts if repeat is disabled
         #get list of prefiltered counts
-        counts = get_event_counts_from_indicator(user, indicator, params, project, organization, start, end, filters, cascade)
+        counts = get_counts_from_indicator(user, indicator, params, project, organization, start, end, filters, cascade)
     #build a map  of all requested fields that need to be aggregated by
     fields_map = {}
     include_subcats=False
@@ -62,7 +62,7 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
                 fields_map['organization'] = set(sorted({i.task.organization.name for i in interactions}) + sorted({count.task.organization.name for count in counts}))
                 continue
             #this model contains all supported demographic fields, pull the list of options from it
-            field = DemographicCount._meta.get_field(param)
+            field = AggregateCount._meta.get_field(param)
             if field:
                 fields_map[param] = [value for value, label in field.choices]
       

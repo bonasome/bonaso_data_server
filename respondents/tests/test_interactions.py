@@ -43,7 +43,8 @@ class InteractionViewSetTest(APITestCase):
         self.client_obj = Client.objects.create(name='Test Client', created_by=self.admin)
         self.other_client_obj = Client.objects.create(name='Loser Client', created_by=self.admin)
         self.client_user.client_organization = self.client_obj
-
+        
+        # set up a project
         self.project = Project.objects.create(
             name='Alpha Project',
             client=self.client_obj,
@@ -54,29 +55,24 @@ class InteractionViewSetTest(APITestCase):
             created_by=self.admin,
         )
         self.project.organizations.set([self.parent_org, self.child_org, self.other_org])
-
+        #child orgs for project
         self.child_link = ProjectOrganization.objects.filter(organization=self.child_org).first()
         self.child_link.parent_organization = self.parent_org
         self.child_link.save()
-        
-        self.planned_project = Project.objects.create(
-            name='Beta Project',
-            client=self.client_obj,
-            status=Project.Status.PLANNED,
-            start='2024-02-01',
-            end='2024-10-31',
-            description='Second project',
-            created_by=self.admin,
-        )
 
+        #setup a simple assessment we can use for patching/fetching
         self.assessment_exists = Assessment.objects.create(name='Exists')
-        self.indicator = Indicator.objects.create(name='You answered this', assessment=self.assessment_exists, type=Indicator.Type.BOOL)
-
+        self.indicator_exists = Indicator.objects.create(name='You answered this', assessment=self.assessment_exists, type=Indicator.Type.BOOL)
+        self.indicator_exists2 = Indicator.objects.create(name='Right?', assessment=self.assessment_exists, type=Indicator.Type.BOOL)
+        self.exists_group= LogicGroup.objects.create(group_operator='AND', indicator=self.indicator_exists2)
+        self.exists_condition = LogicCondition.objects.create(group=self.exists_group, source_indicator=self.indicator_exists, source_type=LogicCondition.SourceType.ASS, operator=LogicCondition.Operator.EQUALS, value_boolean=True)
+        
+        # and related tasks
         self.task_exists = Task.objects.create(project=self.project, organization=self.parent_org, assessment=self.assessment_exists)
         self.child_task = Task.objects.create(project=self.project, organization=self.child_org, assessment=self.assessment_exists)
         self.other_task =Task.objects.create(project=self.project, organization=self.other_org, assessment=self.assessment_exists)
-        self.inactive_task = Task.objects.create(project=self.planned_project, organization=self.parent_org, assessment=self.assessment_exists)
-
+        
+        #set up respondent
         self.respondent= Respondent.objects.create(
             is_anonymous=True,
             age_range=Respondent.AgeRanges.T_24,
@@ -104,52 +100,88 @@ class InteractionViewSetTest(APITestCase):
         self.req1 = RespondentAttributeType.objects.create(name='PLWHIV')
         self.req2 = RespondentAttributeType.objects.create(name='CHW')
 
+        #set up dummy interaction with assessment_exists
         self.interaction = Interaction.objects.create(interaction_date=self.today, interaction_location='there', respondent=self.respondent, task=self.task_exists, created_by=self.data_collector)
+        self.response1 = Response.objects.create(interaction=self.interaction, response_date=self.today, response_location='there', indicator=self.indicator_exists, response_boolean=True)
+        self.response2 = Response.objects.create(interaction=self.interaction,response_date=self.today, response_location='there', indicator=self.indicator_exists, response_boolean=False)
+        
+        #set up a test with child org for perms
+        self.interaction_child = Interaction.objects.create(interaction_date=self.today, interaction_location='there', respondent=self.respondent2, task=self.task_exists, created_by=self.data_collector)
+        self.response_child1 = Response.objects.create(interaction=self.interaction_child,response_date=self.today, response_location='there', indicator=self.indicator_exists, response_boolean=True)
+        self.response_child2 = Response.objects.create(interaction=self.interaction_child,response_date=self.today, response_location='there', indicator=self.indicator_exists, response_boolean=False)
+        
+        #and other org
+        self.interaction_other = Interaction.objects.create(interaction_date=self.today, interaction_location='there', respondent=self.respondent3, task=self.task_exists, created_by=self.data_collector)
+        self.response_other1 = Response.objects.create(interaction=self.interaction_child,response_date=self.today, response_location='there', indicator=self.indicator_exists, response_boolean=True)
+        self.response_other2 = Response.objects.create(interaction=self.interaction_child,response_date=self.today, response_location='there', indicator=self.indicator_exists, response_boolean=False)
 
+        #set up the main assessment
         self.assessment = Assessment.objects.create(name='ass')
-        self.task = Task.objects.create(project=self.project, organization=self.parent_org, assessment=self.assessment)
-
+        
+        #start with a multiselect
         self.indicator_1 = Indicator.objects.create(name='Screened for NCDs', assessment=self.assessment, type=Indicator.Type.MULTI, required=True)
         self.option1= Option.objects.create(name='BMI', indicator=self.indicator_1)
         self.option2= Option.objects.create(name='Blood Pressure', indicator=self.indicator_1)
         self.option3= Option.objects.create(name='Blood Glucose', indicator=self.indicator_1)
-        
+        #int, only visible if option2 is selected
         self.indicator_1_1 = Indicator.objects.create(name='Blood Pressure Reading', assessment=self.assessment, type=Indicator.Type.INT, required=False)
         self.g11 = LogicGroup.objects.create(group_operator='AND', indicator=self.indicator_1_1)
         self.c111 = LogicCondition.objects.create(group=self.g11, source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_1, value_option=self.option2, operator=LogicCondition.Operator.EQUALS)
-        
+        #visible if any of ind1 is selected, matches options
         self.indicator_2 = Indicator.objects.create(name='Referred for NCDs', assessment=self.assessment, type=Indicator.Type.MULTI, allow_none=True, match_options=self.indicator_1, required=True)
         self.g2 = LogicGroup.objects.create(group_operator='AND', indicator=self.indicator_2)
         self.c21 = LogicCondition.objects.create(group=self.g2,source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_1, condition_type=LogicCondition.ExtraChoices.ANY, operator=LogicCondition.Operator.EQUALS)
 
+        #visible if ind 2 is option 2 OR 3
         self.indicator_3 = Indicator.objects.create(name='What Blood Treatment Referred', assessment=self.assessment, type=Indicator.Type.SINGLE, required=True)
         self.option4= Option.objects.create(name='Treatment 1', indicator=self.indicator_3)
         self.option5= Option.objects.create(name='Treatment 2', indicator=self.indicator_3)
         self.g3 = LogicGroup.objects.create(group_operator='OR', indicator=self.indicator_3)
         self.c31 = LogicCondition.objects.create(group=self.g3, source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_2, value_option=self.option2, operator=LogicCondition.Operator.EQUALS)
         self.c32 = LogicCondition.objects.create(group=self.g3,source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_2, value_option=self.option3, operator=LogicCondition.Operator.EQUALS)
-
+        # visible if ind 2 is option1 and ind 3 is option5 and respondent is male
         self.indicator_4 = Indicator.objects.create(name='Treatment 2 for BMI?', assessment=self.assessment, type=Indicator.Type.BOOL, required=True)
         self.g4 = LogicGroup.objects.create(group_operator='AND', indicator=self.indicator_4)
         self.c41 = LogicCondition.objects.create(group=self.g4,source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_2, value_option=self.option1, operator=LogicCondition.Operator.EQUALS)
         self.c42 = LogicCondition.objects.create(group=self.g4,source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_3, value_option=self.option5, operator=LogicCondition.Operator.EQUALS)
         self.c43 = LogicCondition.objects.create(group=self.g4,source_type=LogicCondition.SourceType.RES, respondent_field='sex', value_text='M', operator=LogicCondition.Operator.EQUALS)
 
+        # visible if 4 is trie
         self.indicator_5 = Indicator.objects.create(name='Number of Sessions Needed', assessment=self.assessment, type=Indicator.Type.INT, required=True)
         self.g5 = LogicGroup.objects.create(group_operator='AND', indicator=self.indicator_5)
         self.c51 = LogicCondition.objects.create(group=self.g5,source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_4, value_boolean=True)
 
+        #visible if 5 is greater than 5
         self.indicator_6 = Indicator.objects.create(name='Reason for Number > 5', assessment=self.assessment, type=Indicator.Type.TEXT, required=True)
         self.g6 = LogicGroup.objects.create(group_operator='AND', indicator=self.indicator_6)
         self.c61 = LogicCondition.objects.create(group=self.g6,source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_5, value_text=5, operator=LogicCondition.Operator.GT)
 
+        #visible if 6 contains secret and not loser
         self.indicator_7 = Indicator.objects.create(name='You found the secret!', assessment=self.assessment, type=Indicator.Type.TEXT, required=True)
         self.g7 = LogicGroup.objects.create(group_operator='AND', indicator=self.indicator_7)
         self.c71 = LogicCondition.objects.create(group=self.g7, source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_6, value_text='secret', operator=LogicCondition.Operator.C)
         self.c71 = LogicCondition.objects.create(group=self.g7,source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_6, value_text='loser', operator=LogicCondition.Operator.DNC)
         
+        self.task = Task.objects.create(project=self.project, organization=self.parent_org, assessment=self.assessment)
+
+        #simple test for none
+        self.assessment_none = Assessment.objects.create(name='None')
+        
+        self.indicator_none_mult = Indicator.objects.create(name='Screened for NCDs', assessment=self.assessment_none, type=Indicator.Type.MULTI, required=True, allow_none=True)
+        self.option_none= Option.objects.create(name='Option 1 None', indicator=self.indicator_none_mult)
+        self.option_none2= Option.objects.create(name='Option 2 None', indicator=self.indicator_none_mult)
+        # should only appear if none_nult was ['none]
+        self.indicator_none_mult_log = Indicator.objects.create(name='Why not?', assessment=self.assessment_none, type=Indicator.Type.TEXT, required=True)
+        self.g2_none = LogicGroup.objects.create(group_operator='AND', indicator=self.indicator_none_mult_log)
+        self.c21_none = LogicCondition.objects.create(group=self.g2_none,source_type=LogicCondition.SourceType.ASS, source_indicator=self.indicator_none_mult, condition_type=LogicCondition.ExtraChoices.NONE, operator=LogicCondition.Operator.EQUALS)
+
+        self.task_none = Task.objects.create(project=self.project, organization=self.parent_org, assessment=self.assessment_none)
 
     def test_create_ir(self):
+        '''
+        Test a successful creation of an interaction (using lowest perms), and make sure that all logic
+        passes.
+        '''
         self.client.force_authenticate(user=self.data_collector)
         valid_payload = {
             'task_id': self.task.id,
@@ -180,6 +212,8 @@ class InteractionViewSetTest(APITestCase):
                 },
                 self.indicator_7.id: {
                     'value': 'Yay!',
+                    'date': '2025-01-02',
+                    'location': 'Here'
                 },
             }
         }
@@ -189,7 +223,8 @@ class InteractionViewSetTest(APITestCase):
         ir = Interaction.objects.filter(task=self.task).first()
         answers = Response.objects.filter(interaction=ir)
         self.assertEqual(answers.count(), 9) # 1_1 should not be filled since it was not required, +2 for extra options
-
+        
+        #confirm that all values are correct
         sing = answers.filter(indicator=self.indicator_3).first()
         self.assertEqual(sing.response_option, self.option5)
         multi = answers.filter(indicator=self.indicator_1)
@@ -201,12 +236,19 @@ class InteractionViewSetTest(APITestCase):
         self.assertEqual(num.response_value, '6')
         txt = answers.filter(indicator=self.indicator_6).first()
         self.assertEqual(txt.response_value, 'secret tt')
+        secret = answers.filter(indicator=self.indicator_7).first()
+        self.assertEqual(secret.response_date, date(2025, 1, 2))
+        self.assertEqual(secret.response_location, 'Here')
 
     def test_bad_logic(self):
+        '''
+        Confirm that logic flags when it's supposed to.
+        '''
         self.client.force_authenticate(user=self.data_collector)
+        #should fail since 1_1 needs option2
         invalid_payload = {
             'task_id': self.task.id,
-            'respondent_id': self.respondent.id,
+            'respondent_id': self.respondent2.id,
             'interaction_date': '2025-01-01',
             'interaction_location': 'There',
             'response_data': {
@@ -222,10 +264,13 @@ class InteractionViewSetTest(APITestCase):
             }
         }
         response = self.client.post('/api/record/interactions/', invalid_payload, format='json')
-        print(response.json())
+        data = response.json()
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('logic_error', data)
+        self.assertIn(f'Indicator {self.indicator_1_1.name} does not meet the criteria to be answered.', data['logic_error'])
         
-        valid_payload = {
+        # 7 should fail since 6 contains text "loser"
+        invalid_payload = {
             'task_id': self.task.id,
             'respondent_id': self.respondent.id,
             'interaction_date': '2025-01-01',
@@ -257,13 +302,97 @@ class InteractionViewSetTest(APITestCase):
                 },
             }
         }
+        response = self.client.post('/api/record/interactions/', invalid_payload, format='json')
+        data = response.json()
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('logic_error', data)
+        self.assertIn(f'Indicator {self.indicator_7.name} does not meet the criteria to be answered.', data['logic_error'])
+
+        # 4 should fail since respondent is female
+        invalid_payload = {
+            'task_id': self.task.id,
+            'respondent_id': self.respondent2.id,
+            'interaction_date': '2025-01-01',
+            'interaction_location': 'There',
+            'response_data': {
+                self.indicator_1.id: {
+                    'value': [self.option1.id, self.option2.id],
+                },
+                self.indicator_1_1.id: {
+                    'value': '',
+                },
+                self.indicator_2.id: {
+                    'value': [self.option1.id, self.option2.id],
+                },
+                self.indicator_3.id: {
+                    'value': self.option5.id,
+                },
+                self.indicator_4.id: {
+                    'value': True,
+                },
+            }
+        }
+        response = self.client.post('/api/record/interactions/', invalid_payload, format='json')
+        data = response.json()
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('logic_error', data)
+        self.assertIn(f'Indicator {self.indicator_4.name} does not meet the criteria to be answered.', data['logic_error'])
+
+    def test_none_logic(self):
+        '''
+        Test logic for none operators, since this is where it can get a little weird.
+        '''
+        self.client.force_authenticate(user=self.data_collector)
+        #OK, mult was ['none'] and log is filled
+        valid_payload = {
+            'task_id': self.task_none.id,
+            'respondent_id': self.respondent.id,
+            'interaction_date': '2025-01-01',
+            'interaction_location': 'There',
+            'response_data': {
+                self.indicator_none_mult.id: {
+                    'value': ['none'],
+                },
+                self.indicator_none_mult_log.id: {
+                    'value': 'Huh?',
+                },
+            }
+        }
         response = self.client.post('/api/record/interactions/', valid_payload, format='json')
         print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        
+        #not ok, since mult was not none, something was selected, no value should be present for log
+        invalid_payload = {
+            'task_id': self.task_none.id,
+            'respondent_id': self.respondent2.id,
+            'interaction_date': '2025-01-01',
+            'interaction_location': 'There',
+            'response_data': {
+                self.indicator_none_mult.id: {
+                    'value': [self.option_none.id],
+                },
+                self.indicator_none_mult_log.id: {
+                    'value': 'Huh?',
+                },
+            }
+        }
+        response = self.client.post('/api/record/interactions/', invalid_payload, format='json')
+        print(response.json())
+        data = response.json()
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('logic_error', data)
+        self.assertIn(f'Indicator {self.indicator_none_mult_log.name} does not meet the criteria to be answered.', data['logic_error'])
 
-    def test_mismatched_subcats(self):
+    def test_mismatched_options(self):
+        '''
+        If an indicator has matched options with another, that indicator should not have 
+        selected options that were not selected for the indicator it was matched with.
+        '''
         self.client.force_authenticate(user=self.data_collector)
-        valid_payload = {
+
+        #should fail, 2 is matched with 1 and 2 has options 1 does not
+        invalid_payload = {
             'task_id': self.task.id,
             'respondent_id': self.respondent.id,
             'interaction_date': '2025-01-01',
@@ -280,12 +409,19 @@ class InteractionViewSetTest(APITestCase):
                 },
             }
         }
-        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
-        print(response.json())
+        response = self.client.post('/api/record/interactions/', invalid_payload, format='json')
+        data = response.json()
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('non_field_errors', data)
+        self.assertIn(f'Values for "{self.indicator_2.name}" must be a subset of the values provided for "{self.indicator_1.name}".', data['non_field_errors'])
 
     def test_missing_req(self):
+        '''
+        If an indicator is required, data for it is needed (the indicator must be present and it must have a value)
+        '''
         self.client.force_authenticate(user=self.data_collector)
+
+        #missing 1
         invalid_payload = {
             'task_id': self.task.id,
             'respondent_id': self.respondent.id,
@@ -299,8 +435,12 @@ class InteractionViewSetTest(APITestCase):
         }
         response = self.client.post('/api/record/interactions/', invalid_payload, format='json')
         print(response.json())
+        data = response.json()
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('non_field_errors', data)
+        self.assertIn(f'Indicator {self.indicator_1.name} is required.', data['non_field_errors'])
 
+        #1 is an empty array (nothing selected)
         invalid_payload = {
             'task_id': self.task.id,
             'respondent_id': self.respondent.id,
@@ -316,8 +456,10 @@ class InteractionViewSetTest(APITestCase):
             }
         }
         response = self.client.post('/api/record/interactions/', invalid_payload, format='json')
-        print(response.json())
+        data = response.json()
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('non_field_errors', data)
+        self.assertIn(f'Indicator {self.indicator_1.name} is required.', data['non_field_errors'])
 
     def test_interaction_view(self):
         '''
@@ -326,22 +468,8 @@ class InteractionViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.data_collector)
         response = self.client.get('/api/record/interactions/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 4)
-    
-    def test_create_interaction(self):
-        '''
-        Test a basic create payload, even though this style is rarely used in practiced.
-        '''
-        self.client.force_authenticate(user=self.data_collector)
-        valid_payload = {
-            'task_id': self.task.id,
-            'interaction_date': '2025-06-15',
-            'interaction_location': 'That place that sells chili',
-            'respondent': self.respondent.id,
-        }
-        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
-        print(response.json())
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(response.data['results']), 3)
+
     
     def test_create_interaction_child(self):
         '''
@@ -349,10 +477,18 @@ class InteractionViewSetTest(APITestCase):
         '''
         self.client.force_authenticate(user=self.officer)
         valid_payload = {
-            'task_id': self.child_task.id, #task linked to a child organization
-            'interaction_date': '2025-06-15',
-            'interaction_location': 'That place that sells chili',
-            'respondent': self.respondent.id,
+            'task_id': self.child_task.id,
+            'respondent_id': self.respondent2.id,
+            'interaction_date': '2025-01-01',
+            'interaction_location': 'There',
+            'response_data': {
+                self.indicator_exists.id: {
+                    'value':True,
+                },
+                self.indicator_exists2.id: {
+                    'value': True,
+                },
+            }
         }
         response = self.client.post('/api/record/interactions/', valid_payload, format='json')
         print(response.json())
@@ -366,24 +502,40 @@ class InteractionViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.data_collector)
         valid_payload = {
             'task_id': self.child_task.id,
-            'interaction_date': '2025-06-15',
-            'interaction_location': 'That place that sells chili',
-            'respondent': self.respondent.id,
+            'respondent_id': self.respondent2.id,
+            'interaction_date': '2025-01-01',
+            'interaction_location': 'There',
+            'response_data': {
+                self.indicator_exists.id: {
+                    'value':True,
+                },
+                self.indicator_exists2.id: {
+                    'value': True,
+                },
+            }
         }
         response = self.client.post('/api/record/interactions/', valid_payload, format='json')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-    
+
     def test_create_interaction_client(self):
         '''
         Clients should be disbarred from creating any interactions.
         '''
         self.client.force_authenticate(user=self.client_user)
         valid_payload = {
-            'task_id': self.child_task.id,
-            'interaction_date': '2025-06-15',
-            'interaction_location': 'That place that sells chili',
-            'respondent': self.respondent.id,
+            'task_id': self.task_exists.id,
+            'respondent_id': self.respondent2.id,
+            'interaction_date': '2025-01-01',
+            'interaction_location': 'There',
+            'response_data': {
+                self.indicator_exists.id: {
+                    'value':True,
+                },
+                self.indicator_exists2.id: {
+                    'value': True,
+                },
+            }
         }
         response = self.client.post('/api/record/interactions/', valid_payload, format='json')
         print(response.json())
@@ -395,7 +547,18 @@ class InteractionViewSetTest(APITestCase):
         '''
         self.client.force_authenticate(user=self.data_collector)
         valid_payload = {
-            'interaction_date': '2025-06-13',
+            'task_id': self.task_exists.id,
+            'respondent_id': self.respondent.id,
+            'interaction_date': '2025-01-01',
+            'interaction_location': 'There',
+            'response_data': {
+                self.indicator_exists.id: {
+                    'value':True,
+                },
+                self.indicator_exists2.id: {
+                    'value': True,
+                },
+            }
         }
         response = self.client.patch(f'/api/record/interactions/{self.interaction.id}/', valid_payload, format='json')
         print(response.json())
@@ -407,33 +570,72 @@ class InteractionViewSetTest(APITestCase):
         '''
         self.client.force_authenticate(user=self.data_collector)
         valid_payload = {
-            'interaction_date': '2025-06-13',
+            'task_id': self.child_task.id,
+            'respondent_id': self.respondent.id,
+            'interaction_date': '2025-01-01',
+            'interaction_location': 'There',
+            'response_data': {
+                self.indicator_exists.id: {
+                    'value':True,
+                },
+                self.indicator_exists2.id: {
+                    'value': True,
+                },
+            }
         }
-        response = self.client.patch(f'/api/record/interactions/{self.interaction2.id}/', valid_payload, format='json')
+        response = self.client.patch(f'/api/record/interactions/{self.interaction.id}/', valid_payload, format='json')
+        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-    
-    def test_patch__child_interaction_me_mgr(self):
-        '''
-        Higher ranks should have the ability to edit organizations from their children.
-        '''
-        self.client.force_authenticate(user=self.manager)
-        valid_payload = {
-            'interaction_date': '2025-06-13',
-        }
-        response = self.client.patch(f'/api/record/interactions/{self.interaction_child.id}/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
     
     def test_patch_interaction_wrong_org(self):
         '''
-        But not for other orgs.
+        M&E should not be able to patch for other orgs
         '''
         self.client.force_authenticate(user=self.manager)
         valid_payload = {
-            'interaction_date': '2025-06-13',
+            'task_id': self.other_task.id,
+            'respondent_id': self.respondent.id,
+            'interaction_date': '2025-01-01',
+            'interaction_location': 'There',
+            'response_data': {
+                self.indicator_exists.id: {
+                    'value':True,
+                },
+                self.indicator_exists2.id: {
+                    'value': True,
+                },
+            }
         }
         response = self.client.patch(f'/api/record/interactions/{self.interaction_other.id}/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
     
+    def test_patch_interaction_bad_logic(self):
+        '''
+        Patches should also pick logic errors.
+        '''
+        self.client.force_authenticate(user=self.data_collector)
+        #exists 2 needs exists to be true
+        invalid_payload = {
+            'task_id': self.task_exists.id,
+            'respondent_id': self.respondent.id,
+            'interaction_date': '2025-01-01',
+            'interaction_location': 'There',
+            'response_data': {
+                self.indicator_exists.id: {
+                    'value':False,
+                },
+                self.indicator_exists2.id: {
+                    'value': True,
+                },
+            }
+        }
+        response = self.client.patch(f'/api/record/interactions/{self.interaction.id}/', invalid_payload, format='json')
+        data = response.json()
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('logic_error', data)
+        self.assertIn(f'Indicator {self.indicator_exists2.name} does not meet the criteria to be answered.', data['logic_error'])
+
     def test_patch_interaction_bad_dates(self):
         '''
         Dates in the future or outside the project range should trigger a 400. Bad dates should also
@@ -442,28 +644,63 @@ class InteractionViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.admin)
         tomorrow = date.today() + timedelta(days=1)
         invalid_payload = {
+            'task_id': self.task_exists.id,
+            'respondent_id': self.respondent2.id,
             'interaction_date': tomorrow,
+            'interaction_location': 'There',
+            'response_data': {
+                self.indicator_exists.id: {
+                    'value':True,
+                },
+                self.indicator_exists2.id: {
+                    'value': True,
+                },
+            }
         }
         #date can't be in the future
-        response = self.client.patch(f'/api/record/interactions/{self.interaction_other.id}/', invalid_payload, format='json')
+        response = self.client.post(f'/api/record/interactions/', invalid_payload, format='json')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-        
         invalid_payload = {
-            'interaction_date': '2024-06-02',
+            'task_id': self.task_exists.id,
+            'respondent_id': self.respondent2.id,
+            'interaction_date': '2022-01-02',
+            'interaction_location': 'There',
+            'response_data': {
+                self.indicator_exists.id: {
+                    'value':True,
+                },
+                self.indicator_exists2.id: {
+                    'value': True,
+                },
+            }
         }
         #date can't be in the future
-        response = self.client.patch(f'/api/record/interactions/{self.interaction_other.id}/', invalid_payload, format='json')
+        response = self.client.post(f'/api/record/interactions/', invalid_payload, format='json')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         invalid_payload = {
-            'interaction_date': '2025-063-p',
+            'task_id': self.task_exists.id,
+            'respondent_id': self.respondent2.id,
+            'interaction_date': '2025-01-02',
+            'interaction_location': 'There',
+            'response_data': {
+                self.indicator_exists.id: {
+                    'value':True,
+                },
+                self.indicator_exists2.id: {
+                    'value': True,
+                    'date': '2021-01-06'
+                },
+            }
         }
-        response = self.client.patch(f'/api/record/interactions/{self.interaction_other.id}/', invalid_payload, format='json')
+        #date can't be in the future
+        response = self.client.post(f'/api/record/interactions/', invalid_payload, format='json')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
 
     def test_delete_interaction(self):
         '''
@@ -481,15 +718,6 @@ class InteractionViewSetTest(APITestCase):
         response = self.client.delete(f'/api/record/interactions/{self.interaction.id}/')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
     
-    def test_delete_interaction_prereq(self):
-        '''
-        If an interaction has a downstream interaction (other interaction using it as a prerequisite) it should not
-        be deleteable.
-        '''
-        interaction_child = Interaction.objects.create(respondent=self.respondent, task=self.prereq_task, interaction_date=self.today)
-        self.client.force_authenticate(user=self.admin)
-        response = self.client.delete(f'/api/record/interactions/{self.interaction.id}/')
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
 
     def test_flag_too_close(self):
         '''
@@ -521,345 +749,3 @@ class InteractionViewSetTest(APITestCase):
         self.assertEqual(new_ir.flags.count(), 1)
         flag = new_ir.flags.first()
         self.assertIn('within 30 days of this interaction', flag.reason)
-        
-
-    def test_create_attr(self):
-        '''
-        If an interaction's indicator requires a special attribute and the respondent does not have
-        that attribute, the interaction will be flagged. It should also be resolved automatically.
-        '''
-        self.client.force_authenticate(user=self.data_collector)
-        valid_payload = {
-            'task_id': self.attr_task.id,
-            'interaction_date': '2025-06-15',
-            'interaction_location': 'That place that sells chili.',
-            'respondent': self.respondent3.id,
-        }
-        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        ir = Interaction.objects.filter(task=self.attr_task, respondent=self.respondent3).first()
-        self.assertEqual(ir.flags.count(), 2)
-        print(response.json())
-
-        self.respondent3.special_attribute.set([self.req1]) #set one attribute
-        self.respondent3.refresh_from_db()
-        self.client.force_authenticate(user=self.data_collector)
-        valid_payload = {
-            'interaction_date': '2025-06-15',
-        } #trigger the function again with a patch
-        response = self.client.patch(f'/api/record/interactions/{ir.id}/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        ir.refresh_from_db()
-        self.assertEqual(ir.flags.filter(resolved=False).count(), 1)
-        print(response.json())
-
-        self.respondent3.special_attribute.set([self.req1, self.req2]) #set both
-        self.respondent3.refresh_from_db()
-        response = self.client.patch(f'/api/record/interactions/{ir.id}/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK) 
-        print(response.json())
-        ir.refresh_from_db()
-        self.assertEqual(ir.flags.filter(resolved=False).count(), 0) #run again and it should be fine
-        
-
-    def test_create_no_prereq(self):
-        '''
-        Interactions that do not have a prerequisite interaction should get flagged automatically. If a prerequisite
-        interaction is created, then it should be automatically resolved.
-        '''
-        self.client.force_authenticate(user=self.data_collector)
-        valid_payload = {
-            'task_id': self.prereq_task.id,
-            'interaction_date': '2025-06-15',
-            'interaction_location': 'That place that sells chili.',
-            'respondent': self.respondent3.id,
-        }
-        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        ir = Interaction.objects.filter(task=self.prereq_task, respondent=self.respondent3).first()
-        self.assertEqual(ir.flags.count(), 1)
-        flag = ir.flags.first()
-        self.assertIn('to have a valid interaction with this respondent within the past year', flag.reason)
-
-        #upload prereq and it should be fine now
-        valid_payload = {
-            'task_id': self.task.id,
-            'interaction_date': '2025-06-15',
-            'interaction_location': 'That place that sells chili.',
-            'respondent': self.respondent3.id,
-        }
-        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        ir = Interaction.objects.filter(task=self.prereq_task, respondent=self.respondent3).first()
-        os_flags = ir.flags.filter(resolved=False)
-        self.assertEqual(os_flags.count(), 0)
-
-        res_flags = ir.flags.filter(resolved=True)
-        self.assertEqual(res_flags.count(), 1)
-        flag = res_flags.first()
-        self.assertEqual(flag.auto_resolved, True)
-
-    def test_create_prereq_dates(self):
-        '''
-        Misaligned dates should raise a flag (prereq after its dependent)
-        '''
-        self.client.force_authenticate(user=self.data_collector)
-        valid_payload = {
-            'task_id': self.task.id,
-            'interaction_date': '2025-06-15',
-            'interaction_location': 'That place that sells chili.',
-            'respondent': self.respondent3.id,
-        }
-        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        
-        #prereq has task, but date is before
-        self.client.force_authenticate(user=self.data_collector)
-        valid_payload = {
-            'task_id': self.prereq_task.id,
-            'interaction_date': '2025-06-12',
-            'interaction_location': 'That place that sells chili.',
-            'respondent': self.respondent3.id,
-        }
-        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        ir = Interaction.objects.filter(task=self.prereq_task, respondent=self.respondent3).first()
-        self.assertEqual(ir.flags.count(), 1)
-        flag = ir.flags.first()
-        self.assertIn('Make sure the prerequisite interaction is not in the future.', flag.reason)
-
-        #update with proper date
-        self.client.force_authenticate(user=self.data_collector)
-        valid_payload = {
-            'interaction_date': '2025-06-15',
-        }
-        response = self.client.patch(f'/api/record/interactions/{ir.id}/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        os_flags =ir.flags.filter(resolved=False)
-        self.assertEqual(os_flags.count(), 0)
-
-        res_flags = ir.flags.filter(resolved=True)
-        self.assertEqual(res_flags.count(), 1)
-        flag = res_flags.first()
-        self.assertEqual(flag.auto_resolved, True)
-
-    
-    def test_create_interaction_prereq_subcats(self):
-        '''
-        Non subset with matching subcats should raise a flag.
-        '''
-        self.client.force_authenticate(user=self.data_collector)
-        ind1 = Indicator.objects.create(code='10', name='ParentSubcat')
-        ind2 = Indicator.objects.create(code='11', name='ChildSubcat', match_subcategories_to=ind1)
-        ind2.prerequisites.set([ind1])
-        category = IndicatorSubcategory.objects.create(name='Cat 1')
-        category2 = IndicatorSubcategory.objects.create(name='Cat 2')
-        ind1.subcategories.set([category, category2])
-        ind2.subcategories.set([category, category2])
-
-        task_parent = Task.objects.create(project=self.project, organization=self.parent_org, indicator=ind1)
-        task_child = Task.objects.create(project=self.project, organization=self.parent_org, indicator=ind2)
-
-        #categories are wrong, so it should fail
-        response = self.client.post('/api/record/interactions/', {
-            'interaction_date': self.today,
-            'interaction_location': 'That place that sells chili.',
-            'respondent': self.respondent.id,
-            'task_id': task_parent.id,
-            'subcategories_data': [{'id': None, 'subcategory': {'name': 'Cat 1', 'id': category.id}}]
-        }, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        response = self.client.post('/api/record/interactions/', {
-            'interaction_date': self.today,
-            'interaction_location': 'That place that sells chili.',
-            'respondent': self.respondent.id,
-            'task_id': task_child.id,
-            'subcategories_data': [{'id': None, 'subcategory': {'name': 'Cat 1', 'id': category.id}}, {'id': None, 'subcategory': {'name': 'Cat 2', 'id': category2.id}}]
-        }, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        ir = Interaction.objects.filter(task=task_child, respondent=self.respondent).first()
-        flags = ir.flags.filter(resolved=False)
-        self.assertEqual(flags.count(), 1)
-        flag = flags.first()
-        self.assertIn('This interaction will be flagged until the subcategories match.', flag.reason)
-
-        #update with matched categories
-        response = self.client.patch(f'/api/record/interactions/{ir.id}/', {
-            'subcategories_data': [{'id': None, 'subcategory': {'name': 'Cat 1', 'id': category.id}}]
-        }, format='json')
-        print(response.json())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        os_flags = ir.flags.filter(resolved=False)
-        self.assertEqual(os_flags.count(), 0)
-
-        res_flags = ir.flags.filter(resolved=True)
-        self.assertEqual(res_flags.count(), 1)
-        flag = res_flags.first()
-        self.assertEqual(flag.auto_resolved, True)
-    
-    def test_create_interaction_forgot_subcats(self):
-        self.client.force_authenticate(user=self.data_collector)
-        ind1 = Indicator.objects.create(code='10', name='GimmeDemSubcats')
-        category = IndicatorSubcategory.objects.create(name='Cat 1')
-        ind1.subcategories.set([category])
-        task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=ind1)
-        valid_payload = {
-            'task_id': task.id,
-            'interaction_location': 'That place that sells chili.',
-            'interaction_date': '2025-06-15',
-            'respondent': self.respondent3.id,
-        }
-        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-        #try again with subcats
-        valid_payload = {
-            'task_id': task.id,
-            'interaction_location': 'That place that sells chili.',
-            'interaction_date': '2025-06-15',
-            'respondent': self.respondent3.id,
-            'subcategories_data': [{'id': None, 'subcategory': {'name': 'Cat 1', 'id': category.id}}]
-        }
-        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-    def test_create_interaction_forgot_number(self):
-        '''
-        Lack of a number should trigger a 400.
-        '''
-        self.client.force_authenticate(user=self.data_collector)
-        ind = Indicator.objects.create(code='10', name='GimmeANummie', require_numeric=True)
-        task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=ind)
-        valid_payload = {
-            'task_id': task.id,
-            'interaction_location': 'That place that sells chili.',
-            'interaction_date': '2025-06-15',
-            'respondent': self.respondent3.id,
-        }
-        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-        #not quite there
-        valid_payload = {
-            'task_id': task.id,
-            'interaction_location': 'That place that sells chili.',
-            'interaction_date': '2025-06-15',
-            'respondent': self.respondent3.id,
-            'numeric_component': 'oops I forgot the number'
-        }
-        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-        #there we go
-        valid_payload = {
-            'task_id': task.id,
-            'interaction_location': 'That place that sells chili.',
-            'interaction_date': '2025-06-15',
-            'respondent': self.respondent3.id,
-            'numeric_component': 5
-        }
-        response = self.client.post('/api/record/interactions/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-    
-    def test_create_interaction_numeric_subcats(self):
-        self.client.force_authenticate(user=self.admin)
-        ind = Indicator.objects.create(code='10', name='GimmeANummieANDDatSubcat', require_numeric=True)
-        category = IndicatorSubcategory.objects.create(name='Cat 1')
-        category2 = IndicatorSubcategory.objects.create(name='Cat 2')
-        ind.subcategories.set([category, category2])
-        task_numsub = Task.objects.create(project=self.project, organization=self.parent_org, indicator=ind)
-        response = self.client.post('/api/record/interactions/', {
-            'interaction_date': self.today,
-            'interaction_location': 'That place that sells chili.',
-            'respondent': self.respondent.id,
-            'task_id': task_numsub.id,
-            'subcategories_data': [{'id':None, 'subcategory': {'name': 'Cat 1', 'id': category.id}, 'numeric_component': 5}, {'id': None, 'subcategory': {'name': 'Cat 2', 'id': category2.id}, 'numeric_component': 10}]
-        }, format='json')
-        print(response.json())
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        ir = Interaction.objects.get(task=task_numsub, respondent=self.respondent.id)
-        self.assertEqual(ir.subcategories.count(), 2)
-        irsc1 = InteractionSubcategory.objects.get(subcategory=category, interaction=ir)
-        irsc2 = InteractionSubcategory.objects.get(subcategory=category2, interaction=ir)
-        self.assertEqual(irsc1.numeric_component, 5)
-        self.assertEqual(irsc2.numeric_component, 10)
-
-    def test_bulk_create(self):
-        self.client.force_authenticate(user=self.data_collector)
-        
-        ind_number = Indicator.objects.create(code='4', name='Numeric Ind', require_numeric=True)
-        ind_subcat = Indicator.objects.create(code='10', name='GimmeDemSubcats')
-        category = IndicatorSubcategory.objects.create(name='Cat 1')
-        category2 = IndicatorSubcategory.objects.create(name='Cat 2')
-        ind_subcat.subcategories.set([category, category2])
-        
-        task_number = Task.objects.create(project=self.project, organization=self.parent_org, indicator=ind_number)
-        task_subcat = Task.objects.create(project=self.project, organization=self.parent_org, indicator=ind_subcat)
-        
-        response = self.client.post('/api/record/interactions/batch/', {
-            'interaction_date': date(2025, 6, 1),
-            'interaction_location': 'That place that sells chili.',
-            'respondent': self.respondent3.id,
-            'tasks': [
-                {'task_id': self.task.id},
-                {'task_id': task_number.id, 'numeric_component': 10},
-                {'task_id': task_subcat.id, 'subcategories_data': [{'id': None, 'subcategory': {'name': 'Cat 1', 'id': category.id}}, {'id': None, 'subcategory': {'name': 'Cat 2', 'id': category2.id}}]}
-            ]
-        }, format='json')
-        print(response.json())
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-    
-    def test_bulk_create_edge(self):
-        self.client.force_authenticate(user=self.data_collector)
-        
-        ind_number = Indicator.objects.create(code='4', name='Numeric Ind', require_numeric=True)
-        ind_subcat = Indicator.objects.create(code='10', name='GimmeDemSubcats')
-        ind_subcat_prereq = Indicator.objects.create(code='11', name='GimmeDemSubcatsV2')
-        category = IndicatorSubcategory.objects.create(name='Cat 1')
-        category2 = IndicatorSubcategory.objects.create(name='Cat 2')
-        ind_subcat.subcategories.set([category, category2])
-        ind_subcat_prereq.subcategories.set([category, category2])
-        task_number = Task.objects.create(project=self.project, organization=self.parent_org, indicator=ind_number)
-        task_subcat = Task.objects.create(project=self.project, organization=self.parent_org, indicator=ind_subcat)
-        task_subcat_prereq = Task.objects.create(project=self.project, organization=self.parent_org, indicator=ind_subcat_prereq)
-        response = self.client.post('/api/record/interactions/batch/', {
-            'interaction_date': date(2025, 6, 1),
-            'interaction_location': 'That place that sells chili.',
-            'respondent': self.respondent3.id,
-            'tasks': [
-                {'task_id': self.task.id},
-                {'task_id': task_number.id, 'numeric_component': 10},
-                {'task_id': task_subcat_prereq.id, 'subcategories_data': [{'id': None, 'subcategory': {'name': 'Cat 1', 'id': category.id}}, {'id': None, 'subcategory': {'name': 'Cat 2', 'id': category2.id}}]},
-                {'task_id': task_subcat.id, 'subcategories_data': [{'id': None, 'subcategory': {'name': 'Cat 1', 'id': category.id}}, {'id': None, 'subcategory': {'name': 'Cat 2', 'id': category2.id}}]}
-            ]
-        }, format='json')
-        print(response.json())
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-    
-    def test_bulk_create_client(self):
-        self.client.force_authenticate(user=self.client_user)
-        
-        ind_number = Indicator.objects.create(code='4', name='Numeric Ind', require_numeric=True)
-        ind_subcat = Indicator.objects.create(code='10', name='GimmeDemSubcats')
-        ind_subcat_prereq = Indicator.objects.create(code='11', name='GimmeDemSubcatsV2')
-        category = IndicatorSubcategory.objects.create(name='Cat 1')
-        category2 = IndicatorSubcategory.objects.create(name='Cat 2')
-        ind_subcat.subcategories.set([category, category2])
-        ind_subcat_prereq.subcategories.set([category, category2])
-        task_number = Task.objects.create(project=self.project, organization=self.parent_org, indicator=ind_number)
-        task_subcat = Task.objects.create(project=self.project, organization=self.parent_org, indicator=ind_subcat)
-        task_subcat_prereq = Task.objects.create(project=self.project, organization=self.parent_org, indicator=ind_subcat_prereq)
-        response = self.client.post('/api/record/interactions/batch/', {
-            'interaction_date': date(2025, 6, 1),
-            'interaction_location': 'That place that sells chili.',
-            'respondent': self.respondent3.id,
-            'tasks': [
-                {'task_id': self.task.id},
-                {'task_id': task_number.id, 'numeric_component': 10},
-            ]
-        }, format='json')
-        print(response.json())
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

@@ -2,6 +2,7 @@ from django.db.models import Q
 from respondents.models import Interaction, HIVStatus, Pregnancy
 from projects.models import ProjectOrganization
 from events.models import  Event
+from aggregates.models import AggregateCount, AggregateGroup
 from datetime import date
 from social.models import SocialMediaPost
 
@@ -133,21 +134,7 @@ def get_interactions_from_indicator(user, indicator, project=None, organization=
 
     return queryset
 
-def get_interaction_subcats(interactions, filter_ids=None):
-    '''
-    Small helper to prefetch valid subcats. Returns queryset of InteractionSubcategory instances
-    - interactions (queryset): queryset of interactions to get subcategories for
-    - filter_ids (list, optional): list of indicator subcategory ids to include
-    '''
-    interaction_ids = [ir.id for ir in interactions]
-    
-    #if filter ids are provided, check if the id is in the list
-    if filter_ids:
-        filter_ids = [int(fid) for fid in filter_ids]
-        return InteractionSubcategory.objects.filter(interaction__id__in=interaction_ids, subcategory_id__in=filter_ids)
-    return InteractionSubcategory.objects.filter(interaction__id__in=interaction_ids) #otherwise return all objects from the interactions
-
-def get_event_counts_from_indicator(user, indicator, params, project=None, organization=None, start=None, end=None, filters=None, cascade=False):
+def get_counts_from_indicator(user, indicator, params, project=None, organization=None, start=None, end=None, filters=None, cascade=False):
     '''
     Helper function get queryset of Demographic count that match a set of conditions. Returns queryset of
     DemographicCount instances.
@@ -164,32 +151,24 @@ def get_event_counts_from_indicator(user, indicator, params, project=None, organ
     '''
 
     #default by fetching all counts whose task's indicator match the provided indicator
-    queryset = DemographicCount.objects.filter(task__indicator=indicator)
-
-    # filter out any counts that do not have the params requested by the user
-    if params:
-        query = Q()
-        for field, should_exist in params.items():
-            if should_exist:
-                query |= Q(**{f"{field}__isnull": True})
-        queryset = queryset.filter(query)
+    queryset = AggregateCount.objects.filter(indicator=indicator)
 
     #filter queryset based on the user's permissions
     if user.role == 'admin':
         queryset=queryset
     elif user.role == 'client':
-        queryset=queryset.filter(task__project__client=user.client_organization)
+        queryset=queryset.filter(project__client=user.client_organization)
     else:
         child_orgs = ProjectOrganization.objects.filter(
                 parent_organization=user.organization,
             ).values_list('organization', flat=True)
         queryset = queryset.filter(
-                Q(task__organization=user.organization) | Q(task__organization__in=child_orgs)
+                Q(organization=user.organization) | Q(organization__in=child_orgs)
             )
 
     #scope queryset to provided arguments   
     if project:
-        queryset=queryset.filter(task__project=project)
+        queryset=queryset.filter(project=project)
     if organization:
         #if organization, cascade, and project are provided, include both the provided organization and its child orgs in the query
         if cascade and project:
@@ -201,28 +180,37 @@ def get_event_counts_from_indicator(user, indicator, params, project=None, organ
             accessible_orgs.append(organization.id)
             
             queryset = queryset.filter(
-                task__organization__in=accessible_orgs
+                organization__in=accessible_orgs
             )
         else:
-            queryset=queryset.filter(task__organization=organization)
+            queryset=queryset.filter(organization=organization)
     #scope to dates
     if start:
-        queryset=queryset.filter(event__start__gte=start)
+        queryset=queryset.filter(start__gte=start)
     if end:
-        queryset=queryset.filter(event__end__lte=end)
+        queryset=queryset.filter(end__lte=end)
+
+    counts = AggregateCount.objects.filter(group__in=queryset)
+    # filter out any counts that do not have the params requested by the user
+    if params:
+        query = Q()
+        for field, should_exist in params.items():
+            if should_exist:
+                query |= Q(**{f"{field}__isnull": True})
+        counts = counts.filter(query)
 
     #filter based on model filter fields 
     if filters:
         for field, values in filters.items():
             if isinstance(values, list):
                 lookup = f"{field}__in"
-                queryset = queryset.filter(**{lookup: values})
+                counts = counts.filter(**{lookup: values})
             else:
-                queryset = queryset.filter(**{field: values})
+                counts = counts.filter(**{field: values})
 
     #exclude flagged objects
-    queryset = queryset.exclude(flags__resolved=False).distinct()
-    return queryset
+    counts = counts.exclude(flags__resolved=False).distinct()
+    return counts
 
 def get_events_from_indicator(user, indicator, project=None, organization=None, start=None, end=None, cascade=False):
     '''

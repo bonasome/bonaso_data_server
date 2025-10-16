@@ -77,6 +77,7 @@ def check_logic(c, response_info, assessment, respondent):
             return False
         # Get the actual stored value
         prereq_val = response_info.get(str(c.source_indicator.id), {}).get('value')
+        print(prereq_val)
         # Special logic for multi with any/none/all
         if prereq.type == 'multi' and c.condition_type in ['any', 'none', 'all']:
             prereq_val = prereq_val or []
@@ -101,7 +102,6 @@ def check_logic(c, response_info, assessment, respondent):
         # Multi-select value check
         if prereq.type == 'multi':
             if c.operator == '=':
-                print(prereq_val, req_val)
                 return prereq_val and req_val in prereq_val
             if c.operator == '!=':
                 return not prereq_val or req_val not in prereq_val

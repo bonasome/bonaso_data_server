@@ -522,7 +522,6 @@ class InteractionSerializer(serializers.ModelSerializer):
                 if logic_group.group_operator == LogicGroup.Operator.OR:   
                     for condition in conditions.all():
                         passed = check_logic(condition, responses, task.assessment, respondent)
-                        print(passed)
                         if passed:
                             return True
                     return False
@@ -558,36 +557,66 @@ class InteractionSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 f'Values for "{indicator.name}" must be a subset of the values provided for "{indicator.match_options.name}".'
             )
-        
 
+    def __check_date(self, date_val, project):
+        if not date_val:
+            return
+        
+        # Convert strings to `date` if possible
+        if isinstance(date_val, str):
+            try:
+                date_val = date.fromisoformat(date_val)
+            except ValueError:
+                raise serializers.ValidationError(f'Invalid date format: {date_val}')
+
+        if not isinstance(date_val, date):
+            raise serializers.ValidationError(f'Invalid date type: {date_val}')
+        
+        # Future date check
+        if date_val > date.today():
+            raise serializers.ValidationError('Date may not be in the future.')
+        
+        # Project range check
+        if project.start and date_val < project.start:
+            raise serializers.ValidationError('Date is before project start.')
+        
+        if project.end and date_val > project.end:
+            raise serializers.ValidationError('Date is after project end.')
+
+    def __check_perms(self, user, task):
+        if user.role == 'admin':
+            return True
+        elif user.role =='client':
+            raise PermissionDenied('You do not have permission to create interactions.')
+        elif user.role in ['meofficer', 'manager']:
+            is_child = ProjectOrganization.objects.filter(
+                organization=task.organization,
+                parent_organization=user.organization,
+                project=task.project
+            ).exists()
+            if not is_child and task.organization != user.organization:
+                raise PermissionDenied('You do not have permission to create an interaction for this task.')
+        elif user.role:
+            if task.organization != user.organization:
+                    raise PermissionDenied('You do not have permission to create an interaction for this task.')
+        else:
+            raise PermissionDenied('You do not have permission to create interactions.')
+        
     def validate(self, attrs):
         user = self.context['request'].user
-        if user.role == 'client':
-            raise PermissionDenied('You do not have permission to perform this action.')
+        
         ir_date = attrs.get('interaction_date', None)
         loc = attrs.get('interaction_location', None)
         task = attrs.get('task')
+        self.__check_perms(user, task)
         respondent = attrs.get('respondent')
-        if user.role != 'admin':
-            #if not an admin, only allow users to assign targets to their children
-            if user.role not in ['meofficer', 'admin']:
-                is_child = ProjectOrganization.objects.filter(
-                    organization=task.organization,
-                    parent_organization=user.organization,
-                    project=task.project
-                ).exists()
-                if not is_child and task.organization != user.organization:
-                    raise PermissionDenied('You do not have permission to create this interaction.')
-            else:
-                if task.organization != user.organization:
-                    raise PermissionDenied('You do not have permission to create this interaction.')
+
         if not task.assessment:
             raise serializers.ValidationError('An assessment is required to create an interaction.')
         
         if not ir_date or not loc:
             raise serializers.ValidationError('Date and location are both required.')
-        if ir_date > date.today():
-            raise serializers.ValidationError('Assessment dates cannot be in the future.')
+        self.__check_date(ir_date, task.project)
         responses = attrs.get('response_data')
 
         for indicator in Indicator.objects.filter(assessment=task.assessment).all():
@@ -596,6 +625,9 @@ class InteractionSerializer(serializers.ModelSerializer):
             #then check what the value is
             response = responses.get(str(indicator.id), None)
             val = response.get('value', None) if response else None
+            response_date = response.get('date', None) if response else None
+            self.__check_date(response_date, task.project)
+
             #if this should be visible and the indicator is required, but there is no value, raise an error
             if sbv and val in [[], None, ''] and indicator.required:
                 raise serializers.ValidationError(f'Indicator {indicator.name} is required.')

@@ -903,11 +903,15 @@ class InteractionViewSet(RoleRestrictedViewSet):
                             if o_val in ['', 'no', 'none', 'na', 'n/a', 'false', 'unsure', 'maybe']:
                                 continue
                             val.append(option.id)
+                        if len(val) == 0 and indicator.allow_none:
+                            val = ['none']
                     else:
                         col = get_indicator_column(indicator)
                         val = str(get_indicator_value(row, indicator))
                         val = val.lower().replace(' ', '')
-                        if val in ['', 'none', 'na', 'n/a', 'unsure', 'maybe']:
+                        if val == 'none' and indicator.type == Indicator.Type.SINGLE and indicator.allow_none:
+                            val == 'none'
+                        elif val in ['', 'none', 'na', 'n/a', 'unsure', 'maybe']:
                             continue
                     if indicator.type == Indicator.Type.SINGLE:
                         if val not in [o.name.lower().replace(' ', '') for o in Option.objects.filter(indicator=indicator)]:
@@ -936,6 +940,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 lookup_fields = {
                     'respondent': respondent,
                     'interaction_date': interaction_date,
+                    'interaction_location': interaction_location,
                     'task': task,
                 }
 

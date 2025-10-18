@@ -16,6 +16,7 @@ class ChartField(models.Model):
         SEX = 'sex', _('Sex')
         KP ='kp_type', _('Key Population Type')
         DIS = 'disability_type', _('Disability Type')
+        ATTR = 'special_attribute', _('Special Respondent Attribute')
         DIST = 'district', _('District')
         CIT = 'citizenship', _('Citizenship')
         HIV = 'hiv_status', _('HIV Status')

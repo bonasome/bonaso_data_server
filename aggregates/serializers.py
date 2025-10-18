@@ -16,6 +16,7 @@ from indicators.serializers import IndicatorSerializer, OptionSerializer
 from aggregates.models import AggregateCount, AggregateGroup
 from flags.utils import create_flag, resolve_flag
 from flags.models import Flag
+from flags.serializers import FlagSerializer
 
 class AggregatGroupListSerializer(serializers.ModelSerializer):
     organization = OrganizationListSerializer(read_only=True)
@@ -35,6 +36,7 @@ class AggregatGroupListSerializer(serializers.ModelSerializer):
 class AggregateCountSerializer(serializers.ModelSerializer):
     option = OptionSerializer(read_only=True)
     option_id = serializers.PrimaryKeyRelatedField(queryset=Option.objects.all(), write_only=True, source='option', required=False, allow_null=True)
+    flags = FlagSerializer(read_only=True, many=True)
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
 
@@ -54,7 +56,8 @@ class AggregateCountSerializer(serializers.ModelSerializer):
             'kp_type',
             'attribute_type',
             'value',  
-        'created_by', 
+            'flags',
+            'created_by', 
             'updated_by', 
             'created_at',
             'updated_at',
@@ -231,18 +234,18 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
                 # Logic: prereq must exist and be >= this value
                 msg = f'Indicator "{indicator.name}" requires a corresponding count for {prereq.name}.'
                 if not find_count:
-                    create_flag(count, msg, user, Flag.FlagReason.MPRE)
+                    create_flag(instance=count, reason=msg, caused_by=user, reason_type=Flag.FlagReason.MPRE)
                 else:
                     resolve_flag(flags, msg)
                 if find_count:
                     msg = f'Value for this count may not be higher than the corresponding value from {prereq.name}.'
                     if val is not None and (find_count.value is None or val > find_count.value):
-                        create_flag(count, msg, user, Flag.FlagReason.MPRE)
+                        create_flag(instance=count, reason=msg, caused_by=user, reason_type=Flag.FlagReason.MPRE)
                     else:
                         resolve_flag(flags, msg)
 
         # Check downstream counts recursively
-        self.__check_downstream(indicator, organization, start, end, count, user, visited)
+        self.__check_downstream(indicator=indicator, organization=organization, start=start, end=end, count=count, user=user, visited=visited)
 
 
     def __check_downstream(self, indicator, organization, start, end, count, user, visited):
@@ -257,7 +260,7 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
             ds_ind = c.group.indicator
             conditions = LogicCondition.objects.filter(group__indicator=ds_ind, source_indicator=indicator)
             if conditions.exists():
-                self.__check_logic(ds_ind, organization, start, end, c, user, visited)
+                self.__check_logic(indicator=ds_ind, organization=organization, start=start, end=end, count=c, user=user, visited=visited)
 
     def create(self, validated_data):
         user = self.context.get('request').user if self.context.get('request') else None
@@ -273,8 +276,8 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
             saved_instances = AggregateCount.objects.bulk_create(instances)
             visited = set()
             for count in saved_instances:
-                self.__check_logic(group.indicator, group.organization, group.start, group.end, count, user, visited)
-                self.__check_downstream(group.indicator, group.organization, group.start, group.end, count, user, visited)
+                self.__check_logic(indicator=group.indicator, organization=group.organization, start=group.start, end=group.end,count= count, user=user, visited=visited)
+                self.__check_downstream(indicator=group.indicator, organization=group.organization, start=group.start, end=group.end, count=count, user=user, visited=visited)
         return group
     
     def update(self, instance, validated_data):
@@ -293,6 +296,6 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
             saved_instances = AggregateCount.objects.bulk_create(instances)
             visited = set()
             for count in saved_instances:
-                self.__check_logic(instance.indicator, instance.organization, instance.start, instance.end, count, user, visited)
-                self.__check_downstream(instance.indicator, instance.organization, instance.start, instance.end, count, user, visited)
+                self.__check_logic(indicator=instance.indicator, organization=instance.organization, start=instance.start, end=instance.end, count=count, user=user, visited=visited)
+                self.__check_downstream(indicator=instance.indicator, organization=instance.organization, start=instance.start, end=instance.end, count=count, user=user, visited=visited)
         return instance

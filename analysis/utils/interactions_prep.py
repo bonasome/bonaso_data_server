@@ -38,7 +38,8 @@ def build_keys(response, pregnancies_map, hiv_status_map):
         if field == 'organization':
             base_keys.add(response.interaction.task.organization.name)
         elif field == 'option':
-            base_keys.add(response.response_option.name)
+            if response.response_option:
+                base_keys.add(response.response_option.name) 
         elif field == 'pregnancy':
             is_pregnant = any(
                 p.term_began <= response.response_date <= (p.term_ended or date.today())

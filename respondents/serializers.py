@@ -456,7 +456,8 @@ class InteractionSerializer(serializers.ModelSerializer):
     
     responses = serializers.SerializerMethodField()
     response_data = serializers.JSONField(write_only=True, required=False)
-
+    flags = FlagSerializer(read_only=True, many=True)
+    
     def get_responses(self, obj):
         responses = Response.objects.filter(interaction=obj)
         return ResponseSerializer(responses, many=True).data
@@ -465,7 +466,7 @@ class InteractionSerializer(serializers.ModelSerializer):
         model=Interaction
         fields = [
             'id', 'interaction_date', 'interaction_location', 'comments', 'responses', 'response_data',
-            'task_id', 'task', 'respondent', 'respondent_id'
+            'task_id', 'task', 'respondent', 'respondent_id', 'flags'
         ]
 
     def __options_valid(self, option, indicator):
@@ -548,7 +549,10 @@ class InteractionSerializer(serializers.ModelSerializer):
         # 4. Extract values safely
         prereq_val = prereq.get('value', []) or []
         val = response.get('value', []) or []
-
+        if val == 'none' and Indicator.Type.SINGLE:
+            val = None
+        if val == ['none'] and Indicator.Type.MULTI:
+            val = []
         if not isinstance(prereq_val, list) or not isinstance(val, list):
             raise serializers.ValidationError('Indicator values must be lists of option IDs.')
 

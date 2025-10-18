@@ -64,8 +64,8 @@ class Option(models.Model):
 
 class LogicGroup(models.Model):
     class Operator(models.TextChoices):
-        AND = 'AND', _('And')
-        OR = 'OR', _('Or')
+        AND = 'AND', _('All Conditions')
+        OR = 'OR', _('Any Condition')
 
     indicator = models.ForeignKey(Indicator, related_name="logic_groups", on_delete=models.CASCADE)
     group_operator = models.CharField(max_length=3, choices=Operator.choices, default=Operator.AND)
@@ -87,10 +87,10 @@ class LogicCondition(models.Model):
         HIV = 'hiv_status', _('HIV Status')
 
     class Operator(models.TextChoices):
-        EQUALS = '=', _('Equals'),
-        NE = '!=', _('Not Equals'),
-        GT = '>', _('Greater Than'),
-        LT = '<', _('Less Than'),
+        EQUALS = '=', _('Is Equal To'),
+        NE = '!=', _('Does Not Equal'),
+        GT = '>', _('Is Greater Than'),
+        LT = '<', _('Is Less Than'),
         C = 'contains', _('Contains'),
         DNC = '!contains', _('Does Not Contain'),
     
@@ -101,7 +101,7 @@ class LogicCondition(models.Model):
 
     RESPONDENT_VALUE_CHOICES = {
         'sex': [{'value': 'M', 'label': 'Male'}, {'value': 'F', 'label': 'Female'}, {'value': 'NB', 'label': 'Non Binary'}],
-        'hiv_positive': [{'value': True, 'label': 'HIV Positive'}, {'value': False, 'label': 'HIV Negative'}],
+        'hiv_status': [{'value': True, 'label': 'HIV Positive'}, {'value': False, 'label': 'HIV Negative'}],
     }
 
     source_type = models.CharField(max_length=20, choices=SourceType.choices, default=SourceType.ASS)

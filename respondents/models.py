@@ -301,7 +301,7 @@ class Interaction(models.Model):
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='interaction_updated_by')
 
 class Response(models.Model):
-    interaction = models.ForeignKey(Interaction, on_delete=models.PROTECT)
+    interaction = models.ForeignKey(Interaction, on_delete=models.CASCADE)
     indicator = models.ForeignKey(Indicator, on_delete=models.PROTECT)
     comments = models.TextField(null=True, blank=True)
     response_value = models.CharField(max_length=255, blank=True, null=True)

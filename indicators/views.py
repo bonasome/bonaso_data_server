@@ -13,7 +13,7 @@ from users.restrictviewset import RoleRestrictedViewSet
 from indicators.models import Indicator, Assessment, LogicCondition, LogicGroup
 from indicators.serializers import IndicatorSerializer, Assessment, AssessmentSerializer, AssessmentListSerializer
 from projects.models import Task, Target
-from respondents.models import Response, Interaction
+from respondents.models import Response as ResponseObject, Interaction
 from aggregates.models import AggregateGroup
 from respondents.utils import get_enum_choices
 
@@ -81,6 +81,10 @@ class IndicatorViewSet(RoleRestrictedViewSet):
         if exclude_cat_param:
             queryset = queryset.exclude(category=exclude_cat_param)
         
+        cat_param = self.request.query_params.get('category')
+        if cat_param:
+            queryset = queryset.filter(category=cat_param)
+
         exclude_org_param = self.request.query_params.get('exclude_organization')
         exclude_project_param = self.request.query_params.get('exclude_project') 
         if exclude_org_param and exclude_project_param:
@@ -130,7 +134,7 @@ class IndicatorViewSet(RoleRestrictedViewSet):
         instance = self.get_object()
 
         # Prevent deletion if respondent has interactions
-        if Response.objects.filter(indicator_id=instance.id).exists():
+        if ResponseObject.objects.filter(indicator_id=instance.id).exists():
             return Response(
                 {
                     "detail": (

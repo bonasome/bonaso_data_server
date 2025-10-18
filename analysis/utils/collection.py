@@ -4,6 +4,7 @@ from projects.models import ProjectOrganization
 from events.models import  Event
 from aggregates.models import AggregateCount, AggregateGroup
 from datetime import date
+from indicators.models import Indicator
 from social.models import SocialMediaPost
 from flags.models import Flag
 '''
@@ -79,12 +80,13 @@ def get_interactions_from_indicator(user, indicator, project=None, organization=
         queryset=queryset.filter(response_date__gte=start)
     if end:
         queryset=queryset.filter(response_date__lte=end)
-
+    if indicator.type == Indicator.Type.BOOL:
+        queryset = queryset.filter(response_boolean=True)
     #sort out filters
     if filters:
         for field, values in filters.items():
             if field == 'option':
-                queryset = queryset.filter(id__in=values)
+                queryset = queryset.filter(response_option_id__in=values)
             elif field in ['pregnancy', 'hiv_status']:
                 if len(values) == 2 or len(values) == 0: #if either no values exist or both are selected, return all
                     continue

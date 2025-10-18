@@ -8,6 +8,7 @@ from profiles.serializers import ProfileListSerializer
 class LogicConditionSerializer(serializers.ModelSerializer):
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
+    
     class Meta:
         model=LogicCondition
         fields = [

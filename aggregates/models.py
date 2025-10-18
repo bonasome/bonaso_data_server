@@ -82,4 +82,4 @@ class AggregateCount(models.Model):
                            'hiv_status', 'pregnancy', 'disability_type', 'kp_type', 'attribute_type', 'option')
     
     def __str__(self):
-        return f"{self.count} ({self.indicator}, {self.organization}. {self.project})"
+        return f"Count for {self.group.indicator}"

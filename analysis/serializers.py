@@ -11,8 +11,8 @@ from organizations.serializers import OrganizationListSerializer
 from projects.models import Project
 from projects.serializers import ProjectListSerializer, Target
 from profiles.serializers import ProfileListSerializer
-from indicators.models import Indicator
-from indicators.serializers import IndicatorSerializer
+from indicators.models import Indicator, Assessment
+from indicators.serializers import IndicatorSerializer, AssessmentSerializer
 from collections import defaultdict
 from respondents.models import Interaction
 
@@ -28,8 +28,8 @@ class LineListSerializer(serializers.ModelSerializer):
     '''
     Returns detailed data about a line list and allows for the user to create a new line list. 
     '''
-    indicator = IndicatorSerializer(read_only=True)
-    indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True, source='indicator', allow_null=True, required=False)
+    assessment = AssessmentSerializer(read_only=True)
+    assessment_id = serializers.PrimaryKeyRelatedField(queryset=Assessment.objects.all(), write_only=True, source='assessment', allow_null=True, required=False)
     organization = OrganizationListSerializer(read_only=True)
     organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, source='organization', allow_null=True, required=False)
     project = ProjectListSerializer(read_only=True)
@@ -42,7 +42,7 @@ class LineListSerializer(serializers.ModelSerializer):
         '''
         return prep_line_list(
             user=obj.created_by,
-            indicator=obj.indicator,
+            assessment=obj.assessment,
             project=obj.project,
             organization=obj.organization,
             start=obj.start, 
@@ -53,9 +53,10 @@ class LineListSerializer(serializers.ModelSerializer):
         model=LineList
         fields = [
             'id', 'name', 'project', 'project_id', 'organization', 'organization_id',
-            'indicator', 'indicator_id', 'start', 'end', 'cascade_organization', 'data'
+            'assessment', 'assessment_id', 'start', 'end', 'cascade_organization', 'data'
         ]
     def create(self, validated_data):
+        print(validated_data)
         user = self.context.get('request').user if self.context.get('request') else None
         ll = LineList.objects.create(created_by=user, **validated_data)
         return ll
@@ -246,7 +247,7 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
         return filters
     
     def get_allow_targets(self, obj):
-        return Target.objects.filter(task__indicator__in=obj.indicators.all()).exists()
+        return Target.objects.filter(indicator__in=obj.indicators.all()).exists()
     
     #collect related target data
     def get_targets(self, obj):

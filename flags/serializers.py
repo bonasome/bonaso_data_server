@@ -52,11 +52,12 @@ class FlagSerializer(serializers.ModelSerializer):
                 }
 
             elif obj.content_type == self.ct_count:
+                print(obj.target.group.id)
                 return {
                     'id': obj.target.id,
                     'parent': obj.target.group_id if obj.target.group else None,
                     'project': None,
-                    'organization': obj.target.organization_id if obj.target.organization else None,
+                    'organization': obj.target.group.organization_id if obj.target.group.organization else None,
                     'display': str(obj.target)
                 }
 

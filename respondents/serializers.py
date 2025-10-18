@@ -507,7 +507,7 @@ class InteractionSerializer(serializers.ModelSerializer):
             except (TypeError, ValueError):
                 raise serializers.ValidationError(f'Integer is required.')
         if indicator.type == Indicator.Type.BOOL:
-            if val not in [True, False, 0, 1, "true", "false"]:
+            if val not in [True, False, 0, 1, '0', '1', "true", "false"]:
                 raise serializers.ValidationError('Boolean is required.')
     
     def __should_be_visible(self, indicator, responses, respondent, task):
@@ -670,7 +670,7 @@ class InteractionSerializer(serializers.ModelSerializer):
                 interaction=interaction,
                 indicator=indicator,
                 response_value=text,
-                response_boolean=boolVal,
+                response_boolean=boolVal in ['1', 1, 'true', True] if boolVal is not None else None,
                 response_option_id=option,
                 response_date=data.get('date', interaction.interaction_date),
                 response_location=data.get('location', interaction.interaction_location),

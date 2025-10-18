@@ -108,6 +108,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
             return Response({"detail": "Expected a list of interactions."}, status=400)
         ids_map = [] #map that compares server IDs to local IDs so the app knows what information was recorded
         errors = []
+        print(data)
         for item in data:
             try:
                 server_id = item.get('server_id')

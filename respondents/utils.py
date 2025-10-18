@@ -70,14 +70,16 @@ def check_logic(c, response_info, assessment, respondent):
         if prereq.type in ['single', 'multi']:
             req_val = c.condition_type if c.condition_type in ['any', 'none', 'all'] else c.value_option.id
         elif prereq.type in ['boolean']:
-            req_val = c.value_boolean
+            req_val = True if c.value_boolean in ['1', 1, True, 'true'] else False if c.value_boolean in ['0', 0, False, 'false'] else None
         else:
             req_val = c.value_text
         if not req_val:
             return False
         # Get the actual stored value
         prereq_val = response_info.get(str(c.source_indicator.id), {}).get('value')
-        print(prereq_val)
+        if prereq.type in ['boolean']:
+            prereq_val = True if c.value_boolean in ['1', 1, True, 'true'] else False if c.value_boolean in ['0', 0, False, 'false'] else None
+        
         # Special logic for multi with any/none/all
         if prereq.type == 'multi' and c.condition_type in ['any', 'none', 'all']:
             prereq_val = prereq_val or []
@@ -102,13 +104,14 @@ def check_logic(c, response_info, assessment, respondent):
         # Multi-select value check
         if prereq.type == 'multi':
             if c.operator == '=':
-                return prereq_val and req_val in prereq_val
+                print(prereq_val, req_val)
+                return prereq_val and str(req_val) in [str(v) for v in prereq_val]
             if c.operator == '!=':
                 return not prereq_val or req_val not in prereq_val
         else:
             # Direct comparison for single/text/boolean
             if c.operator == '=':
-                return prereq_val == req_val
+                return str(prereq_val) == str(req_val)
             if c.operator == '!=':
                 return prereq_val != req_val
 

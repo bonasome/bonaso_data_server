@@ -191,17 +191,8 @@ def get_counts_from_indicator(user, indicator, params, project=None, organizatio
     if end:
         queryset=queryset.filter(group__end__lte=end)
 
-
-    # filter out any counts that do not have the params requested by the user
-    if params:
-        query = Q()
-        for field, should_exist in params.items():
-            if should_exist:
-                if field == 'organization':
-                    continue
-                query |= Q(**{f"{field}__isnull": False})
-        print(query)
-        queryset= queryset.filter(query)
+    if indicator.type == Indicator.Type.MULTI and not params.get('option', False):
+        queryset = queryset.filter(option=None, unique_only=True)
 
     #filter based on model filter fields 
     if filters:

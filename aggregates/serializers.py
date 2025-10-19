@@ -46,6 +46,7 @@ class AggregateCountSerializer(serializers.ModelSerializer):
             'id',
             'option',
             'option_id',
+            'unique_only',
             'sex',
             'age_range',
             'citizenship',
@@ -90,7 +91,10 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
 
     def __validate_row(self, indicator, data):
         option = data.get('option')
-        if indicator.type in [Indicator.Type.MULTI, Indicator.Type.SINGLE] and not option:
+        if indicator.type == Indicator.Type.MULTI:
+            if not option and not data.get('unique_only'):
+                raise serializers.ValidationError("Option or total flag is required for this indicator type.")
+        if indicator.type == Indicator.Type.SINGLE and not option:
             raise serializers.ValidationError("Option is required for this indicator type.")
         elif indicator.type not in [Indicator.Type.MULTI, Indicator.Type.SINGLE]:
             # For all other indicator types, option must NOT be provided
@@ -164,9 +168,13 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
 
         for row in counts:
             self.__validate_row(indicator, row)
-            print(row)
-            row_keys = set(k for k, v in row.items() if k in AggregateCount.DEMOGRAPHIC_VALIDATORS or k == 'option' and v is not None)
-            print(row_keys)
+            if row.get('unique_only') and indicator.type == Indicator.Type.MULTI:
+                # Unique total row: ignore 'option', use a marker
+                row_keys = set(k for k in row.keys() if k in AggregateCount.DEMOGRAPHIC_VALIDATORS)
+                row_keys.add('option')  # simulate option selection
+            else:
+                # Normal option row
+                row_keys = set(k for k, v in row.items() if k in AggregateCount.DEMOGRAPHIC_VALIDATORS or (k == 'option' and v is not None))
             if breakdown_keys_set is None:
                 breakdown_keys_set = row_keys
             elif row_keys != breakdown_keys_set:

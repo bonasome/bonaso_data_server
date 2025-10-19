@@ -78,24 +78,23 @@ def check_logic(c, response_info, assessment, respondent):
         # Get the actual stored value
         prereq_val = response_info.get(str(c.source_indicator.id), {}).get('value')
         if prereq.type in ['boolean']:
-            prereq_val = True if c.value_boolean in ['1', 1, True, 'true'] else False if c.value_boolean in ['0', 0, False, 'false'] else None
-        
+            prereq_val = True if prereq_val in ['1', 1, True, 'true'] else False if prereq_val in ['0', 0, False, 'false'] else None
         # Special logic for multi with any/none/all
-        if prereq.type == 'multi' and c.condition_type in ['any', 'none', 'all']:
+        if prereq.type == 'multi' and req_val in ['any', 'none', 'all']:
             prereq_val = prereq_val or []
             if req_val == 'any':
-                return len(prereq_val) > 0
+                return len(prereq_val) > 0 and not 'none' in prereq_val
             elif req_val == 'none':
                 return prereq_val in [[], None, ['none']]
             elif req_val == 'all':
                 return len(prereq_val) == Option.objects.filter(indicator=prereq).count()
 
         # Special logic for single with any/none/all
-        if prereq.type == 'single' and c.condition_type in ['any', 'none', 'all']:
+        if prereq.type == 'single' and req_val in ['any', 'none', 'all']:
             # single is a single string or None
             prereq_val = prereq_val or None
-            if req_val == 'any':
-                return bool(prereq_val)
+            if req_val == 'any': 
+                return bool(prereq_val) and not 'none' == prereq_val
             elif req_val == 'none':
                 return prereq_val in [None, 'none']
             elif req_val == 'all':
@@ -104,7 +103,6 @@ def check_logic(c, response_info, assessment, respondent):
         # Multi-select value check
         if prereq.type == 'multi':
             if c.operator == '=':
-                print(prereq_val, req_val)
                 return prereq_val and str(req_val) in [str(v) for v in prereq_val]
             if c.operator == '!=':
                 return not prereq_val or req_val not in prereq_val

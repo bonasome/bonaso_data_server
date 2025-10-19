@@ -70,6 +70,7 @@ class AggregateCount(models.Model):
     kp_type = models.CharField(max_length = 25, choices=KeyPopulation.KeyPopulations.choices, null=True, blank=True)
     attribute_type = models.CharField(max_length = 25, choices=RespondentAttributeType.Attributes.choices, null=True, blank=True)
     option= models.ForeignKey(Option, on_delete=models.PROTECT, null=True, blank=True)
+    unique_only = models.BooleanField(default=False)
     flags = GenericRelation('flags.Flag', related_query_name='flags')
     
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='count_created_by')

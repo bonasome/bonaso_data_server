@@ -655,24 +655,30 @@ class InteractionSerializer(serializers.ModelSerializer):
         if indicator.type == Indicator.Type.MULTI:
             options = data.get('value')
             for option in options:
+                response_date = data.get('date', interaction.interaction_date)
+                if response_date == '':
+                    response_date = interaction.interaction_date
                 response = Response.objects.create(
                     interaction=interaction,
                     indicator=indicator,
                     response_option_id=option,
-                    response_date=data.get('date', interaction.interaction_date),
+                    response_date=response_date,
                     response_location=data.get('location', interaction.interaction_location),
                 )
         else:
             boolVal = data.get('value') if indicator.type == Indicator.Type.BOOL else None
             option = data.get('value') if indicator.type == Indicator.Type.SINGLE else None
             text = data.get('value') if not boolVal and not option else None
+            response_date = data.get('date', interaction.interaction_date)
+            if response_date == '':
+                response_date = interaction.interaction_date
             response = Response.objects.create(
                 interaction=interaction,
                 indicator=indicator,
                 response_value=text,
                 response_boolean=boolVal in ['1', 1, 'true', True] if boolVal is not None else None,
                 response_option_id=option,
-                response_date=data.get('date', interaction.interaction_date),
+                response_date=response_date,
                 response_location=data.get('location', interaction.interaction_location),
                 comments=data.get('comments', None),
                 created_by=user,

@@ -282,6 +282,7 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
         legend = request.data.get('legend') #chart legend
         axis = request.data.get('axis') #chart axis
         stack = request.data.get('stack') #stack (for bar charts)
+        average = str(request.data.get('average')).lower() in ['true', '1'] #show as average
         use_target = str(request.data.get('use_target')).lower() in ['true', '1'] #show targets if provided
         tabular = str(request.data.get('tabular')).lower() in ['true', '1'] #show a data table underneath
         name = request.data.get('name')
@@ -309,6 +310,7 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
             legend=None
             stack=None
             use_target=False
+            average=False
 
         if len(indicators) ==1:
             #validate that options exist if chosen
@@ -316,6 +318,8 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
                 legend=None
             if stack == 'option' and not Option.objects.filter(indicator=indicators[0]).exists():
                 stack=None
+            if average and indicators[0].type != 'integer':
+                average = False
 
         #remove legend/stack for use_target (since targets are not demographically split)
         if legend and use_target:
@@ -338,6 +342,7 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
             chart.start = start
             chart.end = end
             chart.name = name
+            chart.average=average
             chart.save()
 
             chart_link.width = width
@@ -358,6 +363,7 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
                 start=start,
                 end=end,
                 name=name,
+                average=average,
                 created_by=user,
             )
             chart_link = DashboardIndicatorChart.objects.create(

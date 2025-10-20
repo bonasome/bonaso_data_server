@@ -101,7 +101,7 @@ class LogicCondition(models.Model):
 
     RESPONDENT_VALUE_CHOICES = {
         'sex': [{'value': 'M', 'label': 'Male'}, {'value': 'F', 'label': 'Female'}, {'value': 'NB', 'label': 'Non Binary'}],
-        'hiv_status': [{'value': True, 'label': 'HIV Positive'}, {'value': False, 'label': 'HIV Negative'}],
+        'hiv_status': [{'value': "true", 'label': 'HIV Positive'}, {'value': "false", 'label': 'HIV Negative'}],
     }
 
     source_type = models.CharField(max_length=20, choices=SourceType.choices, default=SourceType.ASS)

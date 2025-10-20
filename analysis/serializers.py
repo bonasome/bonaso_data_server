@@ -210,7 +210,8 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
                 filters=filters, 
                 repeat_only=obj.repeat_only, 
                 n=obj.repeat_n,
-                cascade=cascade
+                cascade=cascade,
+                average=obj.average
             )
         #if multiple indicators, return an array of indicators (no params should be present)
         data = []
@@ -225,7 +226,7 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
                 start=obj.start,
                 end=obj.end,
                 filters=filters,
-                cascade=cascade
+                cascade=cascade,
             )
             # the indicator will be used as the legend item
             for period, item in ind.items():
@@ -270,7 +271,7 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
         model = IndicatorChartSetting
         fields = ['id', 'indicators', 'created_by', 'tabular', 'axis', 'legend', 'stack', 'chart_type', 'use_target',
                   'start', 'end', 'chart_data', 'allow_targets', 'targets', 'filters', 'repeat_only', 'repeat_n', 'name',
-                  'display_name']
+                  'display_name', 'average']
 
 
 class DashboardFilterSerializer(serializers.ModelSerializer):

@@ -55,7 +55,7 @@ class IndicatorChartSetting(models.Model):
     stack = models.CharField(max_length=25, choices=ChartField.Field.choices, default=None, null=True, blank=True) #for bar charts (second param)
     use_target = models.BooleanField(default=False) #determines whether or not to show targets (will disable legend/stack)
     filters = models.ManyToManyField(ChartField, through='ChartFilter', blank=True, related_name='chart_filters') #chart field filters
-    
+    average = models.BooleanField(default=False)
     #for mapping repeated only
     repeat_only = models.BooleanField(default=False)
     repeat_n = models.PositiveIntegerField(null=True, blank=True)

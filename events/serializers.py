@@ -28,7 +28,7 @@ class EventSerializer(serializers.ModelSerializer):
     task_ids = serializers.PrimaryKeyRelatedField(queryset= Task.objects.all(), many=True, required=False, write_only=True, source='tasks')
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
-
+    
     class Meta:
         model = Event
         fields = [

@@ -456,8 +456,15 @@ class InteractionSerializer(serializers.ModelSerializer):
     
     responses = serializers.SerializerMethodField()
     response_data = serializers.JSONField(write_only=True, required=False)
+    parent_organization = serializers.SerializerMethodField()
     flags = FlagSerializer(read_only=True, many=True)
+    created_by = ProfileListSerializer(read_only=True)
+    updated_by = ProfileListSerializer(read_only=True)
     
+    def get_parent_organization(self, obj):
+        org_link =  ProjectOrganization.objects.filter(project=obj.task.project, organization=obj.task.organization).first()
+        return org_link.parent_organization.id if org_link and org_link.parent_organization else None
+
     def get_responses(self, obj):
         responses = Response.objects.filter(interaction=obj)
         return ResponseSerializer(responses, many=True).data
@@ -466,7 +473,8 @@ class InteractionSerializer(serializers.ModelSerializer):
         model=Interaction
         fields = [
             'id', 'interaction_date', 'interaction_location', 'comments', 'responses', 'response_data',
-            'task_id', 'task', 'respondent', 'respondent_id', 'flags'
+            'task_id', 'task', 'respondent', 'respondent_id', 'flags', 'created_by', 'created_at', 'updated_by',
+            'updated_at', 'parent_organization',
         ]
 
     def __options_valid(self, option, indicator):
@@ -558,9 +566,10 @@ class InteractionSerializer(serializers.ModelSerializer):
 
         # 5. SUBSET CHECK (correct order)
         if not set(val).issubset(set(prereq_val)):
-            raise serializers.ValidationError(
-                f'Values for "{indicator.name}" must be a subset of the values provided for "{indicator.match_options.name}".'
-            )
+            raise serializers.ValidationError({
+                    "options_error": f'Values for "{indicator.name}" must be a subset of the values provided for "{indicator.match_options.name}".',
+                    "details": {"indicator_id": indicator.id}
+                })
 
     def __check_date(self, date_val, project):
         if not date_val:
@@ -634,7 +643,11 @@ class InteractionSerializer(serializers.ModelSerializer):
 
             #if this should be visible and the indicator is required, but there is no value, raise an error
             if sbv and val in [[], None, ''] and indicator.required:
-                raise serializers.ValidationError(f'Indicator {indicator.name} is required.')
+                print(indicator.id, task.assessment.id)
+                raise serializers.ValidationError({
+                    'requirement_error': f'Indicator {indicator.name} is required.',
+                    "details": {"indicator_id": indicator.id}
+                })
             # if this shouldn't be visible but a value was sent anyway, raise an error
             if not sbv and val not in [[], None, '']:
                 raise serializers.ValidationError({
@@ -658,12 +671,16 @@ class InteractionSerializer(serializers.ModelSerializer):
                 response_date = data.get('date', interaction.interaction_date)
                 if response_date == '':
                     response_date = interaction.interaction_date
+
+                response_location = data.get('location', interaction.interaction_location)
+                if response_location == '':
+                    response_location = interaction.interaction_location
                 response = Response.objects.create(
                     interaction=interaction,
                     indicator=indicator,
                     response_option_id=option,
                     response_date=response_date,
-                    response_location=data.get('location', interaction.interaction_location),
+                    response_location=response_location,
                 )
         else:
             boolVal = data.get('value') if indicator.type == Indicator.Type.BOOL else None
@@ -672,6 +689,10 @@ class InteractionSerializer(serializers.ModelSerializer):
             response_date = data.get('date', interaction.interaction_date)
             if response_date == '':
                 response_date = interaction.interaction_date
+
+            response_location = data.get('location', interaction.interaction_location)
+            if response_location == '':
+                response_location = interaction.interaction_location
             response = Response.objects.create(
                 interaction=interaction,
                 indicator=indicator,
@@ -679,7 +700,7 @@ class InteractionSerializer(serializers.ModelSerializer):
                 response_boolean=boolVal in ['1', 1, 'true', True] if boolVal is not None else None,
                 response_option_id=option,
                 response_date=response_date,
-                response_location=data.get('location', interaction.interaction_location),
+                response_location=response_location,
                 comments=data.get('comments', None),
                 created_by=user,
             )

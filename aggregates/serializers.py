@@ -75,17 +75,23 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
     counts_data = AggregateCountSerializer(write_only=True, many=True, required=True)
+    parent_organization = serializers.SerializerMethodField()
 
     counts = serializers.SerializerMethodField()
     def get_counts(self, obj):
         counts = AggregateCount.objects.filter(group=obj)
         return AggregateCountSerializer(counts, many=True).data
 
+    def get_parent_organization(self, obj):
+        org_link =  ProjectOrganization.objects.filter(project=obj.project, organization=obj.organization).first()
+        return org_link.parent_organization.id if org_link and org_link.parent_organization else None
+    
     class Meta:
         model = AggregateGroup
         fields = [
             'id', 'organization', 'indicator', 'project', 'organization_id', 'indicator_id', 'project_id',
-            'start', 'end', 'created_by', 'created_at', 'updated_by', 'updated_at', 'counts', 'counts_data'
+            'start', 'end', 'created_by', 'created_at', 'updated_by', 'updated_at', 'counts', 'counts_data',
+            'parent_organization',
         ]
         
 
@@ -195,6 +201,8 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
         return attrs
     
     def __check_logic(self, indicator, organization, start, end, count, user, visited=None):
+        if count.value in [None, '', 0, '0']:
+            return
         if visited is None:
             visited = set()
         
@@ -222,7 +230,7 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
                 'group__indicator': prereq,
                 'group__organization': organization,
             }
-            for field in ['sex', 'age_range', 'kp_type', 'disability_type', 'hiv_status', 'pregnancy', 'district', 'citizenship', 'attribute_type']:
+            for field in ['sex', 'age_range', 'kp_type', 'disability_type', 'hiv_status', 'pregnancy', 'district', 'citizenship', 'attribute_type', 'unique_only']:
                 value = getattr(count, field)
                 if value is not None:
                     filters[field] = value

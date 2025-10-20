@@ -412,8 +412,8 @@ class InteractionViewSetTest(APITestCase):
         response = self.client.post('/api/record/interactions/', invalid_payload, format='json')
         data = response.json()
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('non_field_errors', data)
-        self.assertIn(f'Values for "{self.indicator_2.name}" must be a subset of the values provided for "{self.indicator_1.name}".', data['non_field_errors'])
+        self.assertIn('options_errors', data)
+        self.assertIn(f'Values for "{self.indicator_2.name}" must be a subset of the values provided for "{self.indicator_1.name}".', data['options_errors'])
 
     def test_missing_req(self):
         '''
@@ -437,8 +437,8 @@ class InteractionViewSetTest(APITestCase):
         print(response.json())
         data = response.json()
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('non_field_errors', data)
-        self.assertIn(f'Indicator {self.indicator_1.name} is required.', data['non_field_errors'])
+        self.assertIn('requirement_error', data)
+        self.assertIn(f'Indicator {self.indicator_1.name} is required.', data['requirement_errors'])
 
         #1 is an empty array (nothing selected)
         invalid_payload = {
@@ -458,8 +458,8 @@ class InteractionViewSetTest(APITestCase):
         response = self.client.post('/api/record/interactions/', invalid_payload, format='json')
         data = response.json()
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('non_field_errors', data)
-        self.assertIn(f'Indicator {self.indicator_1.name} is required.', data['non_field_errors'])
+        self.assertIn('requirement_error', data)
+        self.assertIn(f'Indicator {self.indicator_1.name} is required.', data['requirement_error'])
 
     def test_interaction_view(self):
         '''

@@ -1,7 +1,7 @@
 from django.utils.timezone import now
 from datetime import date, datetime, timedelta
 from django.db.models import Q
-from respondents.models import Interaction, Respondent
+from respondents.models import Interaction, Respondent, HIVStatus
 from indicators.models import Option
 from flags.utils import create_flag, resolve_flag
 from projects.models import ProjectOrganization
@@ -70,10 +70,10 @@ def check_logic(c, response_info, assessment, respondent):
         if prereq.type in ['single', 'multi']:
             req_val = c.condition_type if c.condition_type in ['any', 'none', 'all'] else c.value_option.id
         elif prereq.type in ['boolean']:
-            req_val = True if c.value_boolean in ['1', 1, True, 'true'] else False if c.value_boolean in ['0', 0, False, 'false'] else None
+            req_val = c.value_boolean
         else:
             req_val = c.value_text
-        if not req_val:
+        if req_val in [None, '']:
             return False
         # Get the actual stored value
         prereq_val = response_info.get(str(c.source_indicator.id), {}).get('value')
@@ -133,7 +133,12 @@ def check_logic(c, response_info, assessment, respondent):
 
     elif c.source_type == 'respondent':
         req_val = c.value_text
-        prereq_val = getattr(respondent, c.respondent_field)
+        prereq_val = None
+        if c.respondent_field == 'hiv_status':
+            stat = HIVStatus.objects.filter(respondent=respondent).first()
+            prereq_val = "true" if stat and stat.hiv_positive else "false"
+        else:
+            prereq_val = getattr(respondent, c.respondent_field)
 
         if c.operator == '=':
             return prereq_val == req_val

@@ -106,7 +106,7 @@ class UploadViewSetTest(APITestCase):
             "Yes", date(2023,2,1), "", "", date(2024, 5, 1), "Mochudi"
         ]
 
-    def create_workbook(self, tasks=None, org=None, include_metadata=True, include_data=True, include_event=False):
+    def create_workbook(self, task=None, org=None, include_metadata=True, include_data=True, include_event=False):
         '''
         Helper function that creates a sample workbook.
         '''
@@ -115,10 +115,7 @@ class UploadViewSetTest(APITestCase):
             ws = wb.active
             ws.title = 'Metadata'
             ws['A2'] = org
-            for i, task_id in enumerate(tasks):
-                ws[f'B{i+2}'] = task_id
-            ws["C1"] = "number of tasks"
-            ws["C2"] = len(tasks)
+            ws[f'B2'] = task
         if include_data:
             wb.create_sheet(title='Data')
         return wb
@@ -165,7 +162,7 @@ class UploadViewSetTest(APITestCase):
         Test that a dc cannot access templates.
         '''
         self.client.force_authenticate(user=self.data_collector)
-        wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True) 
+        wb = self.create_workbook(self.task.id, self.parent_org.id, include_data=True) 
         file_obj = BytesIO()
         wb.save(file_obj)
         file_obj.name = 'test.xlsx'
@@ -179,7 +176,7 @@ class UploadViewSetTest(APITestCase):
         Test that you cannot access another orgs tempalte.
         '''
         self.client.force_authenticate(user=self.officer)
-        wb = self.create_workbook([self.other_task.id], self.other_org.id, include_data=True) 
+        wb = self.create_workbook(self.other_task.id, self.other_org.id, include_data=True) 
         file_obj = BytesIO()
         wb.save(file_obj)
         file_obj.name = 'test.xlsx'
@@ -193,7 +190,7 @@ class UploadViewSetTest(APITestCase):
         Test that you cannot access another orgs tempalte.
         '''
         self.client.force_authenticate(user=self.admin)
-        wb = self.create_workbook([self.task.id], self.other_org.id, include_data=True) 
+        wb = self.create_workbook(self.task.id, self.other_org.id, include_data=True) 
         file_obj = BytesIO()
         wb.save(file_obj)
         file_obj.name = 'test.xlsx'
@@ -210,7 +207,7 @@ class UploadViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.officer)
 
         # Step 1: Create workbook with some but not all required headers
-        wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True)  
+        wb = self.create_workbook(self.task.id, self.parent_org.id, include_data=True)  
         ws = wb['Data']
         # Missing 'First Name' on purpose
         headers = [h for h in self.headers if h != 'First Name']
@@ -236,7 +233,7 @@ class UploadViewSetTest(APITestCase):
         and HIV status.
         '''
         self.client.force_authenticate(user=self.officer)
-        wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True)   
+        wb = self.create_workbook(self.task.id, self.parent_org.id, include_data=True)   
         ws = wb['Data']
         headers = self.headers
         ws.append(headers)
@@ -348,7 +345,7 @@ class UploadViewSetTest(APITestCase):
         and HIV status.
         '''
         self.client.force_authenticate(user=self.officer)
-        wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True)   
+        wb = self.create_workbook(self.task.id, self.parent_org.id, include_data=True)   
         ws = wb['Data']
         headers = self.headers
         ws.append(headers)
@@ -385,7 +382,7 @@ class UploadViewSetTest(APITestCase):
         Test that an M&E officer can upload a template for a child org.
         '''
         self.client.force_authenticate(user=self.officer)
-        wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True)   
+        wb = self.create_workbook(self.task.id, self.parent_org.id, include_data=True)   
         ws = wb['Data']
         headers = self.headers 
         ws.append(headers)
@@ -415,7 +412,7 @@ class UploadViewSetTest(APITestCase):
         Test that bad values are caught.
         '''
         self.client.force_authenticate(user=self.officer)
-        wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True)   
+        wb = self.create_workbook(self.task.id, self.parent_org.id, include_data=True)   
         ws = wb['Data']
         headers = self.headers
         ws.append(headers)
@@ -463,7 +460,7 @@ class UploadViewSetTest(APITestCase):
         Test date validations.
         '''
         self.client.force_authenticate(user=self.officer)
-        wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True)   
+        wb = self.create_workbook(self.task.id, self.parent_org.id, include_data=True)   
         ws = wb['Data']
         headers = self.headers
         ws.append(headers)
@@ -502,7 +499,7 @@ class UploadViewSetTest(APITestCase):
         Also, Respondent should save, but not interactions.
         '''
         self.client.force_authenticate(user=self.officer)
-        wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True)     
+        wb = self.create_workbook(self.task.id, self.parent_org.id, include_data=True)     
         ws = wb['Data']
         headers = self.headers
         ws.append(headers)
@@ -543,7 +540,7 @@ class UploadViewSetTest(APITestCase):
         and HIV status.
         '''
         self.client.force_authenticate(user=self.officer)
-        wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True)     
+        wb = self.create_workbook(self.task.id, self.parent_org.id, include_data=True)     
         ws = wb['Data']
         headers = self.headers
         ws.append(headers)
@@ -594,7 +591,7 @@ class UploadViewSetTest(APITestCase):
         Test that the same respondent is caught and not recreated. The frontend will give a display for this.
         '''
         self.client.force_authenticate(user=self.officer)
-        wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True)   
+        wb = self.create_workbook(self.task.id, self.parent_org.id, include_data=True)   
         ws = wb['Data']
         # Missing 'First Name' on purpose
         headers = self.headers
@@ -636,7 +633,7 @@ class UploadViewSetTest(APITestCase):
         Test that the same respondent is caught and not recreated. The frontend will give a display for this.
         '''
         self.client.force_authenticate(user=self.officer)
-        wb = self.create_workbook([self.task.id], self.parent_org.id, include_data=True)     
+        wb = self.create_workbook(self.task.id, self.parent_org.id, include_data=True)     
         ws = wb['Data']
         # Missing 'First Name' on purpose
         headers = self.headers + ["TEST1: Parent Indicator", "TEST2: Child Indicator", "Comments"]

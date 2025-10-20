@@ -32,7 +32,7 @@ COPY . .
 # RUN python manage.py collectstatic --noinput
 
 # Run database migrations (if applicable)
-# RUN python manage.py migrate
+RUN python manage.py migrate
 
 EXPOSE 8000
 

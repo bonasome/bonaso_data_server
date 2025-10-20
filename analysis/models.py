@@ -1,7 +1,7 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
-from indicators.models import Indicator
+from indicators.models import Assessment, Indicator
 from projects.models import Project
 from organizations.models import Organization
 User = get_user_model()
@@ -16,11 +16,13 @@ class ChartField(models.Model):
         SEX = 'sex', _('Sex')
         KP ='kp_type', _('Key Population Type')
         DIS = 'disability_type', _('Disability Type')
+        ATTR = 'special_attribute', _('Special Respondent Attribute')
+        DIST = 'district', _('District')
         CIT = 'citizenship', _('Citizenship')
         HIV = 'hiv_status', _('HIV Status')
         PREG = 'pregnancy', ('Pregnancy')
         ORG = 'organization', ('Organization')
-        SC = 'subcategory', ('Indicator Subcategory')
+        OP = 'option', ('Option')
         P = 'platform', ('Platform')
         MET = 'metric', ('Metric')
     name = models.CharField(max_length=25, choices=Field.choices, unique=True)
@@ -53,7 +55,7 @@ class IndicatorChartSetting(models.Model):
     stack = models.CharField(max_length=25, choices=ChartField.Field.choices, default=None, null=True, blank=True) #for bar charts (second param)
     use_target = models.BooleanField(default=False) #determines whether or not to show targets (will disable legend/stack)
     filters = models.ManyToManyField(ChartField, through='ChartFilter', blank=True, related_name='chart_filters') #chart field filters
-    
+    average = models.BooleanField(default=False)
     #for mapping repeated only
     repeat_only = models.BooleanField(default=False)
     repeat_n = models.PositiveIntegerField(null=True, blank=True)
@@ -158,7 +160,7 @@ class LineList(models.Model):
     as filters. 
     '''
     name = models.CharField(max_length=255, null=True, blank=True)
-    indicator = models.ForeignKey(Indicator, on_delete=models.CASCADE, null=True)
+    assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE, null=True)
     project = models.ForeignKey(Project, on_delete=models.SET_NULL, null=True)
     organization = models.ForeignKey(Organization, on_delete=models.SET_NULL, null=True)
     cascade_organization = models.BooleanField(default=False) #will also include child organizations of the selected organization if project/organization are provided

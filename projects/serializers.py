@@ -9,8 +9,8 @@ from projects.models import Project, Task, Client, Target, ProjectOrganization, 
 from projects.utils import ProjectPermissionHelper, test_child_org
 from organizations.models import Organization
 from organizations.serializers import OrganizationListSerializer
-from indicators.models import Indicator
-from indicators.serializers import IndicatorSerializer
+from indicators.models import Indicator, Assessment
+from indicators.serializers import IndicatorSerializer, AssessmentSerializer
 from profiles.serializers import ProfileListSerializer
 from analysis.utils.targets import get_achievement
 
@@ -57,8 +57,10 @@ class TaskSerializer(serializers.ModelSerializer):
     indicator = IndicatorSerializer(read_only=True)
     project = ProjectListSerializer(read_only=True)
     organization = OrganizationListSerializer(read_only=True)
+    assessment = AssessmentSerializer(read_only=True)
     organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, source='organization')
-    indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True, source='indicator')
+    indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True, source='indicator', required=False, allow_null=True)
+    assessment_id = serializers.PrimaryKeyRelatedField(queryset=Assessment.objects.all(), write_only=True, source='assessment', required=False, allow_null=True)
     project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True, source='project')
     display_name = serializers.SerializerMethodField(read_only=True)
 
@@ -68,33 +70,38 @@ class TaskSerializer(serializers.ModelSerializer):
     
     class Meta:
         model=Task
-        fields = ['id', 'indicator', 'organization', 'project', 'indicator_id', 
-                  'project_id', 'organization_id', 'display_name']
+        fields = [
+            'id', 'indicator', 'organization', 'project', 'indicator_id', 
+            'project_id', 'organization_id', 'display_name', 'assessment', 'assessment_id'
+        ]
         
 
     def validate(self, attrs):
+        print(attrs)
         user = self.context.get('request').user if self.context.get('request') else None
         organization = attrs.get('organization')
         indicator = attrs.get('indicator')
+        assessment = attrs.get('assessment')
         project = attrs.get('project')
-        if not organization or not project or not indicator:
+        if not organization or not project or not (indicator or assessment):
             raise serializers.ValidationError(
                     f"This task requires a project, indicator, and organization."
                 )
-        if Task.objects.filter(project=project, organization=organization, indicator=indicator).exists():
-            raise serializers.ValidationError('This task already exists.')
+
+        if indicator:
+            if Task.objects.filter(project=project, organization=organization, indicator=indicator).exists():
+                raise serializers.ValidationError('This task already exists.')
+            if indicator.assessment:
+                raise serializers.ValidationError(f'This task is part of an assessment. Please add the entirity of "{indicator.assessment.name}" as a task instad.')
+        if assessment:
+            if Task.objects.filter(project=project, organization=organization, assessment=assessment).exists():
+                raise serializers.ValidationError('This task already exists.')
         if user.role != 'admin':
             #only allow non admins to create tasks for their children
             if not test_child_org(user, organization, project):
                 raise PermissionDenied('You do not have permission to create this task.')
         if not ProjectOrganization.objects.filter(project=project, organization=organization).exists():
             raise serializers.ValidationError('This organization is not a part of this project.')
-        # validate that if this task has a prereq, that prereq indicator is also assigned as a task
-        for prereq in indicator.prerequisites.all():
-            if prereq and not Task.objects.filter(project=project, organization=organization, indicator=prereq).exists():
-                raise serializers.ValidationError(
-                    f"This task's indicator has a prerequisite '{prereq.name}'. Please assign that indicator as a task first."
-                )
         return attrs
     
     def create(self, validated_data):
@@ -220,71 +227,79 @@ class TargetSerializer(serializers.ModelSerializer):
     '''
     Serializer for viewing/editing/creating targets.
     '''
-    task = TaskSerializer(read_only=True)
-    task_id = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True, source='task')
+    
+    indicator = IndicatorSerializer(read_only=True)
+    project = ProjectListSerializer(read_only=True)
+    organization = OrganizationListSerializer(read_only=True)
+    organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, source='organization')
+    indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True, source='indicator', required=False)
+    project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True, source='project')
+    
     related_to = TaskSerializer(read_only=True)
-    related_to_id = serializers.PrimaryKeyRelatedField(queryset=Task.objects.all(), write_only=True, required=False, allow_null=True, source='related_to')
+    related_to_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True, required=False, allow_null=True, source='related_to')
     related_as_number = serializers.SerializerMethodField()
     achievement = serializers.SerializerMethodField()
     display_name = serializers.SerializerMethodField()
 
     def get_related_as_number(self, obj):
-        '''
-        Get the actual numeric value that a related to percentage represents at a given moment.
-        '''
         user = self.context.get('request').user
         if not obj.related_to:
             return None
         return get_achievement(user, obj, obj.related_to)
-
+    
     def get_achievement(self, obj):
-        '''
-        Get the actual number that has been acheived. Works similar to the above function.
-        '''
         user = self.context.get('request').user
         return get_achievement(user, obj)
+    
     def get_display_name(self, obj):
         return str(obj)
     
     class Meta:
         model = Target
-        fields = ['id', 'task', 'task_id', 'start', 'end', 'amount','related_to', 'related_to_id', 
-                'related_as_number', 'percentage_of_related', 'achievement', 'display_name']
+        fields = [
+            'id', 'indicator', 'indicator_id', 'start', 'end', 'amount','related_to', 'related_to_id', 
+            'percentage_of_related', 'display_name', 'achievement', 'related_as_number',
+            'organization', 'organization_id', 'project', 'project_id'
+        ]
 
     
     def validate(self, attrs):
-        task = attrs.get('task', getattr(self.instance, 'task', None))
+        organization = attrs.get('organization', getattr(self.instance, 'organization', None))
+        project = attrs.get('project', getattr(self.instance, 'project', None))
+        indicator = attrs.get('indicator', getattr(self.instance, 'indicator', None))
         
         ###===Permission Check===###
         user = self.context['request'].user
         if user.role not in ['meofficer', 'manager', 'admin']:
             raise PermissionDenied("You do not have permission to create targets.")
         
+        if not organization or not project or not indicator:
+            raise serializers.ValidationError('Project, organization, and indicator are required.')
+        
         if user.role != 'admin':
             #if not an admin, only allow users to assign targets to their children
             is_child = ProjectOrganization.objects.filter(
-                organization=task.organization,
+                organization=organization,
                 parent_organization=user.organization,
-                project=task.project
+                project=project
             ).exists()
             if not is_child:
                 # This includes the case where instance.organization == user.organization
                 raise PermissionDenied("You may only assign targets to your child organizations.")
         
+        ###==Confirm that this indicator/org/project combo is a legitimate task===###
+        if not Task.objects.filter(Q(organization=organization, project=project, indicator=indicator, indicator__isnull=False) |
+                                   Q(organization=organization, project=project, assessment=indicator.assessment, assessment__isnull=False)).exists():
+            raise serializers.ValidationError('Cannot create a target for a task that does not exist.')
         ###===VALIDATION===###, error messages should help explain what each of these does
         related = attrs.get('related_to')
-        if not task:
-            raise serializers.ValidationError({'task_id': 'Task not found.'})
-        
 
-        if related and related == task:
-            raise serializers.ValidationError({'related_to_id': 'A target cannot use its own assigned task as a reference.'})
-        if related and related.project != task.project:
-            raise serializers.ValidationError({'related_to_id': 'Related target must belong to the same project.'})
-
-        if related and related.organization != task.organization:
-            raise serializers.ValidationError({'related_to_id': 'Related target must be assigned to the same organization.'})
-        
+        if related:
+            if related == indicator:
+                raise serializers.ValidationError({'related_to_id': 'A target cannot use its own assigned task as a reference.'})
+            if not Task.objects.filter(Q(organization=organization, project=project, indicator=related, indicator__isnull=False) |
+                                   Q(organization=organization, project=project, assessment=related.assessment, assessment__isnull=False)).exists():
+                raise serializers.ValidationError('Cannot create a target with a related task that does not exist.')
         if not attrs.get('amount') and (not related or not attrs.get('percentage_of_related')):
             raise serializers.ValidationError("Either 'amount' or both 'related_to' and 'percentage_of_related' must be provided.")
         
@@ -297,8 +312,8 @@ class TargetSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Start date must be before end date")
         
         #make sure target is within the range of the project
-        proj_start = task.project.start
-        proj_end = task.project.end
+        proj_start = project.start
+        proj_end = project.end
 
         if start < proj_start or start > proj_end:
             raise serializers.ValidationError(f"Target start is outside the range of the project {proj_start}")
@@ -307,9 +322,11 @@ class TargetSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(f"Target end is outside the range of the project {proj_end}")
         
         #check if this overlaps with another target for the same task
-        if task and start and end:
+        if start and end:
             overlaps = Target.objects.filter(
-                task=task,
+                indicator=indicator,
+                project=project,
+                organization=organization,
                 start__lte=end,
                 end__gte=start,
             )

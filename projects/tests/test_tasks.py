@@ -8,7 +8,8 @@ from django.contrib.auth import get_user_model
 from projects.models import Project, Client, Task, Target, ProjectOrganization
 from respondents.models import Respondent, Interaction
 from organizations.models import Organization
-from indicators.models import Indicator
+from indicators.models import Indicator, Assessment
+from aggregates.models import AggregateGroup, AggregateCount
 from datetime import date
 User = get_user_model()
 
@@ -77,14 +78,17 @@ class TaskViewSetTest(APITestCase):
             created_by=self.admin,
         )
 
-        self.indicator = Indicator.objects.create(code='1', name='Parent')
-        self.child_indicator = Indicator.objects.create(code='2', name='Child')
-        self.child_indicator.prerequisites.set([self.indicator])
+        self.assessment = Assessment.objects.create(name='Ass')
+        self.indicator_ass = Indicator.objects.create(name='Are you here?', assessment=self.assessment, type=Indicator.Type.BOOL, allow_aggregate=True)
+        self.assessment2 = Assessment.objects.create(name='Ass 2 Ass')
 
-        self.task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.indicator)
-        self.other_task = Task.objects.create(project=self.project, organization=self.other_org, indicator=self.indicator)
-        self.child_task = Task.objects.create(project=self.project, organization=self.child_org, indicator=self.indicator)
-        self.inactive_task = Task.objects.create(project=self.planned_project, organization=self.parent_org, indicator=self.indicator)
+        self.indicator = Indicator.objects.create(name='Standalone', category=Indicator.Category.SOCIAL)
+
+        self.task = Task.objects.create(project=self.project, organization=self.parent_org, assessment=self.assessment)
+        
+        self.other_task = Task.objects.create(project=self.project, organization=self.other_org, assessment=self.assessment)
+        self.child_task = Task.objects.create(project=self.project, organization=self.child_org, assessment=self.assessment)
+        self.inactive_task = Task.objects.create(project=self.planned_project, organization=self.parent_org, assessment=self.assessment)
 
     def test_task_admin_view(self):
         '''
@@ -111,13 +115,27 @@ class TaskViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'organization_id': self.other_org.id,
-            'indicator_id': self.child_indicator.id,
+            'indicator_id': self.indicator.id,
+            'assessment_id': None,
             'project_id': self.project.id,
         }
         response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        task = Task.objects.get(organization=self.other_org, indicator=self.child_indicator, project=self.project)
+        task = Task.objects.get(organization=self.other_org, indicator=self.indicator, project=self.project)
+        self.assertEqual(task.created_by, self.admin)
+
+        #also works
+        valid_payload = {
+            'organization_id': self.other_org.id,
+            'indicator_id': None,
+            'assessment_id': self.assessment2.id,
+            'project_id': self.project.id,
+        }
+        response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(organization=self.other_org, assessment=self.assessment2, project=self.project)
         self.assertEqual(task.created_by, self.admin)
     
     def test_task_create_wrong_org(self):
@@ -128,12 +146,13 @@ class TaskViewSetTest(APITestCase):
         valid_payload = {
             'organization_id': self.loser_org.id,
             'indicator_id': self.indicator.id,
+            'assessment_id': None,
             'project_id': self.project.id,
         }
         response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
     
-    def test_task_create_no_prereq(self):
+    def test_task_ass_indicator(self):
         '''
         Kind of an odd move to assign an indicator a prerequisite then assign it without assigning the 
         prereq first, right?
@@ -141,27 +160,13 @@ class TaskViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'organization_id': self.child_org.id,
-            'indicator_id': self.child_indicator.id,
+            'indicator_id': self.indicator_ass.id,
+            'assessment_id': None,
             'project_id': self.project_2.id,
         }
         response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-        valid_payload = {
-            'organization_id': self.child_org.id,
-            'indicator_id': self.indicator.id,
-            'project_id': self.project_2.id,
-        }
-        response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        valid_payload = {
-            'organization_id': self.child_org.id,
-            'indicator_id': self.child_indicator.id,
-            'project_id': self.project_2.id,
-        }
-        response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_task_create_child(self):
         '''
@@ -170,7 +175,8 @@ class TaskViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.manager)
         valid_payload = {
             'organization_id': self.child_org.id,
-            'indicator_id': self.child_indicator.id,
+            'indicator_id': self.indicator.id,
+            'assessment_id': None,
             'project_id': self.project.id,
         }
         response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
@@ -179,7 +185,8 @@ class TaskViewSetTest(APITestCase):
         #though this is project specific
         valid_payload = {
             'organization_id': self.child_org.id,
-            'indicator_id': self.child_indicator.id,
+            'indicator_id': self.indicator.id,
+            'assessment_id': None,
             'project_id': self.project_2.id,
         }
         response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
@@ -192,7 +199,8 @@ class TaskViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.manager)
         valid_payload = {
             'organization_id': self.other_org.id,
-            'indicator_id': self.child_indicator.id,
+            'indicator_id': self.indicator.id,
+            'assessment_id': None,
             'project_id': self.project.id,
         }
         response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
@@ -200,7 +208,8 @@ class TaskViewSetTest(APITestCase):
 
         valid_payload = {
             'organization_id': self.parent_org.id,
-            'indicator_id': self.child_indicator.id,
+            'indicator_id': self.indicator.id,
+            'assessment_id': None,
             'project_id': self.project.id,
         }
         response = self.client.post('/api/manage/tasks/', valid_payload, format='json')
@@ -214,16 +223,7 @@ class TaskViewSetTest(APITestCase):
         response = self.client.delete(f'/api/manage/tasks/{self.other_task.id}/')
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
     
-    def test_delete_task_prereq(self):
-        '''
-        But not if they have downstream tasks.
-        '''
-        child_task = Task.objects.create(organization=self.parent_org, indicator=self.child_indicator, project=self.project)
-        self.client.force_authenticate(user=self.admin)
-        response = self.client.delete(f'/api/manage/tasks/{self.task.id}/')
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-    
-    def test_delete_task_inter(self):
+    def test_delete_task_ir(self):
         '''
         Or if they have an interaction.
         '''
@@ -235,25 +235,18 @@ class TaskViewSetTest(APITestCase):
             citizenship='test',
             sex=Respondent.Sex.FEMALE,
         )
-        interaction = Interaction.objects.create(task=self.task, respondent=respondent, interaction_date='2025-06-23')
+        interaction = Interaction.objects.create(task=self.task, respondent=respondent, interaction_date='2025-06-23', interaction_location='There')
         self.client.force_authenticate(user=self.admin)
         response = self.client.delete(f'/api/manage/tasks/{self.task.id}/')
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-        
-    def test_batch_create(self):
+    
+    def test_delete_task_aggies(self):
         '''
-        Allow users to create mutliple tasks at once
+        Or if they have an aggregate.
         '''
-        random_ind = Indicator.objects.create(name='Random', code='R')
         self.client.force_authenticate(user=self.admin)
-        valid_payload = {
-            'organization_id': self.other_org.id,
-            'indicator_ids': [self.child_indicator.id, random_ind.id],
-            'project_id': self.project.id,
-        }
-        response = self.client.post('/api/manage/tasks/batch-create/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(len(response.data['created']), 2)
-        tasks = Task.objects.filter(organization=self.other_org)
-        self.assertEqual(tasks.count(), 3)
+        group = AggregateGroup.objects.create(project=self.project, organization=self.parent_org, indicator=self.indicator_ass, start='2025-01-01', end='2025-01-01')
+        count = AggregateCount.objects.create(sex='M', value=25, group=group)
 
+        response = self.client.delete(f'/api/manage/tasks/{self.task.id}/')
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)

@@ -1,5 +1,5 @@
 from django.contrib import admin
-from respondents.models import Respondent, Interaction, RespondentAttribute, KeyPopulationStatus, DisabilityStatus, HIVStatus, Pregnancy, InteractionSubcategory
+from respondents.models import Respondent, Interaction, RespondentAttribute, KeyPopulationStatus, DisabilityStatus, HIVStatus, Pregnancy
 
 '''
 Admin doesn't support JWT natively and I don't feel like adding it so we're really only using this for dev.
@@ -35,10 +35,6 @@ class HIVStatus(admin.ModelAdmin):
     list_display = ['respondent', 'hiv_positive', 'date_positive']
     list_filter = []
     search_fields = ['respondent__first_name', 'respondent__last_name']
-
-@admin.register(InteractionSubcategory)
-class InteractionSubcategory(admin.ModelAdmin):
-    list_display = ['interaction', 'subcategory', 'numeric_component']
 
 admin.site.register(Respondent)
 admin.site.register(Interaction)

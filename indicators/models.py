@@ -3,85 +3,130 @@ from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
-def get_attribute_choices():
-    from respondents.models import RespondentAttributeType
-    return RespondentAttributeType.Attributes.choices
 
-class IndicatorSubcategory(models.Model):
-    '''
-    A model that allows for indicators to have the eponymous subcategories that allow for more information
-    to be attached to interactions. 
-    
-    Can be deprecated as needed and are no longer available to be 
-    attached to new interactions (but old ones are preserved).
-    '''
-    name = models.CharField(max_length=255, verbose_name='Category Name')
-    slug = models.CharField(max_length=255, blank=True)
-    deprecated = models.BooleanField(null=True, default=False, blank=True)
-    
-    def save(self, *args, **kwargs):
-        self.slug = ''.join(self.name.lower().split())  # lowercase + no spaces
-        super().save(*args, **kwargs)
-        
-    def __str__(self):
-        return self.name
-
-class Indicator(models.Model):
-    '''
-    The indicator model is the key model that tracks the information we need to track. Any data that is 
-    collected is tied to an indicator in some way. 
-
-    FIELDS:
-        -Status: helper field for admins to map things out. Only active indicators are viewable by others
-        -Type: The type is basically how the indicator will be used, and determines what models it can be linked to
-            --> Respondent? Interaction model (or counts)
-            --> Social ? the Social model/
-        -Prerequisite: Does this indicator rely on one or more other indicators (i.e. --> Screened for NCD --> Referred for NCD)
-            - If so, it can be marked as a prerequisite to automatically flag suspect data.
-        Requires Attribute: Things like HIV Positive of is a Community leader (for respondent types)
-        Governs Attribute: Example, indicator test positive for HIV --> change respondent model to be HIV positive if not already
-        Require Numeric: If this indicator is attached to an interaction, should it require a number (
-            i.e., number of condoms given to a person)
-        Sucategories: Many to many for the above model
-        Match Subcategories: Will automatically this models subcategories to match with a prerequisite
-        Allow Repeatr: By default any interaction that happen with the same person more than once within a 30
-            day span is flagged. But this can be waived with setting this to true.
-
-    '''
-    class Status(models.TextChoices):
-        ACTIVE = 'active', _('Active')
-        DEPRECATED = 'deprecated', _('Deprecated')
-        PLANNED = 'planned', _('Planned')
-
-    class IndicatorType(models.TextChoices):
-        '''
-        WARNING: The frontend will try to reference these values as strings, so be careful when changing these, and if you
-        do change these fields, reflect those changes in the frontend.
-        '''
-        RESPONDENT = 'respondent', _('Respondent') #this indicator relies on a respondent, and will appear on respondent
-        SOCIAL = 'social', _('Social Media Post') #this indicator is linked to a seperate post model
-        EVENT_NO = 'event_no', _('Number of Events') #by default, when this indicator is added to an event via a task, it will contribute to its count
-        ORG_EVENT_NO = 'org_event_no', _('Number of Organizations at Event') #by default, when this indicator is added to an event via a task, it will use the number of organizations added (exlcuding the host) as its count
-
-    name = models.CharField(max_length=255, verbose_name='Indicator Text')
-    description = models.TextField(blank=True, null=True)
-    status = models.CharField(max_length=25, choices=Status.choices, default=Status.ACTIVE, verbose_name='Indicator Status')
-    indicator_type = models.CharField(max_length=25, choices=IndicatorType.choices, default=IndicatorType.RESPONDENT, verbose_name='Indicator Type')
-    code = models.CharField(max_length=10, verbose_name='Indicator Code')
-    prerequisites = models.ManyToManyField('self', blank=True, symmetrical=False, related_name='dependent_indicators', verbose_name='Prerequisite Indicators')
-    required_attributes = models.ManyToManyField('respondents.RespondentAttributeType', blank=True)
-    governs_attribute = models.CharField(max_length=25, choices=get_attribute_choices, blank=True, null=True)
-    require_numeric = models.BooleanField(blank=True, null=True, default=False, verbose_name='Indicator requires an accompanying numeric value.')
-    subcategories = models.ManyToManyField(IndicatorSubcategory, blank=True)
-    match_subcategories_to = models.ForeignKey("self", on_delete=models.SET_NULL, blank=True, null=True)
-    allow_repeat = models.BooleanField(default=False, blank=True, null=True)
+class Assessment(models.Model):
+    name = models.CharField(max_length = 255, verbose_name='Assessment Name')
+    description = models.TextField(verbose_name='Description', null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='indicator_created_by')
-    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='indicator_updated_by')
-    
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='assessment_created_by')
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='assessment_updated_by')
 
     def __str__(self):
-        return f'{self.code}: {self.name}'
+        return f'{self.name}'
+    
+class Indicator(models.Model):
 
+    class Type(models.TextChoices):
+        BOOL = 'boolean', _('Yes/No')
+        SINGLE = 'single', _('Single Select')
+        MULTI = 'multi', _('Mutliselect')
+        TEXT = 'text', _('Open Answer')
+        INT = 'integer', _('Number')
+
+    class Category(models.TextChoices):
+        ASS = 'assessment', _('Assessment-Based')
+        SOCIAL = 'social', _('Social Media')
+        EVENTS = 'events', _('Number of Events / Outreach')
+        ORGS = 'orgs', _('Organizations Capacitated')
+        MISC = 'misc', _('Other Category')
+
+    name = models.CharField(max_length=255)
+    required = models.BooleanField(default=False)
+    type = models.CharField(max_length=25, choices=Type.choices, default=Type.BOOL, verbose_name='Data Type')
+    category = models.CharField(max_length=25, choices=Category.choices, default=Category.ASS)
+    assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE, null=True, blank=True)
+    match_options = models.ForeignKey('self', blank=True, null=True, on_delete=models.SET_NULL)
+    allow_none = models.BooleanField(default=False)
+    allow_aggregate = models.BooleanField(default=False)
+    order = models.PositiveIntegerField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='de_created_by')
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='de_updated_by')
+    
+    def __str__(self):
+        return f'{self.name}'
+    
+class Option(models.Model):
+    name = models.CharField(max_length=255)
+    indicator = models.ForeignKey(Indicator, on_delete=models.CASCADE)
+    deprecated = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='option_created_by')
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='option_updated_by')
+
+    def __str__(self):
+        return f'{self.name}'
+
+class LogicGroup(models.Model):
+    class Operator(models.TextChoices):
+        AND = 'AND', _('All Conditions')
+        OR = 'OR', _('Any Condition')
+
+    indicator = models.ForeignKey(Indicator, related_name="logic_groups", on_delete=models.CASCADE)
+    group_operator = models.CharField(max_length=3, choices=Operator.choices, default=Operator.AND)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='logic_group_created_by')
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='logic_group_updated_by')
+
+class LogicCondition(models.Model):
+    group = models.ForeignKey(LogicGroup, related_name="conditions", on_delete=models.CASCADE)
+
+    class SourceType(models.TextChoices):
+        ASS = 'assessment', _('Indicator in This Assessment')
+        RES = 'respondent', _('Respondent Field')
+        
+    class RespondentField(models.TextChoices):
+        SEX = 'sex', _('Sex')
+        HIV = 'hiv_status', _('HIV Status')
+
+    class Operator(models.TextChoices):
+        EQUALS = '=', _('Is Equal To'),
+        NE = '!=', _('Does Not Equal'),
+        GT = '>', _('Is Greater Than'),
+        LT = '<', _('Is Less Than'),
+        C = 'contains', _('Contains'),
+        DNC = '!contains', _('Does Not Contain'),
+    
+    class ExtraChoices(models.TextChoices):
+        ANY= 'any', _('Any')
+        ALL= 'all', _('All')
+        NONE= 'none', _('None')
+
+    RESPONDENT_VALUE_CHOICES = {
+        'sex': [{'value': 'M', 'label': 'Male'}, {'value': 'F', 'label': 'Female'}, {'value': 'NB', 'label': 'Non Binary'}],
+        'hiv_status': [{'value': "true", 'label': 'HIV Positive'}, {'value': "false", 'label': 'HIV Negative'}],
+    }
+
+    source_type = models.CharField(max_length=20, choices=SourceType.choices, default=SourceType.ASS)
+    source_indicator = models.ForeignKey(
+        Indicator, null=True, blank=True,
+        on_delete=models.SET_NULL,
+        help_text="Used if source_type = indicator"
+    )
+    respondent_field = models.CharField(
+        max_length=100,
+        null=True, blank=True,
+        help_text="Used if source_type = respondent",
+    )
+    operator = models.CharField(max_length=10, choices=Operator.choices, default=Operator.EQUALS)
+    value_text = models.CharField(max_length=255, null=True, blank=True)
+    value_option = models.ForeignKey(
+        'Option',
+        null=True, blank=True,
+        on_delete=models.SET_NULL
+    )
+    condition_type = models.CharField(max_length=10, choices=ExtraChoices.choices, null=True, blank=True)
+    value_boolean = models.BooleanField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='condition_created_by')
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='condition_updated_by')
+    

@@ -1,308 +1,377 @@
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
+from django.db.models import Max
 
-from indicators.models import Indicator, IndicatorSubcategory
+from indicators.models import Indicator, Assessment, Option, LogicCondition, LogicGroup
 from profiles.serializers import ProfileListSerializer
 
-class IndicatorSubcategorySerializer(serializers.ModelSerializer):
-    '''
-    Simple nested serializer for collecting subcategory information as necessary
-    '''
-    id = serializers.IntegerField(required=False, allow_null=True)
+class LogicConditionSerializer(serializers.ModelSerializer):
+    created_by = ProfileListSerializer(read_only=True)
+    updated_by = ProfileListSerializer(read_only=True)
+    
     class Meta:
-        model = IndicatorSubcategory
-        fields = ['id', 'name', 'deprecated']
+        model=LogicCondition
+        fields = [
+            'id', 'operator', 'source_type', 'source_indicator', 'respondent_field', 'value_text', 'condition_type',
+            'value_option', 'value_boolean', 'created_at', 'created_by', 'updated_by', 'updated_at'
+        ]
 
-class IndicatorListSerializer(serializers.ModelSerializer):
+class LogicGroupSerializer(serializers.ModelSerializer):
+    created_by = ProfileListSerializer(read_only=True)
+    updated_by = ProfileListSerializer(read_only=True)
+    conditions = serializers.SerializerMethodField()
+    def get_conditions(self, obj):
+        inds = LogicCondition.objects.filter(group=obj)
+        return LogicConditionSerializer(inds, many=True).data
+    class Meta:
+        model=LogicGroup
+        fields = [
+            'id', 'group_operator', 'conditions',  'created_by', 'created_at', 'updated_by', 'updated_at',
+        ]
+    
+class OptionSerializer(serializers.ModelSerializer):
+    created_by = ProfileListSerializer(read_only=True)
+    updated_by = ProfileListSerializer(read_only=True)
+    class Meta:
+        model=Option
+        fields = [
+            'id', 'name', 'created_by', 'created_at', 'updated_by', 'updated_at', 'deprecated'
+        ]
+
+class IndicatorSerializer(serializers.ModelSerializer):
+    options = serializers.SerializerMethodField()
+    logic = serializers.SerializerMethodField()
+    created_by = ProfileListSerializer(read_only=True)
+    updated_by = ProfileListSerializer(read_only=True)
+    match_options_id = serializers.PrimaryKeyRelatedField(
+        source='match_options',
+        queryset=Indicator.objects.all(),
+        write_only=True,
+        required=False, 
+        allow_null=True
+    )
+    assessment_id = serializers.PrimaryKeyRelatedField(
+        source='assessment',
+        queryset=Assessment.objects.all(),
+        write_only=True,
+        required=False, 
+        allow_null=True
+    )
+    options_data = serializers.JSONField(write_only=True, required=False)
+    logic_data = serializers.JSONField(write_only=True, required=False)
+    display_name = serializers.SerializerMethodField(read_only=True)
+    def get_display_name(self, obj):
+        return str(obj)  # Uses obj.__str__()
+    def get_options(self, obj):
+        opts = []
+        if obj.match_options:
+            opts = Option.objects.filter(indicator=obj.match_options, deprecated=False)
+        else:
+            opts = Option.objects.filter(indicator=obj, deprecated=False)
+        return OptionSerializer(opts, many=True).data
+
+    def get_logic(self, obj):
+        log = LogicGroup.objects.filter(indicator=obj).first()
+        return LogicGroupSerializer(log).data
+    
+    class Meta:
+        model=Indicator
+        fields = [
+            'id', 'display_name', 'name', 'type', 'options', 'order',  'created_by', 'created_at', 'updated_by', 'updated_at',
+            'assessment_id', 'options_data', 'logic', 'logic_data', 'match_options', 'match_options_id', 'category', 'allow_none',
+            'required', 'allow_aggregate',
+        ]
+
+    def validate(self, attrs):
+        user = self.context['request'].user
+        if user.role != 'admin':
+            raise PermissionDenied('You do not have permission to create an indicator')
+        if attrs.get('category') == Indicator.Category.ASS and not attrs.get('assessment'):
+            raise serializers.ValidationError("Assessment is required for this category")
+
+        ind_type = attrs.get('type')
+        options_data = attrs.get('options_data') or []
+        match_options = attrs.get('match_options', None)
+        
+        if match_options:
+            if ind_type != Indicator.Type.MULTI:
+                return serializers.ValidationError("Only Multiselect indicators can support match options.")
+            if match_options.type != Indicator.Type.MULTI:
+                return serializers.ValidationError("Only Multiselect indicators can be used as a reference for match_options.")
+       
+        if ind_type in [Indicator.Type.SINGLE, Indicator.Type.MULTI]:
+            if not options_data and not attrs.get('match_options'):
+                raise serializers.ValidationError("This indicator type requires options.")
+            seen = []
+            for option in options_data:
+                name = option.get('name')
+                if name in seen:
+                    raise serializers.ValidationError('You cannot have the same name for two options.')
+                seen.append(name)
+        
+
+        logic_data = attrs.get('logic_data', {})
+        # if logic data
+        if logic_data and attrs.get('category') != Indicator.Category.ASS:
+            raise serializers.ValidationError('Logic cannot be applied to this indicator.')
+        
+        if logic_data:
+            #if conditions are not provided or the list is empty, throw an error
+            if not logic_data.get('conditions', []):
+                raise serializers.ValidationError('At least one condition is required to create logic.')
+            #check each condition
+            for condition in logic_data.get('conditions', []):
+                #check if this is comparing to an indicator a respondent field
+                st = condition.get('source_type')
+                # if a indicator field (either this assessment or including previous ones)
+                
+                if st in [LogicCondition.SourceType.ASS]:
+                    prereq_id = condition.get('source_indicator') #grab the indicator id
+                    prereq = Indicator.objects.filter(id=prereq_id).first() #make sure this indicator exists
+                    
+                    if not prereq:
+                        raise serializers.ValidationError('A valid indicator is required.')
+                    operator = condition.get('operator')
+                    if operator not in LogicCondition.Operator.values:
+                        raise serializers.ValidationError(f'Invalid operator "{operator}".')
+                    if prereq.type in [Indicator.Type.MULTI, Indicator.Type.BOOL, Indicator.Type.SINGLE]:
+                        if operator not in [LogicCondition.Operator.EQUALS, LogicCondition.Operator.NE]:
+                            raise serializers.ValidationError('Indicators of this type can only accept "equal to" or "not equal to" as the operator.')
+                    if operator in [LogicCondition.Operator.GT, LogicCondition.Operator.LT]:
+                        print(prereq.type)
+                        if prereq.type not in [Indicator.Type.INT]:
+                            raise serializers.ValidationError('This operator can only be applied to indicators that accept a number.')
+                        value = condition.get('value_text')
+                        try:
+                            value = int(value)
+                        except (TypeError, ValueError):
+                            raise serializers.ValidationError(f'Greater Than/Less Than requires a number')
+                    condition_type = condition.get('condition_type')
+                    if condition_type and prereq.type not in [Indicator.Type.MULTI, Indicator.Type.SINGLE]:
+                        raise serializers.ValidationError('Condition types only apply to indicators with manually created options.')
+        
+                    if condition_type == LogicCondition.ExtraChoices.ALL and prereq.type != Indicator.Type.MULTI:
+                        raise serializers.ValidationError('Cannot apply "all" to a single select question.')
+                    if condition_type == LogicCondition.ExtraChoices.NONE and not prereq.allow_none:
+                        raise serializers.ValidationError('Cannot apply "none" to an indicator that does not allow for a none option.')
+                    if operator in [LogicCondition.Operator.DNC, LogicCondition.Operator.C] and prereq.type not in [Indicator.Type.TEXT]:
+                        raise serializers.ValidationError('This operator can only be applied to indicators that accept open text responses.')
+
+                    option = condition.get('value_option', None)
+                    if prereq.type in [Indicator.Type.MULTI, Indicator.Type.SINGLE]: #if it is linked to options... # pull the value_option field (an int id)
+                        if condition_type and option:
+                            raise serializers.ValidationError('Provide either a condition type or an option.')
+                        valid_extra_choices = [c[0] for c in LogicCondition.ExtraChoices.choices]
+                        if option is None and condition_type not in valid_extra_choices:
+                            raise serializers.ValidationError('An option or condition type is required for this condition.') #raise error if blank
+                        if not condition_type:
+                            try:
+                                option = int(option)
+                            except (TypeError, ValueError):
+                                raise serializers.ValidationError(f'Invalid option ID: {option}')
+                            if not prereq.match_options and not option in Option.objects.filter(indicator_id=prereq_id).values_list('id', flat=True): # raise error if not a valid option
+                                raise serializers.ValidationError(f'"{option}" is not a valid option for this indicator')
+                            elif prereq.match_options:
+                                prereq_indicator = Indicator.objects.filter(id=prereq_id).first()
+                                if not prereq_indicator:
+                                    raise serializers.ValidationError(f'Prerequisite indicator {prereq_id} does not exist')
+                                match_to = prereq_indicator.match_options
+                                if not option in Option.objects.filter(indicator=match_to).values_list('id', flat=True):
+                                    raise serializers.ValidationError(f'"{option}" is not a valid option for this indicator')
+                    
+                    if prereq.type not in [Indicator.Type.MULTI, Indicator.Type.SINGLE] and option:
+                        raise serializers.ValidationError('Only multi and single select indicators can accept an option property.')
+
+                    bool = condition.get('value_boolean')
+                    if prereq.type == Indicator.Type.BOOL and not bool in [True, False]:
+                        raise serializers.ValidationError('Please provide a true/false to check when creating a condition.')
+                    
+                    if prereq.type not in [Indicator.Type.BOOL] and bool:
+                        raise serializers.ValidationError('Only yes/no indicators can accept an boolean property.')
+                    
+                    if prereq.type in [Indicator.Type.TEXT, Indicator.Type.INT] and condition.get('value_text') in [None, '']: #otherwise there should be a free response, make sure some value is provided
+                        raise serializers.ValidationError('Please provide a value to check when creating a condition.')
+                    
+                    if prereq.type in [Indicator.Type.INT]:
+                        try:
+                            valid = int(condition.get('value_text'))
+                        except (TypeError, ValueError):
+                            raise serializers.ValidationError(f'Logic relying on a numeric indicator must have a valid number.')
+                        
+                #else if this is checking against a respondent field
+                elif st == LogicCondition.SourceType.RES:
+                    field = condition.get('respondent_field')
+                    if not field or field not in LogicCondition.RespondentField.values: #make sure its a valid field
+                        raise serializers.ValidationError('Not a valid respondent field')
+                    if field in LogicCondition.RESPONDENT_VALUE_CHOICES.keys(): #make sure the value_text prop contains a valid value for that field
+                        if not condition.get('value_text') in [o.get('value') for o in LogicCondition.RESPONDENT_VALUE_CHOICES[field]]:
+                            raise serializers.ValidationError(f'"{condition.get("value_text")}" is not a valid choice for respondent field {field}.')
+        
+        if attrs.get('category') in [Indicator.Category.SOCIAL, Indicator.Category.EVENTS, Indicator.Category.ORGS]: #these should be linked to another object via a task
+            if attrs.get('allow_aggregate', False):
+                raise serializers.ValidationError('Aggregates are not allowed for this indicator category.')
+        if ind_type in [Indicator.Type.TEXT]:
+            if attrs.get('allow_aggregate', False):
+                raise serializers.ValidationError('Aggregates are not allowed for this indicator type.')    
+
+        
+        return attrs
+    
+    def __set_options(self, user, indicator, options_data):
+        if len(options_data) == 0:
+            return
+        if indicator.type not in [Indicator.Type.SINGLE, Indicator.Type.MULTI]:
+            raise serializers.ValidationError(f'{indicator} cannot accept options.')
+        for option in options_data:
+            existing=None
+            id = option.get('id')
+            if id:
+                existing = Option.objects.filter(id=id).first()
+            if existing:
+                existing.name = option.get('name')
+                existing.deprecated = False
+                existing.save()
+            else:
+                new = Option.objects.create(
+                    indicator=indicator,
+                    name=option.get('name'),
+                    deprecated=False,
+                )
+                option['id'] = new.id
+        existing_options = set(Option.objects.filter(indicator=indicator).values_list('id', flat=True))
+        submitted_options = set([opt['id'] for opt in options_data if 'id' in opt])
+        to_deprecate = existing_options - submitted_options
+        Option.objects.filter(id__in=to_deprecate).update(deprecated=True)
+
+    def __set_logic(self, user, indicator, logic_data):
+        if len(logic_data) == 0:
+            return
+        if indicator.category != Indicator.Category.ASS:
+            raise serializers.ValidationError('Indicator of this category cannot accept logic rules')
+        group=None
+        existing = LogicGroup.objects.filter(indicator=indicator).first()
+        if existing:
+            existing.group_operator =  logic_data.get('group_operator')
+            existing.updated_by = user
+            existing.save()
+            group=existing
+            LogicCondition.objects.filter(group=existing).delete() #clear existing conditions before adding new ones
+        else:
+            group = LogicGroup.objects.create(
+                indicator=indicator, 
+                group_operator=logic_data.get('group_operator'),
+                created_by=user,
+            )
+        
+        for condition in logic_data.get('conditions', []):
+            st = condition.get('source_type')
+            op = condition.get('operator')
+            value_text = condition.get('value_text', None)
+            value_boolean = condition.get('value_boolean', None)
+            value_option = Option.objects.filter(id=condition.get('value_option')).first() if condition.get('value_option') else None
+            condition_type = condition.get('condition_type', None)
+            if condition_type:
+                value_option = None
+            prereq = None
+            ind_id = condition.get('source_indicator', None)
+            if ind_id:
+                prereq = Indicator.objects.filter(id=ind_id).first()
+            respondent_field = condition.get('respondent_field', None)
+
+            LogicCondition.objects.create(
+                group=group,
+                source_type = st,
+                operator=op,
+                value_text=value_text,
+                value_option=value_option,
+                condition_type=condition_type,
+                value_boolean=value_boolean,
+                source_indicator= prereq,
+                respondent_field=respondent_field,
+                created_by = user
+            )
+
+        
+    def create(self, validated_data):
+        user = self.context['request'].user
+        
+        options_data = validated_data.pop('options_data', [])
+        logic_data = validated_data.pop('logic_data', {}) or {}
+        indicator = Indicator.objects.create(**validated_data)
+        pos = Indicator.objects.filter(assessment=indicator.assessment).count()
+        indicator.order = pos - 1 if pos > 0 else 0
+        self.__set_options(user, indicator, options_data)
+        self.__set_logic(user, indicator, logic_data)
+        indicator.created_by = user
+        indicator.save()
+        return indicator
+
+    def update(self, instance, validated_data):
+        user = self.context['request'].user
+        
+        options_data = validated_data.pop('options_data', [])
+        logic_data = validated_data.pop('logic_data', {}) or {}
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        self.__set_options(user, instance, options_data)
+        self.__set_logic(user, instance, logic_data)
+        instance.updated_by = user
+        instance.save()
+        return instance
+
+class AssessmentListSerializer(serializers.ModelSerializer):
     '''
     Simple index serializer. We also attach a subcateogry count that's helpful for frontend checks 
     that handle then match subcategory category.
     '''
-    subcategories = serializers.SerializerMethodField()
     display_name = serializers.SerializerMethodField(read_only=True)
-
-    def get_subcategories(self, obj):
-        return obj.subcategories.filter(deprecated=False).count()
-    
     def get_display_name(self, obj):
         return str(obj)  # Uses obj.__str__()
     
     class Meta:
-        model=Indicator
-        fields = ['id', 'display_name', 'subcategories', 'indicator_type']
+        model=Assessment
+        fields = ['id', 'display_name', 'description', 'created_by', 'created_at', 'updated_by', 'updated_at']
 
-class IndicatorSerializer(serializers.ModelSerializer):
+class AssessmentSerializer(serializers.ModelSerializer):
     '''
-    Main serializer that handles the indicator model proper.
+    Simple index serializer. We also attach a subcateogry count that's helpful for frontend checks 
+    that handle then match subcategory category.
     '''
-    subcategories = serializers.SerializerMethodField()
-    subcategory_data = IndicatorSubcategorySerializer(many=True, write_only=True, required=False)
-    required_attribute_names = serializers.ListField(
-        child=serializers.CharField(), write_only=True, required=False
-    )
-
-    prerequisites = IndicatorListSerializer(read_only=True, many=True)
-    prerequisite_ids = serializers.PrimaryKeyRelatedField(
-        source='prerequisites',
-        queryset=Indicator.objects.all(),
-        many=True,
-        write_only=True,
-        required=False, 
-        allow_null=True,
-    )
-    created_by = serializers.SerializerMethodField()
-    updated_by = serializers.SerializerMethodField()
-    match_subcategories_to = serializers.PrimaryKeyRelatedField(
-        queryset=Indicator.objects.all(),
-        required=False,
-        allow_null=True
-    )
     display_name = serializers.SerializerMethodField(read_only=True)
+    indicators = serializers.SerializerMethodField(read_only=True)
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
 
+    def get_indicators(self, obj):
+        inds = Indicator.objects.filter(assessment=obj)
+        return IndicatorSerializer(inds, many=True).data
+        
     def get_display_name(self, obj):
         return str(obj)  # Uses obj.__str__()
     
-    def get_subcategories(self, obj):
-        '''
-        Collect non-deprecated subcategories
-        '''
-        active_subcats = obj.subcategories.filter(deprecated=False)
-        return IndicatorSubcategorySerializer(active_subcats, many=True).data
-        
     class Meta:
-        model = Indicator
-        fields = ['id', 'name', 'code', 'prerequisites', 'prerequisite_ids', 'description', 'subcategories', 'match_subcategories_to',
-                  'subcategory_data', 'require_numeric', 'status', 'created_by', 'created_at', 'allow_repeat', 'governs_attribute',
-                  'updated_by', 'updated_at', 'required_attributes', 'required_attribute_names', 'indicator_type', 'display_name']
-        
-    def to_representation(self, instance):
-        representation = super().to_representation(instance)
-
-        # Lazy import to avoid circular dependency
-        from respondents.serializers import RespondentAttributeTypeSerializer
-
-        representation['required_attributes'] = RespondentAttributeTypeSerializer(
-            instance.required_attributes.all(), many=True
-        ).data
-
-        return representation
+        model=Assessment
+        fields = [
+                'id', 'display_name', 'name', 'description', 'created_by', 'created_at', 'updated_by', 
+                'updated_at', 'indicators'
+        ]
     
-    def validate_prerequisite_ids(self, value):
-        '''
-        Special validation for prerequisites
-        '''
-        if not value:
-            return None
-        if self.instance:
-            for prereq in value:
-                if prereq == self.instance:
-                    raise serializers.ValidationError("An indicator cannot be its own prerequisite.")
-                if prereq.indicator_type != self.instance.indicator_type:
-                    raise serializers.ValidationError("Prerequisites must match the indicator type.")
-        return value
-
-    def validate(self, attrs):
-        '''
-        Validate received payloads.
-        '''
+    def create(self, validated_data):
         user = self.context['request'].user
-        
-        #only admins can create indicators
+        user = self.context['request'].user
         if user.role != 'admin':
             raise PermissionDenied('You do not have permission to create an indicator')
-        
-        code = attrs.get('code', getattr(self.instance, 'code', None))
-        name = attrs.get('name', getattr(self.instance, 'name', None))
-        status = attrs.get('status', getattr(self.instance, 'status', None))
-        indicator_type = attrs.get('indicator_type', getattr(self.instance, 'indicator_type', None))
-        prerequisites = attrs.get('prerequisites', getattr(self.instance, 'prerequisites', []))
-        required_attributes = attrs.get('required_attribute_names', getattr(self.instance, 'required_attributes', None))
-        governs_attribute = attrs.get('governs_attribute', getattr(self.instance, 'governs_attribute', None))
-        ind_id = self.instance.id if self.instance else None
-        match_subcategories_to = attrs.get('match_subcategories_to', None)
-        subcategory_data = attrs.get('subcategory_data', [])
-
-        ###===CODE AND NAME ARE REQUIRES AND MUST BE UNIQUE===###
-        if not code:
-            raise serializers.ValidationError({"code": "Code is required."})
-        if not name:
-            raise serializers.ValidationError({"name": "Name is required."})
-        qs = Indicator.objects.filter(code=code)
-        if self.instance:
-            qs = qs.exclude(pk=self.instance.pk)
-        if qs.exists():
-            existing = qs.first()
-            raise serializers.ValidationError({"code": f"Code already used by indicator {existing.code}: {existing.name}."})
-        
-        # Uniqueness check for 'name'
-        qs = Indicator.objects.filter(name=name)
-        if self.instance:
-            qs = qs.exclude(pk=self.instance.pk)
-        if qs.exists():
-            existing = qs.first()
-            raise serializers.ValidationError({"name": f"Name already used by indicator {existing.code}: {existing.name}."})
-        ###===Check prerequisite statuses===###
-        if prerequisites:
-            if hasattr(prerequisites, 'all'):
-                prerequisites = list(prerequisites.all())
-            for prerequisite in prerequisites:
-                if prerequisite.status == 'deprecated':
-                    raise serializers.ValidationError({"prerequisites": "This selected prerequisite indicator has been marked as deprecated, and therefore cannot be used as a prerequiste."})
-                if status == 'active' and prerequisite.status == 'planned':
-                    raise serializers.ValidationError({"prerequisites": "This indicator's prerequisite is not active although this indicator was marked as active. Please set that indicator as active first."})
-                if indicator_type != prerequisite.indicator_type:
-                    raise serializers.ValidationError({"prerequisites": f"This indicator is marked as type {indicator_type} which does not match the selected prerequisite {prerequisite.indicator_type} ."})
-        
-        ###===Make sure an edit won't invalidate a downstream indicator===###
-        #ex. it is odd if a parent indicator is set to planned while a downstream is active or if a parent indicator is of a different data type
-        if ind_id:
-            dependencies = Indicator.objects.filter(prerequisites__id = ind_id)
-            if dependencies:
-                for dep in dependencies:
-                    if indicator_type != dep.indicator_type:
-                        raise serializers.ValidationError({"indicator type": f"Indicator {dep.name} uses this indicator as a prerequisite. You may not change this indicators type, as it will invalidate that indicator."})
-                    if dep.status != 'deprecated' and status =='deprecated':
-                        raise serializers.ValidationError({"status": f"Indicator {dep.name} uses this indicator as a prerequisite. You must deprecate that indicator first."})
-                    elif dep.status == 'active' and status == 'planned':
-                        raise serializers.ValidationError({"status": f"Indicator {dep.name} is active and uses this indicator as a prerequisite. You must mark that indicator as planned first."})
-        ###===Make sure that for this indicator to rely on an attribute, it is of the correct type===###
-        if required_attributes and indicator_type != 'respondent':
-            raise serializers.ValidationError({"required_attributes": "For this indicator to have required attributes, its type must be set to 'Respondent'."})
-        if governs_attribute and indicator_type != 'respondent':
-            raise serializers.ValidationError({"governs_attribute": "For this indicator to be able to govern attributes, its type must be set to 'Respondent'."})
-        if match_subcategories_to and not prerequisites:
-            raise serializers.ValidationError({"match_subcategories_to": "Matching subcategories is only allowed for indicators with a prerequisite."})
-        if match_subcategories_to and not match_subcategories_to in prerequisites:
-            raise serializers.ValidationError({"match_subcategories_to": "Cannot match subcategories with an indicator that has no subcategories."})
-        
-        ###===Sanity check to make sure there isn't ever conflict subcateogry data===###
-        if len(subcategory_data) > 0 and match_subcategories_to:
-            prereq_ids = [c.id for c in match_subcategories_to.subcategories.all()]
-            child_ids = [c.get('id') for c in subcategory_data]
-            if set(prereq_ids) != set(child_ids):
-                raise serializers.ValidationError({"match_subcategories_to": "Found conflicting requests to match subcategories and provide unique subcategory values."})
-        return attrs
-    
-    def validate_governs_attribute(self, value):
-        '''
-        Make sure that all attributes are valid choices.
-        '''
-        if not value:
-            return None
-        from respondents.models import RespondentAttributeType
-        valid_choices = set(choice[0] for choice in RespondentAttributeType.Attributes.choices)
-        if value not in valid_choices:
-            raise serializers.ValidationError(f"{value} is not a valid attribute.")
-        return value
-
-    def validate_required_attribute_names(self, value):
-        '''
-        Make sure that all attributes are valid choices.
-        '''
-        from respondents.models import RespondentAttributeType
-        valid_choices = set(choice[0] for choice in RespondentAttributeType.Attributes.choices)
-        for name in value:
-            if name not in valid_choices:
-                raise serializers.ValidationError(f"{name} is not a valid attribute.")
-        return value
-
-    def create(self, validated_data):
-        from respondents.models import RespondentAttributeType
-        prerequisites = validated_data.pop('prerequisites', [])
-        subcategory_data = validated_data.pop('subcategory_data', [])
-        required_attribute_names = validated_data.pop('required_attribute_names', [])
-
-        indicator = Indicator.objects.create(**validated_data)
-        if prerequisites is not None:
-            indicator.prerequisites.set(prerequisites)
-
-        #if matched subcats, set them equal here
-        if indicator.match_subcategories_to:
-            prereq_subcats = IndicatorSubcategory.objects.filter(indicator=indicator.match_subcategories_to)
-            indicator.subcategories.set(prereq_subcats)
-        #else, verify the names and create new categories
-        else:
-            cleaned_names = [
-                name.get('name').replace(',', '').replace(':', '') for name in subcategory_data if name.get('name')
-            ]   #these chars are used for file uploads, and so are not allowed as names
-            subcategories = [
-                IndicatorSubcategory.objects.create(name=name, deprecated=False)
-                for name in cleaned_names
-            ]
-            indicator.subcategories.set(subcategories)
-        
-        #create required attributes as well
-        attrs = [
-            RespondentAttributeType.objects.get_or_create(name=name)[0]
-            for name in required_attribute_names
-        ]
-        indicator.required_attributes.set(attrs)
-
-        return indicator
+        ass = Assessment.objects.create(**validated_data)
+        ass.created_by = user
+        ass.save()
+        return ass
 
     def update(self, instance, validated_data):
-        from respondents.models import RespondentAttributeType
-        prerequisites = validated_data.pop('prerequisites', [])
-
-        #for our m2m fields, nothing attached for a partial does nothing, an empty array wipes
-        subcategory_data = validated_data.pop('subcategory_data', None) 
-        required_attribute_names = validated_data.pop('required_attribute_names', None)
+        user = self.context['request'].user
+        if user.role != 'admin':
+            raise PermissionDenied('You do not have permission to create an indicator')
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
-
+        instance.updated_by = user
         instance.save()
-        if 'prerequisite_ids' in self.initial_data:
-            if prerequisites is None:
-                prerequisites = []
-            instance.prerequisites.set(prerequisites)
-
-        #same as above, match or set the subcategories
-        if instance.match_subcategories_to:
-            prereq_subcats = IndicatorSubcategory.objects.filter(indicator=instance.match_subcategories_to)
-            instance.subcategories.set(prereq_subcats)
-        elif not subcategory_data and 'match_subcategories_to' in self.initial_data and validated_data.get('match_subcategories_to') is None:
-            instance.subcategories.set([])
-        else:
-            subcategories = []
-            if subcategory_data is not None:
-                for cat in subcategory_data:
-                    #check if a request was made to deprectate the indicator
-                    deprecated = str(cat.get('deprecated')).strip().lower() in ['true', '1']
-                    name = cat.get('name')
-                    if not name:
-                        raise serializers.ValidationError(f'Subcategory name may not be blank.')
-                    name = name.replace(',', '').replace(':', '')
-                    existing_id = cat.get('id')
-
-                    #check if its an existing name change or new, then create/update
-                    subcategory = None
-                    if existing_id:
-                        subcategory = IndicatorSubcategory.objects.filter(id=existing_id).first()
-                        if not subcategory:
-                            raise serializers.ValidationError(f'Could not find subcategory of id {existing_id}')
-                        subcategory.name = name
-                        subcategory.deprecated = deprecated
-                        subcategory.save()
-                    else:
-                        if deprecated:
-                            raise serializers.ValidationError(f'You are creating and immediately deprecating subcategory "{name}". Please verify this result')
-                        subcategory = IndicatorSubcategory.objects.create(name=name, deprecated=deprecated)
-                    subcategories.append(subcategory)
-
-                instance.subcategories.set(subcategories)
-
-                #also update any indciators that may need to match this ones subcategories
-                children = Indicator.objects.filter(prerequisites=instance, match_subcategories_to=self.instance)
-                for child in children:
-                    child.subcategories.set(subcategories)
-        
-        #create the required attributes
-        if required_attribute_names is not None:
-            attrs = [
-                RespondentAttributeType.objects.get_or_create(name=name)[0]
-                for name in required_attribute_names
-            ]
-            instance.required_attributes.set(attrs)
         return instance

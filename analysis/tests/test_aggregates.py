@@ -8,12 +8,13 @@ from django.contrib.auth import get_user_model
 from django.db.models import Q
 
 from projects.models import Project, Client, Task, ProjectOrganization
-from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, InteractionSubcategory, KeyPopulation, KeyPopulationStatus
-from events.models import Event, DemographicCount
+from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, KeyPopulation, KeyPopulationStatus, Response
+from events.models import Event
+from aggregates.models import AggregateCount, AggregateGroup
 from social.models import SocialMediaPost
 from organizations.models import Organization
 from events.models import Event
-from indicators.models import Indicator, IndicatorSubcategory
+from indicators.models import Indicator, Option, Assessment
 from datetime import date, timedelta
 from flags.utils import create_flag
 User = get_user_model()
@@ -83,33 +84,38 @@ class AggregatesViewSetTest(APITestCase):
         )
         self.other_project.organizations.set([self.other_org])
 
+        #simple assessment
+        self.assessment = Assessment.objects.create(name='Ass')
         #general respondent indicators
-        self.indicator = Indicator.objects.create(code='1', name='First', indicator_type='respondent')
-        self.indicator_2 = Indicator.objects.create(code='2', name='Second', indicator_type='respondent')
+        self.indicator = Indicator.objects.create(assessment=self.assessment, name='Select the Option', type=Indicator.Type.MULTI, allow_aggregate=True)
+        self.option1 = Option.objects.create(name='Option 1', indicator=self.indicator)
+        self.option2 = Option.objects.create(name='Option 2', indicator=self.indicator)
+        self.indicator2 = Indicator.objects.create(assessment=self.assessment, name='Enter the Number', type=Indicator.Type.INT)
 
         #other special indicators
-        self.event_ind = Indicator.objects.create(code='2', name='Second', indicator_type='event_no')
-        self.event_org_ind = Indicator.objects.create(code='2', name='Second', indicator_type='org_event_no')
-        self.social_ind = Indicator.objects.create(code='2', name='Second', indicator_type='social')
+        self.event_ind = Indicator.objects.create(name='Number of Events Held', category=Indicator.Category.EVENTS)
+        self.event_org_ind = Indicator.objects.create(name='Number of Orgs Trained', category=Indicator.Category.ORGS)
+        self.social_ind = Indicator.objects.create(name='Social Media', category=Indicator.Category.SOCIAL)
+        self.misc_ind = Indicator.objects.create(name='Whatever', category=Indicator.Category.MISC)
 
         #create some tasks
-        self.task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.indicator)
-        self.task_2 = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.indicator_2)
+        self.task = Task.objects.create(project=self.project, organization=self.parent_org, assessment=self.assessment)
         self.social_task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.social_ind)
         self.event_task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.event_ind)
         self.event_org_task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.event_org_ind)
-        
-        self.child_task = Task.objects.create(project=self.project, organization=self.child_org, indicator=self.indicator)
-        self.child_task_2 = Task.objects.create(project=self.project, organization=self.child_org, indicator=self.indicator_2)
+        self.misc_task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.misc_ind)
+
+        self.child_task = Task.objects.create(project=self.project, organization=self.child_org, assessment=self.assessment)
         self.child_social_task = Task.objects.create(project=self.project, organization=self.child_org, indicator=self.social_ind)
         
-        self.other_task =Task.objects.create(project=self.project, organization=self.other_org, indicator=self.indicator)
-        self.other_task_2 = Task.objects.create(project=self.project, organization=self.other_org, indicator=self.indicator_2)
+        self.other_task =Task.objects.create(project=self.project, organization=self.other_org, assessment=self.assessment)
         self.other_social_task = Task.objects.create(project=self.other_project, organization=self.other_org, indicator=self.social_ind)
-        self.other_project_task = Task.objects.create(project=self.other_project, organization=self.other_org, indicator=self.indicator)
+
+        self.other_project_task = Task.objects.create(project=self.other_project, organization=self.other_org, assessment=self.assessment)
         
         self.other_event_task = Task.objects.create(project=self.other_project, organization=self.other_org, indicator=self.event_ind)
         self.other_event_org_task = Task.objects.create(project=self.other_project, organization=self.other_org, indicator=self.event_org_ind)
+        
         #create some respondents and some interactions for each
         self.respondent= Respondent.objects.create(
             is_anonymous=True,
@@ -122,51 +128,20 @@ class AggregatesViewSetTest(APITestCase):
         #mark as HIV positive
         HIVStatus.objects.create(respondent=self.respondent, hiv_positive=True, date_positive=date(2025, 1, 1))
         
-        self.interaction_1_1 = Interaction.objects.create(
-            interaction_date=date(2025,1,1), 
-            interaction_location='there', 
-            respondent=self.respondent, 
-            task=self.task, 
-        )
-        self.interaction_1_2 = Interaction.objects.create(
-            interaction_date=date(2025,1,1), 
-            interaction_location='there', 
-            respondent=self.respondent, 
-            task=self.task_2, 
-        )
-        self.interaction_1_1_child = Interaction.objects.create(
-            interaction_date=date(2025,1,1), 
-            interaction_location='there', 
-            respondent=self.respondent, 
-            task=self.child_task, 
-        )
-        self.interaction_1_2_child = Interaction.objects.create(
-            interaction_date=date(2025,6,1), 
-            interaction_location='there', 
-            respondent=self.respondent, 
-            task=self.child_task_2, 
-        )
-        self.interaction_1_1_other = Interaction.objects.create(
-            interaction_date=date(2025,6,1), 
-            interaction_location='there', 
-            respondent=self.respondent, 
-            task=self.other_task, 
-        )
-        self.interaction_1_2_other = Interaction.objects.create(
-            interaction_date=date(2025,6,1), 
-            interaction_location='there', 
-            respondent=self.respondent, 
-            task=self.other_task_2, 
-        )
+        self.interaction1 = Interaction.objects.create(interaction_date='2025-01-01', interaction_location='There', task=self.task, respondent=self.respondent)
+        self.response1_1 = Response.objects.create(indicator=self.indicator, interaction=self.interaction1, response_option=self.option1, response_date='2025-01-01', response_location='There')
+        self.response1_1_1 = Response.objects.create(indicator=self.indicator, interaction=self.interaction1, response_option=self.option2, response_date='2025-01-01', response_location='There')
+        self.response1_2 = Response.objects.create(indicator=self.indicator2, interaction=self.interaction1, response_value='22', response_date='2025-01-01', response_location='There')
+        
+        self.interaction1_child = Interaction.objects.create(interaction_date='2025-01-01', interaction_location='There', task=self.child_task, respondent=self.respondent)
+        self.response1_child = Response.objects.create(indicator=self.indicator, interaction=self.interaction1_child, response_option=self.option1, response_date='2025-01-01', response_location='There')
+        self.response1_child2 = Response.objects.create(indicator=self.indicator2, interaction=self.interaction1_child, response_value='22', response_date='2025-01-01', response_location='There')
+        
+        self.interaction1_other = Interaction.objects.create(interaction_date='2025-01-01', interaction_location='There', task=self.other_task, respondent=self.respondent)
+        self.response1_other = Response.objects.create(indicator=self.indicator, interaction=self.interaction1_other, response_option=self.option1, response_date='2025-01-01', response_location='There')
 
-        self.interaction_1_3_other = Interaction.objects.create(
-            interaction_date=date(2025,6,1), 
-            interaction_location='there', 
-            respondent=self.respondent, 
-            task=self.other_project_task, 
-        )
-
-
+        self.interaction1_other_project = Interaction.objects.create(interaction_date='2025-01-01', interaction_location='There', task=self.other_project_task, respondent=self.respondent)
+        self.response1_other_proj = Response.objects.create(indicator=self.indicator, interaction=self.interaction1_other_project, response_option=self.option1, response_date='2025-01-01', response_location='There')
 
         self.respondent2= Respondent.objects.create(
             is_anonymous=True,
@@ -185,44 +160,18 @@ class AggregatesViewSetTest(APITestCase):
         self.respondent2.kp_status.set([fswr2.id, tgr2.id])
         self.respondent2.save()
 
-        self.interaction_2_1 = Interaction.objects.create(
-            interaction_date=date(2025,1,1), 
-            interaction_location='there', 
-            respondent=self.respondent2, 
-            task=self.task, 
-        )
-        self.interaction_2_2 = Interaction.objects.create(
-            interaction_date=date(2025,1,1), 
-            interaction_location='there', 
-            respondent=self.respondent2, 
-            task=self.task_2, 
-        ) #should not count
-        create_flag(self.interaction_2_2, 'test interaction', self.admin)
+        self.interaction2 = Interaction.objects.create(interaction_date='2025-06-01', interaction_location='There', task=self.task, respondent=self.respondent2)
+        self.response2_1 = Response.objects.create(indicator=self.indicator, interaction=self.interaction2, response_option=self.option1, response_date='2025-05-01', response_location='There')
+        self.response2_1_1 = Response.objects.create(indicator=self.indicator, interaction=self.interaction2, response_option=self.option2, response_date='2025-05-01', response_location='There')
+        self.response2_2 = Response.objects.create(indicator=self.indicator2, interaction=self.interaction2, response_value='22', response_date='2025-05-01', response_location='There')
+        
+        self.interaction2_child = Interaction.objects.create(interaction_date='2025-06-01', interaction_location='There', task=self.child_task, respondent=self.respondent2)
+        self.response2_child = Response.objects.create(indicator=self.indicator, interaction=self.interaction2_child, response_option=self.option1, response_date='2025-05-01', response_location='There')
+        self.response2_child2 = Response.objects.create(indicator=self.indicator2, interaction=self.interaction2_child, response_value='22', response_date='2025-05-01', response_location='There')
+        create_flag(self.interaction2_child, 'test interaction', self.admin)
 
-        self.interaction_2_1_child = Interaction.objects.create(
-            interaction_date=date(2025,1,1), 
-            interaction_location='there', 
-            respondent=self.respondent2, 
-            task=self.child_task, 
-        )
-        self.interaction_2_2_child = Interaction.objects.create(
-            interaction_date=date(2025,6,1), 
-            interaction_location='there', 
-            respondent=self.respondent2, 
-            task=self.child_task_2, 
-        )
-        self.interaction_2_1_other = Interaction.objects.create(
-            interaction_date=date(2025,6,1), 
-            interaction_location='there', 
-            respondent=self.respondent2, 
-            task=self.other_task, 
-        )
-        self.interaction_2_2_other = Interaction.objects.create(
-            interaction_date=date(2025,6,1), 
-            interaction_location='there', 
-            respondent=self.respondent2, 
-            task=self.other_task_2, 
-        )
+        self.interaction2_other = Interaction.objects.create(interaction_date='2025-06-01', interaction_location='There', task=self.other_task, respondent=self.respondent2)
+        self.response2_other = Response.objects.create(indicator=self.indicator, interaction=self.interaction2_other, response_option=self.option1, response_date='2025-05-01', response_location='There')
 
         self.respondent3= Respondent.objects.create(
             is_anonymous=True,
@@ -233,14 +182,77 @@ class AggregatesViewSetTest(APITestCase):
             sex = Respondent.Sex.FEMALE,
         )
         #create a flag on respondent 3
-        create_flag(self.respondent3, "respondent", self.admin)
-        self.interaction_3_1 = Interaction.objects.create(
-            interaction_date=date(2025,6,1), 
-            interaction_location='there', 
-            respondent=self.respondent3, 
-            task=self.task, 
-        ) #should not count, respondent flag
+        create_flag(self.respondent3, "test respondent", self.admin)
+        self.interaction3 = Interaction.objects.create(interaction_date='2025-05-01', interaction_location='There', task=self.task, respondent=self.respondent3)
+        self.response3_1 = Response.objects.create(indicator=self.indicator, interaction=self.interaction3, response_option=self.option1, response_date='2025-05-01', response_location='There')
+        self.response3_1_1 = Response.objects.create(indicator=self.indicator, interaction=self.interaction3, response_option=self.option2, response_date='2025-05-01', response_location='There')
+        self.response3_2 = Response.objects.create(indicator=self.indicator2, interaction=self.interaction3, response_value='22', response_date='2025-05-01', response_location='There')
+        
+        self.aggie_group1 = AggregateGroup.objects.create(
+            start='2025-01-09', 
+            end='2025-01-10', 
+            project=self.project, 
+            organization=self.parent_org, 
+            indicator=self.indicator
+        )
+        self.count1 = AggregateCount.objects.create(
+            group=self.aggie_group1,
+            sex='M',
+            citizenship='citizen',
+            hiv_status='hiv_positive',
+            value=10
+        )
+        self.count1_2 = AggregateCount.objects.create(
+            group=self.aggie_group1,
+            sex='M',
+            citizenship='citizen',
+            hiv_status='hiv_negative',
+            value=30
+        )
+        
+        self.count3 = AggregateCount.objects.create(
+            group=self.aggie_group1,
+            sex='F',
+            citizenship='citizen',
+            hiv_status='hiv_negative',
+            value=78
+        ) #should not count
+        create_flag(self.count3, 'test', self.admin)
 
+        self.aggie_group_misc = AggregateGroup.objects.create(
+            start='2025-01-09', 
+            end='2025-01-10', 
+            project=self.project, 
+            organization=self.parent_org, 
+            indicator=self.misc_ind
+        )
+        self.count_misc = AggregateCount.objects.create(
+            group=self.aggie_group_misc,
+            sex='M',
+            citizenship='citizen',
+            value=10
+        )
+        self.count_misc2 = AggregateCount.objects.create(
+            group=self.aggie_group_misc,
+            sex='F',
+            citizenship='citizen',
+            value=11
+        )
+
+        self.aggie_group_other_proj = AggregateGroup.objects.create(
+            start='2025-06-09', 
+            end='2025-06-10', 
+            project=self.other_project, 
+            organization=self.other_org, 
+            indicator=self.indicator
+        )
+        self.count_other_proj = AggregateCount.objects.create(
+            group=self.aggie_group_other_proj,
+            sex='M',
+            citizenship='citizen',
+            hiv_status='hiv_negative',
+            value=17
+        )
 
         #create some events and counts
         self.event = Event.objects.create(
@@ -251,43 +263,8 @@ class AggregatesViewSetTest(APITestCase):
             location='here',
             host=self.parent_org
         )
-        self.event.tasks.set([self.task, self.task_2, self.event_org_task, self.event_task])
+        self.event.tasks.set([self.event_org_task, self.event_task])
         self.event.organizations.set([self.parent_org, self.child_org])
-
-        self.count1 = DemographicCount.objects.create(
-            event=self.event,
-            task= self.task,
-            sex='M',
-            citizenship='citizen',
-            hiv_status='hiv_positive',
-            count=10
-        )
-        self.count2 = DemographicCount.objects.create(
-            event=self.event,
-            task= self.task,
-            sex='M',
-            citizenship='citizen',
-            hiv_status='hiv_negative',
-            count=30
-        )
-        self.count3 = DemographicCount.objects.create(
-            event=self.event,
-            task= self.task,
-            sex='F',
-            citizenship='citizen',
-            hiv_status='hiv_negative',
-            count=78
-        ) #should not count
-        create_flag(self.count3, 'test', self.admin)
-
-        self.count_task_2 = DemographicCount.objects.create(
-            event=self.event,
-            task= self.task_2,
-            sex='M',
-            citizenship='citizen',
-            hiv_status='hiv_negative',
-            count=36
-        )
 
         self.event_count = Event.objects.create(
             name='Event',
@@ -308,7 +285,7 @@ class AggregatesViewSetTest(APITestCase):
             host=self.parent_org,
             status=Event.EventStatus.PLANNED
         ) #should not count, planned
-        self.event_planned.tasks.set([self.task, self.event_org_task, self.event_task])
+        self.event_planned.tasks.set([self.event_org_task, self.event_task])
         self.event_planned.organizations.set([self.parent_org])
 
 
@@ -321,16 +298,7 @@ class AggregatesViewSetTest(APITestCase):
             host=self.other_org
         )
         self.other_event.organizations.set([self.other_org])
-        self.other_event.tasks.set([self.other_task, self.other_project_task, self.other_event_org_task, self.other_event_task])
-
-        self.count_other_proj = DemographicCount.objects.create(
-            event=self.other_event,
-            task= self.other_project_task,
-            sex='M',
-            citizenship='citizen',
-            hiv_status='hiv_negative',
-            count=17
-        )
+        self.other_event.tasks.set([self.other_event_org_task, self.other_event_task])
 
 
         #create some posts
@@ -379,8 +347,8 @@ class AggregatesViewSetTest(APITestCase):
 
     def test_get_indicator_admin(self):
         '''
-        EXPECTED: 64
-            7 FROM interactions (4r1 + 3r2) (2 should not count, ir flag and respondent flag)
+        EXPECTED: 63
+            6 FROM interactions (4r1 + 2r2) (2 should not count, ir flag and respondent flag)
             57 FROM events ((10+30 e1) + 17 e2) (78 from e1 should not count, count flag)
         '''
         self.client.force_authenticate(user=self.admin)
@@ -388,33 +356,57 @@ class AggregatesViewSetTest(APITestCase):
         print('###===ADMIN===###')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['counts'][0]['count'], 64)
+        self.assertEqual(response.data['counts'][0]['count'], 63)
+    
+    def test_get_number_admin(self):
+        '''
+        EXPECTED: 66
+            66 (22+22r1 + 22r2)
+        '''
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.indicator2.id}/')
+        print('###===ADMIN-NUMBER===###')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['counts'][0]['count'], 66)
+    
+    def test_get_misc_admin(self):
+        '''
+        EXPECTED: 66
+            21 (10+11)
+        '''
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.misc_ind.id}/')
+        print('###===ADMIN-MISC===###')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['counts'][0]['count'], 21)
     
     def test_get_indicator_client(self):
         '''
         EXPECTED: 46
-            6 FROM interactions (3r1 + 3r2) (should not see interaction_2_2_other since this is with other_project)
-            40 FROM events ((10+30 e1)) (should not see 37 from other event)
+            5 FROM interactions (3r1 + 2r2) (should not see interaction_2_2_other since this is with other_project)
+            40 FROM events ((10+30 e1)) (should not see 37 from other group)
         '''
         self.client.force_authenticate(user=self.client_user)
         response = self.client.get(f'/api/analysis/tables/aggregate/{self.indicator.id}/')
         print('###===CLIENT===###')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['counts'][0]['count'], 46)
+        self.assertEqual(response.data['counts'][0]['count'], 45)
 
     def test_get_indicator_me(self):
         '''
         EXPECTED: 44
-            4 FROM interactions (2r1+2r2) (should not see 3 task_other/other_project_task intereactions)
-            40 FROM events (10+30 e1) (should not see 37 from other event)
+            3 FROM interactions (2r1+1r2) (should not see 3 task_other/other_project_task intereactions)
+            40 FROM events (10+30 e1) (should not see 37 from other group)
         '''
         self.client.force_authenticate(user=self.manager)
         response = self.client.get(f'/api/analysis/tables/aggregate/{self.indicator.id}/')
         print('###===ME===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['counts'][0]['count'], 44)
+        self.assertEqual(response.data['counts'][0]['count'], 43)
     
     def test_get_indicator_event_admin(self):
         self.client.force_authenticate(user=self.admin)
@@ -490,7 +482,7 @@ class AggregatesViewSetTest(APITestCase):
         '''
         self.client.force_authenticate(user=self.client_user)
         response = self.client.get(f'/api/analysis/tables/aggregate/{self.social_ind.id}/')
-        print('###===ME-SOCIAL===###')
+        print('###===CLIENT-SOCIAL===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['counts'][0]['count'], 116)
@@ -514,7 +506,7 @@ class AggregatesViewSetTest(APITestCase):
         '''
         EXPECT (Quarter) --7 total IR: 
             -Q1: 4ir + 40ev (44)
-            -Q2: 3ir + 17ev (20)
+            -Q2: 2ir + 17ev (19)
         '''
         self.client.force_authenticate(user=self.admin)
         response = self.client.get(f'/api/analysis/tables/aggregate/{self.indicator.id}/?split=quarter')
@@ -539,12 +531,6 @@ class AggregatesViewSetTest(APITestCase):
         print('###===SPLIT-RESPONDENT-QUARTER-REPEAT===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        '''
-        self.assertEqual(response.data['counts'][0]['period'], 'Q1 2025')
-        self.assertEqual(response.data['counts'][0]['count'], 44)
-        self.assertEqual(response.data['counts'][1]['period'], 'Q2 2025')
-        self.assertEqual(response.data['counts'][1]['count'], 20)
-        '''  
     
     def test_event_split(self):
         '''
@@ -582,9 +568,9 @@ class AggregatesViewSetTest(APITestCase):
         '''
         EXPECT (Quarter) --3 total: 
                  L  V  C
-            -Q1: 15 20 4
-            -Q2: 6 43 40
-            -Q3: 10 50 17
+            -Q1: 15 20 4 = 39
+            -Q2: 6 43 40 = 89
+            -Q3: 10 50 17 = 77
             
         '''
         self.client.force_authenticate(user=self.admin)
@@ -598,14 +584,14 @@ class AggregatesViewSetTest(APITestCase):
         Make sure demographic breakdowns are in order. Theoretically you could get crazy with these permus, 
         but small test here. 
         C/POS: 14 (10(e) + 4 (ir))
-        C/NEG: 47 (47 (e))
+        C/NEG: 30+17 (47 (e))
         NC/POS:
-        NC/NEG: 3 (3 (ir))
+        NC/NEG: 2 (2 (ir))
 
         '''
         self.client.force_authenticate(user=self.admin)
         response = self.client.get(f'/api/analysis/tables/aggregate/{self.indicator.id}/?citizenship=true&hiv_status=true')
-        print('###===PARAMS===###')
+        print('###===PARAMS-COUNT===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
     
@@ -614,78 +600,34 @@ class AggregatesViewSetTest(APITestCase):
         If a count breakdown does not have a requested param, it should be ignored. 
 
         This will also test some of our multi-select/adjacent models
-        MSM/Preg: 3
-        TG/Preg: 3
+        TG/Preg: 2
+        FSW/Preg: 2
 
         '''
         self.client.force_authenticate(user=self.admin)
         response = self.client.get(f'/api/analysis/tables/aggregate/{self.indicator.id}/?pregnancy=true&kp_type=true')
-        print('###===PARAMS===###')
+        print('###===PARAMS-COUNT-SHOULD-NOT===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_params_subcat(self):
-        subcat_indicator = Indicator.objects.create(code='sc', name='Subcat')
-        cat1 = IndicatorSubcategory.objects.create(name='Cat 1')
-        cat2 = IndicatorSubcategory.objects.create(name='Cat 2')
-        subcat_indicator.subcategories.set([cat1, cat2])
-        subcat_task = Task.objects.create(project=self.project, indicator=subcat_indicator, organization=self.parent_org)
-        interaction1 = Interaction.objects.create(respondent=self.respondent, task=subcat_task, interaction_date=date(2025,1,1), interaction_location='here')
-        interaction1.subcategories.set([cat1.id, cat2.id])
-        interaction1.save()
-        
-        interaction2 = Interaction.objects.create(respondent=self.respondent2, task=subcat_task, interaction_date=date(2025,1,1), interaction_location='here')
-        interaction2.subcategories.set([cat1.id])
-        interaction2.save()
-        self.client.force_authenticate(user=self.admin)
+    def test_params_option(self):
         '''
         EXPECT:
-            -Cat 1: 2
-            -Cat 2: 1
+            -Option 1: 6
+            -Option 2: 2
         '''
-        response = self.client.get(f'/api/analysis/tables/aggregate/{subcat_indicator.id}/?subcategory=true')
-        print('###===SUBCATS===###')
+        self.client.force_authenticate(user=self.admin)
+        
+        response = self.client.get(f'/api/analysis/tables/aggregate/{self.indicator.id}/?option=true')
+        print('###===OPTION===###')
         print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_params_subcat_numeric(self):
-        subcat_indicator = Indicator.objects.create(code='sc', name='Subcat', require_numeric=True)
-        cat1 = IndicatorSubcategory.objects.create(name='Cat 1')
-        cat2 = IndicatorSubcategory.objects.create(name='Cat 2')
-        subcat_indicator.subcategories.set([cat1, cat2])
-        subcat_task = Task.objects.create(project=self.project, indicator=subcat_indicator, organization=self.parent_org)
-
-        self.client.force_authenticate(user=self.admin)
-        response = self.client.post('/api/record/interactions/', {
-            'interaction_date': date(2025,5,1),
-            'interaction_location': 'That place that sells chili.',
-            'respondent': self.respondent.id,
-            'task_id': subcat_task.id,
-            'subcategories_data': [{'id': None, 'subcategory': {'name': 'Cat 1', 'id': cat1.id}, 'numeric_component': 5}, {'id': None, 'subcategory': {'name': 'Cat 2', 'id': cat2.id}, 'numeric_component': 10}]
-        }, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        self.client.force_authenticate(user=self.admin)
-        response = self.client.post('/api/record/interactions/', {
-            'interaction_date': date(2025,5,1),
-            'interaction_location': 'That place that sells chili.',
-            'respondent': self.respondent2.id,
-            'task_id': subcat_task.id,
-            'subcategories_data': [{'id': None, 'subcategory': {'name': 'Cat 1', 'id': cat1.id}, 'numeric_component': 6}]
-        }, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        '''
-        EXPECT: 
-            -Cat 1: 11
-            -Cat 2: 10
-        '''
-        response = self.client.get(f'/api/analysis/tables/aggregate/{subcat_indicator.id}/?subcategory=true')
-        print('###===SUBCATS-NUMBER===###')
-        print(response.data)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_social_platform_param(self):
+        '''
+        F
+        '''
         self.client.force_authenticate(user=self.admin)
         response = self.client.get(f'/api/analysis/tables/aggregate/{self.social_ind.id}/?platform=true')
         print('###===SOCIAL-PLATFORM===###')

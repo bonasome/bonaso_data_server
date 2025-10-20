@@ -11,9 +11,8 @@ from organizations.serializers import OrganizationListSerializer
 from projects.models import Project
 from projects.serializers import ProjectListSerializer, Target
 from profiles.serializers import ProfileListSerializer
-from indicators.models import Indicator
-from indicators.serializers import IndicatorSerializer
-from events.models import DemographicCount
+from indicators.models import Indicator, Assessment
+from indicators.serializers import IndicatorSerializer, AssessmentSerializer
 from collections import defaultdict
 from respondents.models import Interaction
 
@@ -29,8 +28,8 @@ class LineListSerializer(serializers.ModelSerializer):
     '''
     Returns detailed data about a line list and allows for the user to create a new line list. 
     '''
-    indicator = IndicatorSerializer(read_only=True)
-    indicator_id = serializers.PrimaryKeyRelatedField(queryset=Indicator.objects.all(), write_only=True, source='indicator', allow_null=True, required=False)
+    assessment = AssessmentSerializer(read_only=True)
+    assessment_id = serializers.PrimaryKeyRelatedField(queryset=Assessment.objects.all(), write_only=True, source='assessment', allow_null=True, required=False)
     organization = OrganizationListSerializer(read_only=True)
     organization_id = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, source='organization', allow_null=True, required=False)
     project = ProjectListSerializer(read_only=True)
@@ -43,7 +42,7 @@ class LineListSerializer(serializers.ModelSerializer):
         '''
         return prep_line_list(
             user=obj.created_by,
-            indicator=obj.indicator,
+            assessment=obj.assessment,
             project=obj.project,
             organization=obj.organization,
             start=obj.start, 
@@ -54,9 +53,10 @@ class LineListSerializer(serializers.ModelSerializer):
         model=LineList
         fields = [
             'id', 'name', 'project', 'project_id', 'organization', 'organization_id',
-            'indicator', 'indicator_id', 'start', 'end', 'cascade_organization', 'data'
+            'assessment', 'assessment_id', 'start', 'end', 'cascade_organization', 'data'
         ]
     def create(self, validated_data):
+        print(validated_data)
         user = self.context.get('request').user if self.context.get('request') else None
         ll = LineList.objects.create(created_by=user, **validated_data)
         return ll
@@ -105,7 +105,7 @@ class PivotTableSerializer(serializers.ModelSerializer):
         table_params = [param.name for param in obj.params.all()]
         #determine what params/breakdowns the user wants and format them as an object
         params = {}
-        for cat in ['id', 'age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory', 'platform', 'metric']:
+        for cat in ['id', 'age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'option', 'platform', 'metric', 'district']:
             params[cat] = cat in table_params
 
         #collec the aggregates
@@ -187,7 +187,7 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
         '''
         #based on legend/stack, get list of params to break the data down by
         params = {}
-        for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory', 'platform', 'metric', 'organization']:
+        for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'option', 'platform', 'metric', 'organization', 'district']:
             params[cat] = (cat == obj.legend) or (cat == obj.stack)
         # collect model filters
         filters = self.get_filters(obj)
@@ -210,7 +210,8 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
                 filters=filters, 
                 repeat_only=obj.repeat_only, 
                 n=obj.repeat_n,
-                cascade=cascade
+                cascade=cascade,
+                average=obj.average
             )
         #if multiple indicators, return an array of indicators (no params should be present)
         data = []
@@ -225,7 +226,7 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
                 start=obj.start,
                 end=obj.end,
                 filters=filters,
-                cascade=cascade
+                cascade=cascade,
             )
             # the indicator will be used as the legend item
             for period, item in ind.items():
@@ -247,7 +248,7 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
         return filters
     
     def get_allow_targets(self, obj):
-        return Target.objects.filter(task__indicator__in=obj.indicators.all()).exists()
+        return Target.objects.filter(indicator__in=obj.indicators.all()).exists()
     
     #collect related target data
     def get_targets(self, obj):
@@ -270,7 +271,7 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
         model = IndicatorChartSetting
         fields = ['id', 'indicators', 'created_by', 'tabular', 'axis', 'legend', 'stack', 'chart_type', 'use_target',
                   'start', 'end', 'chart_data', 'allow_targets', 'targets', 'filters', 'repeat_only', 'repeat_n', 'name',
-                  'display_name']
+                  'display_name', 'average']
 
 
 class DashboardFilterSerializer(serializers.ModelSerializer):

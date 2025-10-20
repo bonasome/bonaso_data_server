@@ -15,7 +15,8 @@ def create_flag(instance, reason, caused_by, reason_type=Flag.FlagReason.OTHER):
     - caused_by (user instance): user whose edit caused the flag, used to determine visibility
     - reason_type (enum): categorical reason for the flag
     '''
-    Flag.objects.create(
+
+    flag = Flag.objects.create(
         content_type=ContentType.objects.get_for_model(instance),
         object_id = instance.id,
         reason_type=reason_type,
@@ -23,6 +24,7 @@ def create_flag(instance, reason, caused_by, reason_type=Flag.FlagReason.OTHER):
         auto_flagged=True,
         caused_by=caused_by
     )
+    print('user', flag.caused_by.username)
 def resolve_flag(flags_qs, reason):
     '''
     Helper function that automatically resolves flags if the issue is fixed (for system generated).

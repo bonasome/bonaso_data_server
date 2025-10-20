@@ -4,7 +4,7 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 
 from organizations.models import Organization
-from indicators.models import Indicator
+from indicators.models import Indicator, Assessment
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
@@ -62,7 +62,7 @@ class Project(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f'{self.name} (for {self.client})'
+        return f'{self.name}'
 
 class ProjectOrganization(models.Model):
     '''
@@ -86,17 +86,21 @@ class Task(models.Model):
     '''
     project = models.ForeignKey(Project, on_delete=models.CASCADE)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
-    indicator = models.ForeignKey(Indicator, on_delete=models.CASCADE)
+    assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE, null=True, blank=True)
+    indicator = models.ForeignKey(Indicator, on_delete=models.CASCADE, null=True, blank=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='task_created_by')
     
     class Meta:
-        unique_together = ('project', 'organization', 'indicator')
+        unique_together = ('project', 'organization', 'indicator', 'assessment')
 
     def __str__(self):
-        return f'{self.indicator} ({self.organization}, {self.project})'
+        if self.assessment:
+            return f'{self.assessment} ({self.organization}, {self.project})'
+        if self.indicator:
+            return f'{self.indicator} ({self.organization}, {self.project})'
     
 class Target(models.Model):
     '''
@@ -106,11 +110,13 @@ class Target(models.Model):
 
     Targets have start and end periods, and targets with the same linked task cannot overlap.
     '''
-    task = models.ForeignKey(Task, on_delete=models.CASCADE)
+    indicator = models.ForeignKey(Indicator, on_delete=models.CASCADE)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
     amount = models.IntegerField(verbose_name= 'Target Amount', blank=True, null=True)
     start = models.DateField('Target Start Date')
     end = models.DateField('Target Conclusion Date')
-    related_to = models.ForeignKey(Task, related_name='related_to_task', on_delete=models.CASCADE, blank=True, null=True) #task to use for target amount
+    related_to = models.ForeignKey(Indicator, related_name='related_to_indicator', on_delete=models.CASCADE, blank=True, null=True) #task to use for target amount
     percentage_of_related = models.IntegerField(validators=[MinValueValidator(0), MaxValueValidator(100)], null=True, blank=True) #percentage of that task to achieve
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -144,7 +150,7 @@ class Target(models.Model):
             raise ValidationError("Target date range overlaps with an existing target.")
 
     def __str__(self):
-        return f'Target for Task {self.task} ({self.start} - {self.end})'
+        return f'Target for {self.indicator} ({self.start} - {self.end})'
 class ProjectActivity(models.Model):
     '''
     An organizational tool that can help admins/orgs track when events are and such. No real bearing on the data,

@@ -23,9 +23,10 @@ from projects.utils import ProjectPermissionHelper, test_child_org
 from indicators.models import Indicator
 from respondents.models import Interaction
 from respondents.utils import get_enum_choices
-from events.models import Event, DemographicCount
+from events.models import Event
 from messaging.models import Announcement
 from messaging.serializers import AnnouncementSerializer
+from aggregates.models import AggregateGroup
 
 today = date.today().isoformat() #get today's date for reference
 
@@ -101,7 +102,7 @@ class ProjectViewSet(RoleRestrictedViewSet):
                 status=status.HTTP_409_CONFLICT
             )
         #as well as projects that have an interaction or event count associated with them
-        if Interaction.objects.filter(task__project = instance).exists() or DemographicCount.objects.filter(task__project=instance).exists():
+        if Interaction.objects.filter(task__project = instance).exists() or AggregateGroup.objects.filter(project=instance).exists():
             return Response(
                 {"detail": ("This project has data associated with it, and therefore cannot be deleted.")},
                 status=status.HTTP_409_CONFLICT
@@ -321,7 +322,7 @@ class ProjectViewSet(RoleRestrictedViewSet):
                     )
             #prevent removal if there is data associated with this org for this project
             if Interaction.objects.filter(task__organization__id = org_link.organization.id, task__project=project
-                ).exists() or DemographicCount.objects.filter(task__organization__id=org_link.organization.id, task__project=project
+                ).exists() or AggregateGroup.objects.filter(organization=org_link.organization, project=project
                 ).exists():
                  return Response(
                         {"detail": "You cannot remove an organization from a project when they have active tasks."},
@@ -356,6 +357,10 @@ class TaskViewSet(RoleRestrictedViewSet):
         if indicator_param:
             queryset = queryset.filter(indicator_id=indicator_param)
 
+        assessment_param = self.request.query_params.get('assessment')
+        if assessment_param:
+            queryset = queryset.filter(assessment_id=assessment_param)
+
         org_param = self.request.query_params.get('organization')
         if org_param:
             queryset = queryset.filter(organization__id=org_param)
@@ -370,14 +375,21 @@ class TaskViewSet(RoleRestrictedViewSet):
         if project_param:
             queryset = queryset.filter(project__id=project_param)
 
-        type_param = self.request.query_params.get('indicator_type')
-        if type_param:
-            queryset = queryset.filter(indicator__indicator_type=type_param)
+        cat_param = self.request.query_params.get('category')
+        if cat_param:
+            if cat_param == Indicator.Category.ASS:
+                queryset = queryset.filter(assessment__isnull=False)
+            else:
+                queryset = queryset.filter(indicator__category=cat_param)
 
-        exclude_type_param = self.request.query_params.get('exclude_indicator_type')
-        if exclude_type_param:
-            queryset = queryset.exclude(indicator__indicator_type=exclude_type_param)
-
+        exclude_cat_param = self.request.query_params.get('exclude_category')
+        if exclude_cat_param:
+            queryset = queryset.exclude(indicator__category=exclude_cat_param)
+        for_event_param = self.request.query_params.get('for_event')
+        
+        if for_event_param in ['true']:
+            queryset=queryset.filter(Q(indicator__category=Indicator.Category.EVENTS) | Q(indicator__category=Indicator.Category.ORGS))
+        
         event_param = self.request.query_params.get('event')
         if event_param:
             try:
@@ -418,7 +430,7 @@ class TaskViewSet(RoleRestrictedViewSet):
         Special mobile action to get all tasks that are active so the user can download all of their tasks at once.
         '''
         queryset = self.get_queryset()
-        queryset = queryset.filter(indicator__status=Indicator.Status.ACTIVE, project__status=Project.Status.ACTIVE, indicator__indicator_type=Indicator.IndicatorType.RESPONDENT)
+        queryset = queryset.filter(project__status=Project.Status.ACTIVE, assessment__isnull=False, indicator__isnull=True)
         # No pagination
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
@@ -448,12 +460,15 @@ class TaskViewSet(RoleRestrictedViewSet):
                 {"detail": "You cannot delete a task that has interactions associated with it."},
                 status=status.HTTP_409_CONFLICT
             )
-        if DemographicCount.objects.filter(task=instance).exists():
+        if AggregateGroup.objects.filter(
+                Q(project=instance.project, organization=instance.organization, indicator__assessment=instance.assessment)| 
+                Q(project=instance.project, organization=instance.organization, indicator=instance.indicator)).exists():
             return Response(
-                {"detail": "You cannot delete a task that has event counts associated with it."},
+                {"detail": "You cannot delete a task that has aggregate counts associated with it."},
                 status=status.HTTP_409_CONFLICT
             )
-        if Target.objects.filter(task=instance).exists():
+        if Target.objects.filter(Q(project=instance.project, indicator=instance.indicator, organization=instance.organization) |
+                                Q(project=instance.project, organization=instance.organization, indicator__assessmnent=instance.assessment)).exists():
             return Response(
                 {"detail": "You cannot delete a task has targets associated with it."},
                 status=status.HTTP_409_CONFLICT
@@ -476,8 +491,9 @@ class TaskViewSet(RoleRestrictedViewSet):
         '''
         organization_id = request.data.get('organization_id')
         project_id = request.data.get('project_id')
+        assessment_ids = request.data.get('assessment_ids', [])
         indicator_ids = request.data.get('indicator_ids', [])
-        if not organization_id or not project_id or not indicator_ids:
+        if not organization_id or not project_id or not (indicator_ids or assessment_ids):
             return Response(
                 {"detail": "You must provide an organization, project, and at least one indicator to create a task."},
                 status=status.HTTP_400_BAD_REQUEST
@@ -485,21 +501,38 @@ class TaskViewSet(RoleRestrictedViewSet):
         #list of created tasks and list of tasks that already existed (project/org/indicator)
         created = []
         skipped = []
-        for indicator_id in indicator_ids:
-            existing_task = Task.objects.filter(indicator_id=indicator_id, project_id=project_id, organization_id=organization_id).first()
-            if existing_task:
-                skipped.append(f'Task "{str(existing_task)}" already exists and was skipped.')
-                continue
-            serializer = self.get_serializer(data={
-                'organization_id': organization_id,
-                'indicator_id': indicator_id,
-                'project_id': project_id,
-            }, context={'request': request})
+        if len(indicator_ids) > 0:
+            for indicator_id in indicator_ids:
+                existing_task = Task.objects.filter(indicator_id=indicator_id, project_id=project_id, organization_id=organization_id).first()
+                if existing_task:
+                    skipped.append(f'Task "{str(existing_task)}" already exists and was skipped.')
+                    continue
+                serializer = self.get_serializer(data={
+                    'organization_id': organization_id,
+                    'indicator_id': indicator_id,
+                    'assessment_id': None,
+                    'project_id': project_id,
+                }, context={'request': request})
 
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            created.append(serializer.data)
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
+                created.append(serializer.data)
+        if len(assessment_ids) > 0:
+            for assessment_id in assessment_ids:
+                existing_task = Task.objects.filter(assessment_id=assessment_id, project_id=project_id, organization_id=organization_id).first()
+                if existing_task:
+                    skipped.append(f'Task "{str(existing_task)}" already exists and was skipped.')
+                    continue
+                serializer = self.get_serializer(data={
+                    'organization_id': organization_id,
+                    'assessment_id': assessment_id,
+                    'indicator_id': None,
+                    'project_id': project_id,
+                }, context={'request': request})
 
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
+                created.append(serializer.data)
         return Response({
             "created": created,
             "skipped": skipped
@@ -510,8 +543,8 @@ class TargetViewSet(RoleRestrictedViewSet):
     Manages all views related to targets.
     '''
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, OrderingFilter]
-    filterset_fields = ['task', 'task__organization', 'task__indicator', 'task__project']
-    search_fields = ['task__indicator__code', 'task__indicator__name']
+    filterset_fields = ['organization', 'indicator', 'project']
+    search_fields = ['indicator__name']
     permission_classes = [IsAuthenticated]
     serializer_class = TargetSerializer
 
@@ -523,7 +556,7 @@ class TargetViewSet(RoleRestrictedViewSet):
             queryset= Target.objects.all()
 
         elif user.role == 'client' and client_org:
-            queryset= Target.objects.filter(task__project__client = client_org)
+            queryset= Target.objects.filter(project__client = client_org)
 
         else:
             child_orgs = ProjectOrganization.objects.filter(
@@ -531,9 +564,9 @@ class TargetViewSet(RoleRestrictedViewSet):
             ).values_list('organization', flat=True)
 
             queryset = Target.objects.filter(
-                Q(task__organization=user.organization) | Q(task__organization__in=child_orgs)
+                Q(organization=user.organization) | Q(organization__in=child_orgs)
             ).filter(
-                task__project__status=Project.Status.ACTIVE
+                project__status=Project.Status.ACTIVE
             )
 
         #url params
@@ -566,7 +599,7 @@ class TargetViewSet(RoleRestrictedViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        if user.role != 'admin' and not test_child_org(user, instance.task.organization, instance.task.project):
+        if user.role != 'admin' and not test_child_org(user, instance.organization, instance.project):
             return Response(
                 {"detail": "You do not have permission to delete this target."},
                 status=status.HTTP_403_FORBIDDEN

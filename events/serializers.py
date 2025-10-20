@@ -4,7 +4,7 @@ from rest_framework.exceptions import PermissionDenied
 from django.db import transaction
 from datetime import date
 
-from events.models import Event, DemographicCount, EventTask, EventOrganization
+from events.models import Event, EventTask, EventOrganization
 from profiles.serializers import ProfileListSerializer
 from organizations.models import Organization
 from organizations.serializers import OrganizationListSerializer
@@ -14,19 +14,6 @@ from flags.serializers import FlagSerializer
 from indicators.models import Indicator
 
 
-class DCSerializer(serializers.ModelSerializer):
-    '''
-    Used to view counts. Since counts are a bit complex, we handle update/creation in a dedicated action in the
-    viewset.
-    '''
-    flags = FlagSerializer(read_only=True, many=True)
-    organization=OrganizationListSerializer(read_only=True)
-    task = TaskSerializer(read_only=True)
-    created_by = ProfileListSerializer(read_only=True)
-    updated_by = ProfileListSerializer(read_only=True)
-    class Meta:
-        model=DemographicCount
-        fields = '__all__'
         
 class EventSerializer(serializers.ModelSerializer):
     '''
@@ -41,7 +28,7 @@ class EventSerializer(serializers.ModelSerializer):
     task_ids = serializers.PrimaryKeyRelatedField(queryset= Task.objects.all(), many=True, required=False, write_only=True, source='tasks')
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
-
+    
     class Meta:
         model = Event
         fields = [
@@ -73,7 +60,7 @@ class EventSerializer(serializers.ModelSerializer):
         new_links = []
         for task in tasks:
             org = task.organization
-            if task.indicator.indicator_type == Indicator.IndicatorType.SOCIAL:
+            if task.indicator.category not in [Indicator.Category.EVENTS, Indicator.Category.ORGS]:
                 raise serializers.ValidationError(f"Task '{task.indicator.name}' may not be assigned to an event. Please consider creating a social post instead.")
             if user.role != 'admin':
                  if not org == user.organization and not ProjectOrganization.objects.filter(organization=org, parent_organization=user.organization, project=task.project).exists():
@@ -135,12 +122,7 @@ class EventSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def update(self, instance, validated_data):
         user = self.context.get('request').user if self.context.get('request') else None
-        start = validated_data.get('start', instance.start)
         #validation to make sure that changing event dates doesn't create confusion with counts already existing
-        if start > date.today() and DemographicCount.objects.filter(event=instance).exists():
-            raise serializers.ValidationError(
-                "You cannot set an event for the future if it already has counts associated with it."
-            )
         organizations = validated_data.pop('organizations', [])
         tasks = validated_data.pop('tasks', [])
 

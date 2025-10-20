@@ -6,9 +6,9 @@ from django.urls import reverse
 from django.contrib.auth import get_user_model
 
 from projects.models import Project, Client, Task, ProjectOrganization
-from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, InteractionSubcategory, RespondentAttributeType
+from respondents.models import Respondent, Interaction, Pregnancy, HIVStatus, RespondentAttributeType
 from organizations.models import Organization
-from indicators.models import Indicator
+from indicators.models import Indicator, Assessment, Option
 from datetime import date
 from flags.models import Flag
 from flags.utils import create_flag
@@ -63,14 +63,17 @@ class FlagViewSetTest(APITestCase):
         self.child_link.save()
         
 
-        self.indicator = Indicator.objects.create(code='1', name='Parent')
-        self.child_indicator = Indicator.objects.create(code='2', name='Child')
-        self.child_indicator.prerequisites.set([self.indicator])
+         #simple assessment
+        self.assessment = Assessment.objects.create(name='Ass')
+        #general respondent indicators
+        self.indicator = Indicator.objects.create(assessment=self.assessment, name='Select the Option', type=Indicator.Type.MULTI, allow_aggregate=True)
+        self.option1 = Option.objects.create(name='Option 1', indicator=self.indicator)
+        self.option2 = Option.objects.create(name='Option 2', indicator=self.indicator)
+        self.indicator2 = Indicator.objects.create(assessment=self.assessment, name='Enter the Number', type=Indicator.Type.INT)
 
-        self.task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.indicator)
-        self.prereq_task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.child_indicator)
-        self.child_task = Task.objects.create(project=self.project, organization=self.child_org, indicator=self.indicator)
-        self.other_task =Task.objects.create(project=self.project, organization=self.other_org, indicator=self.indicator)
+        self.task = Task.objects.create(project=self.project, organization=self.parent_org, assessment=self.assessment)
+        self.child_task = Task.objects.create(project=self.project, organization=self.child_org, assessment=self.assessment)
+        self.other_task =Task.objects.create(project=self.project, organization=self.other_org, assessment=self.assessment)
 
 
         self.respondent= Respondent.objects.create(

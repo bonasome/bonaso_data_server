@@ -74,10 +74,8 @@ class ProfileViewSet(RoleRestrictedViewSet):
                     if model_label.lower() in ['projects.task']:
                         info['second_parent'] = instance.organization_id
                 elif model_label.lower() in ['projects.target']:
-                    info['parent'] = instance.task.project_id
-                    info['second_parent'] = instance.task.organization_id
-                elif model_label.lower() in ['events.demographiccount']:
-                    info['parent'] = instance.event_id
+                    info['parent'] = instance.project_id
+                    info['second_parent'] = instance.organization_id
                 elif model_label.lower() in ['respondents.interaction']:
                     info['parent'] = instance.respondent_id
                 else:

@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'indicators.apps.IndicatorsConfig',
     'projects.apps.ProjectsConfig',
     'respondents.apps.RespondentsConfig',
+    'aggregates.apps.AggregatesConfig',
     'organizations.apps.OrganizationsConfig',
     'social.apps.SocialConfig',
     'flags.apps.FlagsConfig',

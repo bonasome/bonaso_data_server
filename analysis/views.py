@@ -21,11 +21,12 @@ User = get_user_model()
 
 from organizations.models import Organization
 from projects.models import Project
-from indicators.models import Indicator
+from indicators.models import Indicator, Option
 
 from analysis.serializers import DashboardSettingSerializer, DashboardSettingListSerializer, DashboardIndicatorChartSerializer, PivotTableListSerializer, PivotTableSerializer, LineListSerializer, LineListListSerializer, RequestLogSerializer
 from analysis.models import DashboardSetting, IndicatorChartSetting, ChartField, DashboardIndicatorChart, ChartFilter, ChartIndicator, PivotTable, LineList, RequestLog
-from events.models import DemographicCount
+from respondents.models import Respondent, KeyPopulation, DisabilityType, RespondentAttributeType
+from aggregates.models import AggregateCount
 from respondents.utils import get_enum_choices
 
 from datetime import datetime
@@ -122,7 +123,7 @@ class TablesViewSet(RoleRestrictedViewSet):
         params = {}
         table_params = [param.name for param in table.params.all()]
         params = {}
-        for cat in ['id', 'age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory', 'platform', 'metric']:
+        for cat in ['id', 'age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'option', 'platform', 'district', 'metric', 'organization']:
             params[cat] = cat in table_params
         #pull aggregates based on params
         aggregates = aggregates_switchboard(
@@ -192,7 +193,7 @@ class TablesViewSet(RoleRestrictedViewSet):
         organization = Organization.objects.filter(id=organization_id) if organization_id else None
 
         params = {}
-        for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'subcategory']:
+        for cat in ['age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'option', 'district', 'platform', 'metric', 'organization']:
             params[cat] = request.query_params.get(cat) in ['true', '1']
         
         #split, i.e. time period
@@ -281,6 +282,7 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
         legend = request.data.get('legend') #chart legend
         axis = request.data.get('axis') #chart axis
         stack = request.data.get('stack') #stack (for bar charts)
+        average = str(request.data.get('average')).lower() in ['true', '1'] #show as average
         use_target = str(request.data.get('use_target')).lower() in ['true', '1'] #show targets if provided
         tabular = str(request.data.get('tabular')).lower() in ['true', '1'] #show a data table underneath
         name = request.data.get('name')
@@ -308,13 +310,16 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
             legend=None
             stack=None
             use_target=False
+            average=False
 
         if len(indicators) ==1:
-            #validate that subcategories exist if chosen
-            if legend == 'subcategory' and not indicators[0].subcategories.exists():
+            #validate that options exist if chosen
+            if legend == 'option' and not Option.objects.filter(indicator=indicators[0]).exists():
                 legend=None
-            if stack == 'subcategory' and not indicators[0].subcategories.exists():
+            if stack == 'option' and not Option.objects.filter(indicator=indicators[0]).exists():
                 stack=None
+            if average and indicators[0].type != 'integer':
+                average = False
 
         #remove legend/stack for use_target (since targets are not demographically split)
         if legend and use_target:
@@ -337,6 +342,7 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
             chart.start = start
             chart.end = end
             chart.name = name
+            chart.average=average
             chart.save()
 
             chart_link.width = width
@@ -357,6 +363,7 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
                 start=start,
                 end=end,
                 name=name,
+                average=average,
                 created_by=user,
             )
             chart_link = DashboardIndicatorChart.objects.create(
@@ -432,18 +439,17 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
         '''
         Map the front end can use to get prettier names for the user. 
         '''
-        breakdowns = {}
-
-        # Loop over desired choice fields
-        choice_fields = ['sex', 'age_range', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy']
-
-        for field_name in choice_fields:
-            field = DemographicCount._meta.get_field(field_name)
-            if field.choices:
-                breakdowns[field_name] = {
-                    choice: label for choice, label in field.choices
-                }
-
+        breakdowns = {
+            'sex': get_enum_choices(Respondent.Sex),
+            'age_range': get_enum_choices(Respondent.AgeRanges),
+            'district': get_enum_choices(Respondent.District),
+            'kp_type': get_enum_choices(KeyPopulation.KeyPopulations),
+            'disability_type': get_enum_choices(DisabilityType.DisabilityTypes),
+            'special_attribute': get_enum_choices(RespondentAttributeType.Attributes),
+            'citizenship': get_enum_choices(AggregateCount.Citizenship),
+            'hiv_status': get_enum_choices(AggregateCount.HIVStatus),
+            'pregnancy': get_enum_choices(AggregateCount.Pregnancy),
+        }
         return Response(breakdowns)
 
 class SiteAnalyticsViewSet(RoleRestrictedViewSet):

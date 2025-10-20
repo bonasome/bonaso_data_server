@@ -8,7 +8,7 @@ from django.contrib.auth import get_user_model
 from projects.models import Project, Client, Task, ProjectOrganization
 from respondents.models import Respondent, Interaction
 from organizations.models import Organization
-from indicators.models import Indicator
+from indicators.models import Assessment
 from datetime import date
 User = get_user_model()
 
@@ -75,10 +75,8 @@ class ProjectViewSetTest(APITestCase):
             created_by=self.admin,
         )
 
-        self.indicator = Indicator.objects.create(code='1', name='Parent')
-        self.child_indicator = Indicator.objects.create(code='2', name='Child')
-        self.child_indicator.prerequisites.set([self.indicator])
-        self.not_in_project = Indicator.objects.create(code='3', name='Unrelated')
+        self.assessment = Assessment.objects.create(name='Ass')
+        self.task = Task.objects.create(assessment=self.assessment, project=self.project, organization=self.parent_org)
         
     
     def test_admin_view(self):
@@ -237,8 +235,7 @@ class ProjectViewSetTest(APITestCase):
             citizenship='test',
             sex=Respondent.Sex.FEMALE,
         )
-        task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.child_indicator)
-        interaction = Interaction.objects.create(task=task, respondent=respondent, interaction_date='2025-06-23')
+        interaction = Interaction.objects.create(task=self.task, respondent=respondent, interaction_date='2025-06-23', interaction_location='There')
         self.project.status = Project.Status.COMPLETED
         self.project.save()
         
@@ -310,11 +307,8 @@ class ProjectOrganizationViewSetTest(APITestCase):
         )
         self.planned_project.organizations.set([self.parent_org])
 
-        self.indicator = Indicator.objects.create(code='1', name='Parent')
-        self.child_indicator = Indicator.objects.create(code='2', name='Child')
-        self.child_indicator.prerequisites.set([self.indicator])
-        self.not_in_project = Indicator.objects.create(code='3', name='Unrelated')
-
+        self.assessment = Assessment.objects.create(name='Ass')
+        self.task = Task.objects.create(assessment=self.assessment, project=self.project, organization=self.parent_org)
     
     def test_admin_add_org(self):
         '''
@@ -397,8 +391,6 @@ class ProjectOrganizationViewSetTest(APITestCase):
         Admins are allowed to remove an org from a project. It should also clean up tasks if applicable.
         '''
         self.client.force_authenticate(user=self.admin)
-        task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.indicator)
-        self.assertEqual(Task.objects.filter(project=self.project).count(), 1)
         response = self.client.delete(f'/api/manage/projects/{self.project.id}/remove-organization/{self.parent_org.id}/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(Task.objects.filter(project=self.project).count(), 0)
@@ -444,7 +436,6 @@ class ProjectOrganizationViewSetTest(APITestCase):
             citizenship='test',
             sex=Respondent.Sex.FEMALE,
         )
-        task = Task.objects.create(project=self.project, organization=self.parent_org, indicator=self.indicator)
-        interaction = Interaction.objects.create(task=task, respondent=respondent, interaction_date='2025-06-23')
+        interaction = Interaction.objects.create(task=self.task, respondent=respondent, interaction_date='2025-06-23', interaction_location='There')
         response = self.client.delete(f'/api/manage/projects/{self.project.id}/remove-organization/{self.parent_org.id}/')
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)

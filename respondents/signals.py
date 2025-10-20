@@ -81,9 +81,8 @@ def sync_hiv_attribute(sender, instance, **kwargs):
         update_attribute(respondent, RespondentAttributeType.Attributes.PLWHIV, should_add)
     transaction.on_commit(after_commit)
 
-@receiver(post_save, sender=Interaction)
-def handle_govern_interaction(sender, instance, created, **kwargs):
-    '''
+
+'''
     Some indicators may be associated with respondent attributes that we want to automatically update
     (i.e., indicator tested postiive for HIV --> automatically mark person as HIV positive if they are not.)
     This isn't super fleshed out, and was mostly created for the above scenario, but could be expanded to other things
@@ -92,6 +91,11 @@ def handle_govern_interaction(sender, instance, created, **kwargs):
     - instance (model instance) interaction in question (links to indicator and respondent)
     - created (boolean) is this a create or an update. Interaction updates should not retrigger this, only creation.
     '''
+
+'''
+@receiver(post_save, sender=Interaction)
+def handle_govern_interaction(sender, instance, created, **kwargs):
+    
     if not created:
         return 
 
@@ -128,3 +132,4 @@ def handle_govern_interaction(sender, instance, created, **kwargs):
         #otherwise create the link object
         else:
             RespondentAttribute.objects.get_or_create(respondent=respondent, attribute=attr)
+'''

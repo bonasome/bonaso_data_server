@@ -5,7 +5,7 @@ from rest_framework import status
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from projects.models import Project, Client, Task, Target, ProjectOrganization
+from projects.models import Project, Client, ProjectOrganization
 from organizations.models import Organization
 from uploads.models import NarrativeReport
 from datetime import date

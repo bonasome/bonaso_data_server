@@ -29,7 +29,7 @@ class IndicatorViewSet(RoleRestrictedViewSet):
     def get_queryset(self):
         queryset = Indicator.objects.all()
         user = self.request.user
-        if user.role not in ['meofficer', 'manager', 'admin']:
+        if user.role not in ['meofficer', 'manager', 'admin', 'client']:
             return Indicator.objects.none()
         if user.role in ['meofficer', 'manager']:
             direct_indicators = Task.objects.filter(
@@ -49,7 +49,25 @@ class IndicatorViewSet(RoleRestrictedViewSet):
             ).values_list('id', flat=True)
             valid_ids = list(direct_indicators) + list(assessment_indicators)
             queryset = queryset.filter(id__in=valid_ids)
+        if user.role in ['client']:
+            direct_indicators = Task.objects.filter(
+                indicator__isnull=False, 
+                project__client_id=user.client_organization_id
+            ).values_list('indicator_id', flat=True)
 
+            # Assessments linked to tasks
+            assessment_ids = Task.objects.filter(
+                assessment__isnull=False, 
+                project__client_id=user.client_organization_id
+            ).values_list('assessment_id', flat=True)
+
+            # Indicators that belong to those assessments
+            assessment_indicators = Indicator.objects.filter(
+                assessment_id__in=assessment_ids
+            ).values_list('id', flat=True)
+            valid_ids = list(direct_indicators) + list(assessment_indicators)
+            queryset = queryset.filter(id__in=valid_ids)
+        
         project_param = self.request.query_params.get('project')
         if project_param:
             direct_indicators = Task.objects.filter(

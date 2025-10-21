@@ -67,7 +67,6 @@ class MessageViewSet(RoleRestrictedViewSet):
 
         elif user.role == 'client':
             queryset = User.objects.filter(Q(client_organization=user.client_organization) | Q(role='admin'))
-
         else:
             queryset = User.objects.filter(Q(organization__id=user.organization.id) | Q(role='admin') )
 

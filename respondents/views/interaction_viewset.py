@@ -172,7 +172,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
         for field in Respondent._meta.get_fields():
             if field.auto_created:
                 continue
-            if field.name in ['uuid', 'created_by', 'created_at', 'updated_at', 'updated_by', 'flags', 'dummy_dob']:
+            if field.name in ['uuid', 'created_by', 'created_at', 'updated_at', 'updated_by', 'flags', 'dummy_dob', 'comments']:
                 continue
             if hasattr(field, 'verbose_name'):
                 verbose = field.verbose_name
@@ -227,11 +227,12 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     raise PermissionDenied('You do not have permission to access this template.')
         
         for indicator in Indicator.objects.filter(assessment=task.assessment).order_by('order').all():
-            if indicator.type == Indicator.Type.MULTI:
+            if indicator.type in [Indicator.Type.MULTI, Indicator.Type.MULTINT]:
                 options = Option.objects.filter(indicator=indicator) if not indicator.match_options else Option.objects.filter(indicator=indicator.match_options)
                 for option in options.all():
-                    header = f'{indicator.name}: {option.name} (Select All That Apply)'
-                    categories = ['Yes', 'No']
+                    stmt = 'Select All That Apply' if indicator.type == Indicator.Type.MULTI else 'Enter a Number'
+                    header = f'{indicator.name}: {option.name} ({stmt})'
+                    categories = ['Yes', 'No'] if indicator.type == Indicator.Type.MULTI else []
                     headers.append({'header': header, 'options': categories})
                 continue
             header = indicator.name
@@ -271,7 +272,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
         metadata_sheet = wb.create_sheet("Metadata")
         metadata_sheet["A1"] = "organization_id"
         metadata_sheet["A2"] = org_id
-        metadata_sheet["B1"] = "task_ids"
+        metadata_sheet["B1"] = "task_id"
         metadata_sheet['B2'] = task_id
 
         metadata_sheet.sheet_state = 'hidden'
@@ -396,10 +397,10 @@ class InteractionViewSet(RoleRestrictedViewSet):
         metadata_ws = wb['Metadata']
 
         
-        def get_indicator_column(indicator, option=None):
+        def get_indicator_column(indicator, option=None, stmt=None):
             header = indicator.name
-            if indicator.type == Indicator.Type.MULTI:
-                header = f'{indicator.name}: {option} (Select All That Apply)'
+            if indicator.type in [Indicator.Type.MULTI, Indicator.Type.MULTINT]:
+                header = f'{indicator.name}: {option} ({stmt})'
             elif indicator.type == Indicator.Type.INT:
                 header = header + ' (Enter a Number)'
             elif indicator.type == Indicator.Type.SINGLE:
@@ -435,14 +436,14 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
         # 2️⃣ Validate Indicators for Each Assessment
         for indicator in Indicator.objects.filter(assessment=task.assessment).all():
-            if indicator.type == Indicator.Type.MULTI:
+            if indicator.type in [Indicator.Type.MULTI, Indicator.Type.MULTINT]:
                 options = Option.objects.filter(indicator=indicator.match_options) if indicator.match_options else Option.objects.filter(indicator=indicator)
+                stmt = stmt = 'Select All That Apply' if indicator.type == Indicator.Type.MULTI else 'Enter a Number'
                 for option in options.all():
-                    col = get_indicator_column(indicator, option)
+                    col = get_indicator_column(indicator, option, stmt)
                     if not col:
-                        errors.append(f'Missing column "{indicator.name}: {option.name} (Select All That Apply)"')
-                    col = get_indicator_column(indicator)
-                    print(col)
+                        errors.append(f'Missing column "{indicator.name}: {option.name} {stmt}"')
+                    col = get_indicator_column(indicator, option, stmt)
                     indicator_columns[str(indicator.id)] = col
             else:
                 suffix = (
@@ -454,7 +455,6 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 if not col:
                     errors.append(f'Missing column "{indicator.name}{suffix}"')
                 indicator_columns[str(indicator.id)] = col
-        print(indicator_columns)
 
         
         #few helper functions to get us through the next step
@@ -470,10 +470,10 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 return header['column']
             return None
 
-        def get_indicator_value(row, indicator, option=None):
+        def get_indicator_value(row, indicator, option=None, stmt=None):
             header = indicator.name
-            if indicator.type == Indicator.Type.MULTI:
-                header = f'{indicator.name}: {option} (Select All That Apply)'
+            if indicator.type in [Indicator.Type.MULTI, Indicator.Type.MULTINT]:
+                header = f'{indicator.name}: {option} ({stmt})'
             elif indicator.type == Indicator.Type.INT:
                 header = header + ' (Enter a Number)'
             elif indicator.type == Indicator.Type.SINGLE:
@@ -878,14 +878,31 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 if indicator.type == Indicator.Type.MULTI:
                     val = []
                     for option in Option.objects.filter(indicator=indicator) if not indicator.match_options else Option.objects.filter(indicator=indicator.match_options):
-                        col = get_indicator_column(indicator, option)
-                        o_val = str(get_indicator_value(row, indicator, option))
+                        col = get_indicator_column(indicator, option, 'Select All That Apply')
+                        o_val = str(get_indicator_value(row, indicator, option, 'Select All That Apply'))
                         o_val = o_val.lower().replace(' ', '')
                         if o_val in ['', 'no', 'none', 'na', 'n/a', 'false', 'unsure', 'maybe']:
                             continue
                         val.append(option.id)
                     if len(val) == 0 and indicator.allow_none:
                         val = ['none']
+
+                elif indicator.type == Indicator.Type.MULTINT:
+                    val = []
+                    for option in Option.objects.filter(indicator=indicator):
+                        col = get_indicator_column(indicator, option, 'Enter a Number')
+                        o_val = str(get_indicator_value(row, indicator, option, 'Enter a Number'))
+                        o_val = o_val.lower().replace(' ', '')
+                        try:
+                            numeric_component = int(o_val)
+                            if numeric_component < 0:
+                                row_warnings.append(f'Number at column: {col}, row: {i} must be greater than 0.')
+                                continue
+                            val.append({'option': option.id, 'value': numeric_component})
+                        except (ValueError, TypeError):
+                            row_warnings.append(f'Number at column: {col}, row: {i} is not a valid number.')
+                            continue   
+
                 elif indicator.type == Indicator.Type.SINGLE:
                     if val == 'none' and indicator.allow_none:
                         val == 'none'

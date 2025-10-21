@@ -38,6 +38,19 @@ class OptionSerializer(serializers.ModelSerializer):
             'id', 'name', 'created_by', 'created_at', 'updated_by', 'updated_at', 'deprecated'
         ]
 
+class AssessmentListSerializer(serializers.ModelSerializer):
+    '''
+    Simple index serializer. We also attach a subcateogry count that's helpful for frontend checks 
+    that handle then match subcategory category.
+    '''
+    display_name = serializers.SerializerMethodField(read_only=True)
+    def get_display_name(self, obj):
+        return str(obj)  # Uses obj.__str__()
+    
+    class Meta:
+        model=Assessment
+        fields = ['id', 'display_name', 'name', 'description', 'created_by', 'created_at', 'updated_by', 'updated_at']
+
 class IndicatorSerializer(serializers.ModelSerializer):
     options = serializers.SerializerMethodField()
     logic = serializers.SerializerMethodField()
@@ -57,9 +70,11 @@ class IndicatorSerializer(serializers.ModelSerializer):
         required=False, 
         allow_null=True
     )
+    assessment = AssessmentListSerializer(read_only=True)
     options_data = serializers.JSONField(write_only=True, required=False)
     logic_data = serializers.JSONField(write_only=True, required=False)
     display_name = serializers.SerializerMethodField(read_only=True)
+    
     def get_display_name(self, obj):
         return str(obj)  # Uses obj.__str__()
     def get_options(self, obj):
@@ -79,7 +94,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'display_name', 'name', 'type', 'options', 'order',  'created_by', 'created_at', 'updated_by', 'updated_at',
             'assessment_id', 'options_data', 'logic', 'logic_data', 'match_options', 'match_options_id', 'category', 'allow_none',
-            'required', 'allow_aggregate',
+            'required', 'allow_aggregate', 'assessment', 'description',
         ]
 
     def validate(self, attrs):
@@ -93,6 +108,12 @@ class IndicatorSerializer(serializers.ModelSerializer):
         options_data = attrs.get('options_data') or []
         match_options = attrs.get('match_options', None)
         
+        name = attrs.get('name', None)
+        if not name:
+            raise serializers.ValidationError('Name is required.')
+        if Indicator.objects.filter(name=name).exclude(pk=getattr(self.instance, 'pk', None)).exists():
+            raise serializers.ValidationError('Name is already in use. Please check if this indicator is already in the system.')
+
         if match_options:
             if ind_type != Indicator.Type.MULTI:
                 return serializers.ValidationError("Only Multiselect indicators can support match options.")
@@ -323,18 +344,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
-class AssessmentListSerializer(serializers.ModelSerializer):
-    '''
-    Simple index serializer. We also attach a subcateogry count that's helpful for frontend checks 
-    that handle then match subcategory category.
-    '''
-    display_name = serializers.SerializerMethodField(read_only=True)
-    def get_display_name(self, obj):
-        return str(obj)  # Uses obj.__str__()
-    
-    class Meta:
-        model=Assessment
-        fields = ['id', 'display_name', 'description', 'created_by', 'created_at', 'updated_by', 'updated_at']
+
 
 class AssessmentSerializer(serializers.ModelSerializer):
     '''

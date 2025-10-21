@@ -91,7 +91,7 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'organization', 'indicator', 'project', 'organization_id', 'indicator_id', 'project_id',
             'start', 'end', 'created_by', 'created_at', 'updated_by', 'updated_at', 'counts', 'counts_data',
-            'parent_organization',
+            'parent_organization', 'comments',
         ]
         
 
@@ -100,9 +100,9 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
         if indicator.type == Indicator.Type.MULTI:
             if not option and not data.get('unique_only'):
                 raise serializers.ValidationError("Option or total flag is required for this indicator type.")
-        if indicator.type == Indicator.Type.SINGLE and not option:
+        if indicator.type in [Indicator.Type.SINGLE, Indicator.Type.MULTINT] and not option:
             raise serializers.ValidationError("Option is required for this indicator type.")
-        elif indicator.type not in [Indicator.Type.MULTI, Indicator.Type.SINGLE]:
+        elif indicator.type not in [Indicator.Type.MULTI, Indicator.Type.SINGLE, Indicator.Type.MULTINT]:
             # For all other indicator types, option must NOT be provided
             if option:
                 raise serializers.ValidationError(

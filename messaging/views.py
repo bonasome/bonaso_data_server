@@ -39,12 +39,12 @@ class MessageViewSet(RoleRestrictedViewSet):
         editable.
         '''
         user = self.request.user
-        if self.action in ['update', 'partial_update', 'set_completed']:
-            queryset = Message.objects.filter(Q(sender=user) | Q(recipients=user)).distinct()
-        else:
+        if self.action in ['list']:
             #by default, exclude "replies" (with parent) from the queryset, since we prefer to work with these as nested data
             queryset = Message.objects.filter(Q(recipients=user) | Q(sender=user)).distinct().exclude(deleted_by_sender=True)
             queryset = queryset.filter(parent__isnull=True)
+        else:
+            queryset = Message.objects.filter(Q(sender=user) | Q(recipients=user)).distinct()
         return queryset
     
     @action(detail=False, methods=['get'], url_path='recipients')

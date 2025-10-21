@@ -31,12 +31,12 @@ def create_alert_on_flag(sender, instance, created, **kwargs):
             q_caused_by |
             Q(role='meofficer', organization=instance.caused_by.organization if instance.caused_by else None) |
             Q(role='admin')
-        ).exclude(pk=instance.created_by.pk).distinct()
+        ).distinct()
 
         # Create the alert
         alert = Alert.objects.create(
             subject='Flag Raised',
-            body=f"{instance.reason_type}: {instance.reason}",
+            body=f"{instance.get_reason_type_display()}: {instance.reason}",
             alert_type=Alert.AlertType.FLAG,
             content_type=instance.content_type,
             object_id=instance.object_id

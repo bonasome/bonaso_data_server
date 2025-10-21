@@ -34,6 +34,7 @@ class Indicator(models.Model):
         MISC = 'misc', _('Other Category')
 
     name = models.CharField(max_length=255)
+    description = models.TextField(null=True, blank=True)
     required = models.BooleanField(default=False)
     type = models.CharField(max_length=25, choices=Type.choices, default=Type.BOOL, verbose_name='Data Type')
     category = models.CharField(max_length=25, choices=Category.choices, default=Category.ASS)

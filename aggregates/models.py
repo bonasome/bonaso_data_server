@@ -15,6 +15,7 @@ class AggregateGroup(models.Model):
     project = models.ForeignKey(Project, on_delete=models.PROTECT)
     start = models.DateField()
     end = models.DateField()
+    comments = models.TextField(blank=True, null=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='group_created_by')
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='group_updated_by')
     created_at = models.DateTimeField(auto_now_add=True)

@@ -517,7 +517,26 @@ class InteractionSerializer(serializers.ModelSerializer):
         if indicator.type == Indicator.Type.BOOL:
             if val not in [True, False, 0, 1, '0', '1', "true", "false"]:
                 raise serializers.ValidationError('Boolean is required.')
-    
+        if indicator.type == Indicator.Type.MULTINT:
+            for pair in val:
+                option_id = pair.get('option')
+                value = pair.get('value')
+
+                # Validate that the option belongs to this indicator
+                if not self.__options_valid(option_id, indicator):
+                    raise serializers.ValidationError(
+                        f'Option ID {option_id} is not valid for indicator "{indicator.name}".'
+                    )
+                # Validate that value is a non-negative integer
+                try:
+                    if value == '':
+                        value = 0
+                    value = int(value)
+                    if value < 0:
+                        raise serializers.ValidationError('Value must be a non-negative integer.')
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError('Each value must be a valid integer.')
+                
     def __should_be_visible(self, indicator, responses, respondent, task):
         logic_group = LogicGroup.objects.filter(indicator=indicator).first()
         if logic_group:
@@ -643,7 +662,6 @@ class InteractionSerializer(serializers.ModelSerializer):
 
             #if this should be visible and the indicator is required, but there is no value, raise an error
             if sbv and val in [[], None, ''] and indicator.required:
-                print(indicator.id, task.assessment.id)
                 raise serializers.ValidationError({
                     'requirement_error': f'Indicator {indicator.name} is required.',
                     "details": {"indicator_id": indicator.id}
@@ -665,16 +683,29 @@ class InteractionSerializer(serializers.ModelSerializer):
     def __make_response(self, interaction, indicator, data, user):
         if data.get('value') in [[], None, '', 'none', ['none']]:
             return
-        if indicator.type == Indicator.Type.MULTI:
+        response_date = data.get('date', interaction.interaction_date)
+        if response_date == '':
+            response_date = interaction.interaction_date
+        
+        response_location =     data.get('location', interaction.interaction_location)
+        if response_location == '':
+            response_location = interaction.interaction_location
+        
+        if indicator.type == Indicator.Type.MULTINT:
+            vals = data.get('value', [])
+            print(vals)
+            for val in vals:
+                response = Response.objects.create(
+                    interaction=interaction,
+                    indicator=indicator,
+                    response_option_id=val.get('option'),
+                    response_value=val.get('value'),
+                    response_date=response_date,
+                    response_location=response_location,
+                )
+        elif indicator.type == Indicator.Type.MULTI:
             options = data.get('value')
             for option in options:
-                response_date = data.get('date', interaction.interaction_date)
-                if response_date == '':
-                    response_date = interaction.interaction_date
-
-                response_location = data.get('location', interaction.interaction_location)
-                if response_location == '':
-                    response_location = interaction.interaction_location
                 response = Response.objects.create(
                     interaction=interaction,
                     indicator=indicator,
@@ -686,13 +717,6 @@ class InteractionSerializer(serializers.ModelSerializer):
             boolVal = data.get('value') if indicator.type == Indicator.Type.BOOL else None
             option = data.get('value') if indicator.type == Indicator.Type.SINGLE else None
             text = data.get('value') if not boolVal and not option else None
-            response_date = data.get('date', interaction.interaction_date)
-            if response_date == '':
-                response_date = interaction.interaction_date
-
-            response_location = data.get('location', interaction.interaction_location)
-            if response_location == '':
-                response_location = interaction.interaction_location
             response = Response.objects.create(
                 interaction=interaction,
                 indicator=indicator,

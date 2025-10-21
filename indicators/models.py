@@ -24,7 +24,8 @@ class Indicator(models.Model):
         MULTI = 'multi', _('Mutliselect')
         TEXT = 'text', _('Open Answer')
         INT = 'integer', _('Number')
-
+        MULTINT = 'multint', _('Numbers by Category')
+        
     class Category(models.TextChoices):
         ASS = 'assessment', _('Assessment-Based')
         SOCIAL = 'social', _('Social Media')

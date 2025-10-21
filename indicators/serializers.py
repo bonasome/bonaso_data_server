@@ -220,7 +220,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
     def __set_options(self, user, indicator, options_data):
         if len(options_data) == 0:
             return
-        if indicator.type not in [Indicator.Type.SINGLE, Indicator.Type.MULTI]:
+        if indicator.type not in [Indicator.Type.SINGLE, Indicator.Type.MULTI, Indicator.Type.MULTINT]:
             raise serializers.ValidationError(f'{indicator} cannot accept options.')
         for option in options_data:
             existing=None
@@ -276,6 +276,10 @@ class IndicatorSerializer(serializers.ModelSerializer):
             ind_id = condition.get('source_indicator', None)
             if ind_id:
                 prereq = Indicator.objects.filter(id=ind_id).first()
+                if not prereq:
+                    raise serializers.ValidationError('A valid indicator id is required for source indicator.')
+                if prereq.type == Indicator.Type.MULTINT:
+                    raise serializers.ValidationError('Indicators of the multiple numbers type cannot be used as source indicators.')
             respondent_field = condition.get('respondent_field', None)
 
             LogicCondition.objects.create(

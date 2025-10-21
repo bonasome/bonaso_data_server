@@ -69,7 +69,7 @@ def build_keys(response, pregnancies_map, hiv_status_map):
 
     key = frozenset(base_keys)
     amount = 0
-    if response.indicator.type == Indicator.Type.INT:
+    if response.indicator.type in [Indicator.Type.INT, Indicator.Type.MULTINT]:
         try:
             amount = int(response.response_value)
         except:

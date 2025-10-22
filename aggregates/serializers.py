@@ -197,7 +197,46 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
                     f"Duplicate demographic combination found: {dict(zip(breakdown_keys_set, combination))}"
                 )
             seen_combinations.add(combination)
+        if indicator.type == Indicator.Type.MULTI:
+            exclude_keys = {'option', 'value', 'unique_only'}
             
+            for row in counts:
+                val = row.get('value')
+                option = row.get('option')
+                unique_only = row.get('unique_only', False)
+
+                # Skip total rows (we only validate option rows against totals)
+                if unique_only or option is None:
+                    continue
+
+                # Ignore empty/zero values safely
+                if not val or str(val).strip() == '0':
+                    continue
+
+                # Find the corresponding "total" row with same breakdown keys
+                target_subset = {k: v for k, v in row.items() if k not in exclude_keys}
+                total_match = next(
+                    (
+                        r for r in counts
+                        if not r.get('option')  # total row has no option
+                        and r.get('unique_only', True)  # must be marked as total
+                        and all(r.get(k) == v for k, v in target_subset.items())
+                    ),
+                    None,
+                )
+
+                if not total_match:
+                    raise serializers.ValidationError(
+                        f'No total row found for option {option.name if hasattr(option, "name") else option}.'
+                    )
+
+                total_val = total_match.get('value') or 0
+                if float(val) > float(total_val):
+                    raise serializers.ValidationError(
+                        f'Count for option {option.name if hasattr(option, "name") else option} '
+                        f'({val}) cannot be higher than total ({total_val}).'
+                    )
+
         return attrs
     
     def __check_logic(self, indicator, organization, start, end, count, user, visited=None):
@@ -231,13 +270,15 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
                 'group__organization': organization,
             }
             for field in ['sex', 'age_range', 'kp_type', 'disability_type', 'hiv_status', 'pregnancy', 'district', 'citizenship', 'attribute_type', 'unique_only']:
+                if field == 'unique_only' and prereq.type != Indicator.Type.MULTI:
+                    continue
                 value = getattr(count, field)
                 if value is not None:
                     filters[field] = value
-            if count.option_id is not None:
+            if count.option_id is not None and Option.objects.filter(indicator=prereq).exists():
                 filters['option_id'] = count.option_id
-
-            find_count = AggregateCount.objects.filter(**filters).first()
+            print(filters)
+            find_count = AggregateCount.objects.filter(**filters).exclude(flags__resolved=False).first()
 
             # Logic: NONE / False condition
             if condition.condition_type == LogicCondition.ExtraChoices.NONE or condition.value_boolean is False:

@@ -23,7 +23,7 @@ class IndicatorViewSet(RoleRestrictedViewSet):
     serializer_class = IndicatorSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['assessment', 'category']
-    ordering_fields = ['index']
+    ordering_fields = ['order']
     search_fields = ['name']    
 
     def get_queryset(self):

@@ -7,7 +7,7 @@ import csv
 from django.utils.timezone import now
 from datetime import datetime, timedelta
 from django.utils import timezone
-
+from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework import status
@@ -40,6 +40,9 @@ class LineListViewSet(RoleRestrictedViewSet):
     '''
     Manages all endpoints for creating/viewing line lists.
     '''
+    permission_classes = [IsAuthenticated]
+    filter_backends = [SearchFilter, OrderingFilter]
+    search_fields = ['name']
     def get_serializer_class(self):
         #return lightweight serializer for list view
         if self.action == 'list':
@@ -96,6 +99,9 @@ class TablesViewSet(RoleRestrictedViewSet):
     Manages all endpoints related to pivot tables, and tentatively handles a couple of transitory
     API endpoints that return aggregates. 
     '''
+    permission_classes = [IsAuthenticated]
+    filter_backends = [SearchFilter, OrderingFilter]
+    search_fields = ['name', 'indicator__name']
     def get_serializer_class(self):
         #return lightweight serializer for index views
         if self.action == 'list':
@@ -221,6 +227,9 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
     '''
     Manges all endpoints related to dashboards/charts
     '''
+    permission_classes = [IsAuthenticated]
+    filter_backends = [SearchFilter, OrderingFilter]
+    search_fields = ['name']
     serializer_class = DashboardSettingSerializer  # default
 
     def get_serializer_class(self):
@@ -456,6 +465,7 @@ class SiteAnalyticsViewSet(RoleRestrictedViewSet):
     permission_classes = [IsAuthenticated]
     queryset = RequestLog.objects.none()
     serializer = RequestLogSerializer
+    
     @action(detail=False, methods=["get"], url_path="site-analytics")
     def site_analytics(self, request):
         user = request.user

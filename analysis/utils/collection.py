@@ -190,7 +190,7 @@ def get_counts_from_indicator(user, indicator, params, project=None, organizatio
         queryset=queryset.filter(group__start__gte=start)
     if end:
         queryset=queryset.filter(group__end__lte=end)
-
+    #don't need to do this for multint since those are supposed to stack
     if indicator.type == Indicator.Type.MULTI and not params.get('option', False):
         queryset = queryset.filter(option=None, unique_only=True)
 

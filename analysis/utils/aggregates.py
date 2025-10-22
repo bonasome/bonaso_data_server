@@ -1,4 +1,4 @@
-from django.db.models import Q, Count
+from django.db.models import Q, Count, OuterRef, Subquery, Min, F
 from respondents.models import Interaction
 from projects.models import Target, ProjectOrganization
 from aggregates.models import AggregateCount, AggregateGroup
@@ -164,12 +164,28 @@ def get_repeats(responses, n):
     - interactions (queryset): interactions to check in
     - n (integer): number of interactions a respondent needs within the queryset to be counted
     '''
-    repeat_respondents = list(
+    # 1️⃣ Find respondents that appear in >= n interactions
+    repeat_respondents = (
         responses
-            .values('interaction__respondent')
-            .annotate(total=Count('id'))
-            .filter(total__gte=n)
-            .values_list('interaction__respondent', flat=True)
+        .values('interaction__respondent')
+        .annotate(total=Count('interaction', distinct=True))
+        .filter(total__gte=n)
+        .values_list('interaction__respondent', flat=True)
+    )
+
+    # 2️⃣ For those respondents, keep only one response per interaction
+    #     We'll pick the lowest response.id per interaction_id
+    first_response_per_interaction = (
+        responses
+        .filter(interaction_id=OuterRef('interaction_id'))
+        .order_by('id')  # or 'created_at' if you prefer
+    )
+
+    repeat_only = (
+        responses
+        .filter(interaction__respondent_id__in=repeat_respondents)
+        .annotate(first_id=Subquery(first_response_per_interaction.values('id')[:1]))
+        .filter(id=F('first_id'))
     )
     #return queryset of only repeats
     repeat_only = responses.filter(interaction__respondent_id__in=repeat_respondents)

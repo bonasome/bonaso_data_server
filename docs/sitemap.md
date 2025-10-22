@@ -14,6 +14,7 @@ The following is a basic overview of the server structure and the apps it contai
 - [Indicators](#indicators)
 - [Projects](#projects)
 - [Respondents](#respondents)
+- [Aggregates](#aggregates)
 - [Events](#events)
 - [Social](#social)
 - [Uploads](#uploads)
@@ -91,54 +92,44 @@ Contains uploaded files (primarily from the uploads app)
 ---
 
 ## Indicators:
-**At a glance**: Higher level information about indicators/things the site needs to track.
+**At a glance**: Higher level information about indicators/things the site needs to track. Can be either "standalone" for things like events, social media posts, or miscellanous indicators, or be grouped into an assessment if they are meant to be linked to a respondent. 
 
 **Description**: An indicator is any metric that we want this system to track, and serves as the central unifying component of the entire system. 
 
 [**Important Models**](/indicators/models.py):
 - Indicator: Contains information about the indicator and its special validation/information requirements.
-- Indicator Subcategory: Contains information about indicator subcategories, which is important for matching subcategories and deprecating subcategories. 
+- Assessment: Contains an assessment, which is essentially a grouping of indicators that are meant to be answered in a sequential order during "one session."
+- Option: Linked to an indicator, allows for additional information to be attached to a response.
+- LogicGroup: A group of logic linked to a question that contains an operator for the conditions.
+- LogicCondition: Linked to a group, this is a condition that can either be linked to a previous indicator in the assessment or a respondent field. Determines if the question should be answerable. 
 
-**Permissions**: Only admins can create/edit indicators. For the purpose of assigning tasks, M&E Officers/Managers can view indicators for tasks they have been assigned. 
+**Permissions**: Only admins can create/edit indicators and assessments. For the purpose of assigning tasks and analyzing data, M&E Officers/Managers can view indicators for tasks they have been assigned. 
 
 **Notes**:
 
-*Indicator Types*: There are several different types of indicators:
-- Respondent: This is an indicator that is meant to be linked directly to one person (or a set of demographic information).
-    - *Example*: Tested for HIV
+*Indicator Categories*: There are several different categories of indicators:
+- Assessment: This is an indicator is meant to be housed in an assessment and linked to a respondent via a response/interaction.
+    - *Example*: Tested for HIV, Tested Positive for HIV
 
 - Social: This is an indicator that is meant to be linked directly to a social media post.
     - *Example*: Number of People Reached with HIV Prevention Messages on Social Media
 - Number of Events: This is an indicator that is tied to an event and automatically counts the number of linked completed events.
     - *Example*: Number of Media Engagements Held
 
-- Number of Organizations at Event: This is an indicator that is tied to an event and counts the number of participants (FK organization) at a completed event.
+- Organizations Capacitated: This is an indicator that is tied to an event and counts the number of participants (FK organization) at a completed event.
     - *Example*: Number of Organizations Trained
 
-- Counts (**NOT IN USE**): This is designed as a misc. option, but will not currently be pulled in any aggregates due to a lack of identified need for the option. 
+- Misc : This is designed as a misc. option that a user can enter aggregated data for. Used for one-off things. 
 
-*Attached Data*: Indicators are by default just an "it happened", but additional information can be attached:
-- Indicators can require a number (toggle the require_numeric boolean).
-    - *Example*: Number of Lubricants Distributed
+*Assessment Indicators*: Assessment indicators can have different types:
+    - Yes/No: The user can give a boolean response (true/false)
+    - Number: The user can enter an integer.
+    - Open Text: The user can enter any text.
+    - Multiselect: The user can select any number of options
+    - Single Select: The user can select one option.
+    - Numbers by Category: The user can enter numbers for a defined set of options. 
 
-- Indicators can require specific subcategories be selected for additional information
-    - *Example*:: Screened for NCDs → subcategories: BMI, Blood Glucose, Blood Pressure (the user will select which ones apply)
-- Subcategories and require a number can be combined.
-    - *Example*: Number of Condoms Distrubted → subcategories: Male Condom, Female Condom, with a number associated with both male condoms and female condoms
-
-*Managing Subcategories*: Indicator subcategories cannot be removed from an indicator (since this could delete or nullify existing data), so instead if an indicator's subcategories need to be changed, old ones can be deprecated. 
-
-*Validation*: Indicators have some built in validation methods (mostly for respondent type):
-- Allow Repeat: If the same person has an interaction associated with the same interaction more than once in 30 days, it will be flagged by default. This boolean will disable that.
-
-- Prerequisites: If an indicator should not be allowed unless prerequisite interactions are had (example, Tested for HIV → Tested Positive for HIV, person should be tested in order to test positive). Setting prerequisites will flag interactions missing a prerequisite.
-
-- Require Attribute: If the respondent undergoing this indicator needs to have a speicifc attribute (example: to complete an interaction with the indicator "People Living With HIV Trained for Self-Defense", the respondent should be a Person Living with HIV).
-
-- Match Subcategories To: If an indicator should share subcategories with a prerequisite, their categories can be explcitly matched, in which case editing subcategories for the parent will automatically reflect in the dependent indicator and the system will throw a flag if the dependent indicator's subcategories are not a subset of the parent.
-    - *Example*: Screened for NCDs → Referred for NCDs, can share subcategories (BMI, Blood Glucose, Blood Pressure), and shold throw a flag if a person was referred for BMI but not screened for BMI.
-
-*Governs Attribute*: This is a feature still in development, but if an interaction with this indicator is had, it can automatically update certain respondent statuses. Currently on used so that if a respondent has an interaction for "Tested Positive for HIV* their HIV status automatically updates. This could be expanded in the future. 
+Assessment indicators can also be selected to allow for aggregate reporting. They can also be marked as optional or required. Mutliselect/single select options can also allow none options. If a user responds none, this information will be treated as though the user did not answer the question, but it is helpful for managing logic and managing requirements (basically determining the difference between this user has not gotten to this question versus this question was deliberately left blank). Multiselect indicators can also match options with a previous indicator, in which case what options a user selected for the previous indicator will be mirrorred for this indicator, and this indicator's options will be filtered based on the previous indicators selected options. 
 
 ---
 
@@ -164,7 +155,7 @@ Projects also house important information about how organizations are related. A
 - promote_org: Custom action in **ProjectViewSet**. Allows an admin to make an organization a top-level organization instead of a child org to another organization.
 - remove_organization: Custom action in **ProjectViewSet**. Allows an admin to remove an organization from a project and allows a M&E Officer/Manager to remove a subgrantee from a project (assuming there are no conflicts).
 - batch_create_tasks: Custom action in **TaskViewSet**. Takes a project/organization ID and a list of indicator IDs and creates tasks using the [TaskSerializer](/projects/serializers.py).
-- mobile_list: Custom action in **TaskViewSet**. Removes pagination and returns all tasks for a user so that the mobile app can get and download all tasks for offline use.
+- mobile_list: Custom action in **TaskViewSet**. Removes pagination and returns all tasks (with an assessment) for a user so that the mobile app can get and download all tasks for offline use.
 - mark_complete: Custom action in **ProjectDeadlineViewSet**. Allows a user to mark a deadline as completed (even if they may not have edit abilities).
 
 **Permissions**: Only admins can create/edit projects. M&E Officers can view projects, create/edit project acitivities, deadlines, and announcements (assuming they are scoped to their organization), assign subgrantees to their organization (assuming they are not already in the project), and assign tasks/targets for their subgrantees. M&E Officers/Managers cannot assign targets/tasks for their own organization. Clients can view projects they are a client for, but not create any realted materials.  
@@ -184,52 +175,61 @@ Information about target achievement references util functions in the [analysis]
 
 [**Important Models**](/respondents/models.py):
 - Respondent: A person's demographic profile. 
-- Interaction: A nexus model that connects a respondent to a task (with the respondent indicator type).
+- Interaction: A nexus model that connects a respondent to a task (with an assessment).
+- Response: Linked to an interaction and an indicator. Contains the response to that indicator, either as a boolean, text/number, or an fk to an option. Mutliselect/MultiInt types store in multiple rows. 
 
 **Important Views/Actions**:
 - [mobile_upload](/respondents/views/respondent_viewset.py): Custom action in **RespondentViewSet**. Action that can take data from multiple respondents at once and serialize them without making repeated API calls. 
 - [mobile_upload](/respondents/views/interaction_viewset.py): Custom action in **InteractionViewSet**. Action that can take data from mutliple interactions as uploaded by the mobile app and serialize them without making repeated API calls.
-- [batch_create](/respondents/views/interaction_viewset.py): Custom action in **InteractionViewSet**. Takes a list of tasks and associated information and uses them to create interactions without making repeated API calls.
 - [get_template](/respondents/views/interaction_viewset.py) Custom action in **InteractionViewSet**. Generates a downloadable excel template that the user can capture data in and upload it into the system.
 - [post_template](/respondents/views/interaction_viewset.py): Custom action in InteractionViewSet. Accepts a template as generated by get_template and converts information in the template into serializable data.
 
 **Notes**: It is worth noting that we allow respondents to remain anonymous, meaning that we only collect general demogrpahic information and no PII, but this makes it harder to track respondents (since no ID number is requested) and protect against duplicates, so this method is of secondary preference. 
+
+Note that assessment logic checks for creating interactions are housed in the [utils](/respondents/utils.py) file.
 
 *Validation*:
 Respondents must be unique, as measured by their ID number (assuming they are not anonymous). 
 
 Respondent IDs are verified and flagged using logic in [respondent_flag_check](/respondents/utils.py). 
 
-Interactions are verified by their indicator's riles by [interaction_flag_check](/respondents/utils.py).
-
-*Signals*: Editing certain respondent attributes (notable HIV Status, disability status, and kp status) will trigger [signals](/respondents/signals.py) that will automatically set respondent attributes for verification.
+Interactions/Responses must follow assessment logic [check_logic](/respondents/utils.py)
 
 If an interaction's indicator governs an attribute, completing that interaction will trigger a signal to change that respondents status (this currently only works for setting HIV status).
 
-*Links to [DemographicCounts](/events/models.py)*: To allow for aggregate data to be collected, most respondent fields are mirrored in the events app under the **DemographicCounts** model. *If you make any changes to the respondents model, such as changing choice fields or adding anew breakdown, make sure you reflect those changes in the DemographicCount model*.
+---
+## Aggregates:
+**At a glance**: Allows a user to record data in aggregated format, without having to link it to a respondent in the system. Ideally this system is only used as a backup/transition tool, secondary to the main method of creating a respondent and an interaction. 
+
+**Description**: Aggregates allow a user to enter data in a tabular format without being directly linked to a respondent. The user can select from any number of breakdown categories (sex, age range, etc.) to disaggregate the data. These numbers will be pulled when running analysis (unless the count is flagged).
+
+[**Important Models](/aggregates/models.py):
+- AggregateGroup: Has information about a group of aggregates, such as project, indicator, organization, and time period. 
+- AggregateCount: Contains a "row" of data, with any of the disaggregation fields the user selected and a value. Linked to an aggregate group.
+
+**Permissions**: M&E Officers/Managers and admins can create/edit aggregates. Clients are allowed to view counts linked to a project they are a client of. 
+
+**Notes**: Only indicators that are flagged with allow_aggregate can be used for aggregates. If the source indicator was part of an assessment, the system will try to employ the assessment logic and create flags (i.e. flag if referred was higher than screened). 
+
+If an indicator has options, those are automatically included in the disaggregation fields. 
+
+For multiselect questions, a "Total" row will be automatically created, to allow the user to enter the number of unique people regardless of category.
 
 ---
 
 ## Events:
 **At a glance**: Information about events that contribute towards project indicators and counts associated with these events. 
 
-**Description**: Events contain information about events and their related counts. Each event has a host organization, can be assigned participants (other organizations who were at the event), and linked tasks. As noted in the indicators app, some tasks of the "Number of Events" or "Number of Organizations at Event" just need to be linked to the event and they will be automatically calculated. Indicators of the "Respondent" type can be associated with events, but a linked set of DemographicCount instances will need to be created to record the data in an aggregated form.
+**Description**: Events contain information about events and their related counts. Each event has a host organization, can be assigned participants (other organizations who were at the event), and linked tasks. As noted in the indicators app, some tasks of the "Number of Events" or "Organizations Capacitated" just need to be linked to the event and they will be automatically calculated.
 
 [**Important Models**](/events/models.py):
 - Event: Stores details about an event and associated tasks.
 -Demographic Count: Stores details about counts associated with an event, linked to one task and one event, and then an variable number of demographic fields. 
 
-[**Important Views/Actions**](/events/views.py):
--get_breakdowns_meta: Custom action in **EventsViewSet**. Returns an object with values/labels for each demographic field optimized for the frontend's count table creation process. 
-- get_counts: Custom action in **EventsViewSet**. Returns a list of all counts associated with that event. 
-- update_counts: Custom action in **EventsViewSet**. Takes a JSON containing numbers attached to specific demographic splits related to a particular task and stores them in the database. 
-- delete_count Custom action in **EventsViewSet**. Deletes a count (all DemographicCount instances associated with that task for that event.)
 
-**Permissions**: M&E Officers/Managers and admins can create/edit events. M&E Officers/Managers can edit events where they or their child org are the host. Child orgs marked as participants can view the event and edit counts for their tasks in an event. 
+**Permissions**: M&E Officers/Managers and admins can create/edit events. M&E Officers/Managers can edit events where they or their child org are the host.
 
-**Notes**: Respondent tasks can also be linked to an event, but need an associated count (a number matched with demographic inforation) to be tracked. 
-
-*Validation*: Count flag logic is managed in [count_flag_logic](/events/utils.py).
+**Notes**: Tasks with indicator categories of Event No/Orgs Capacitated can be linked directly to an event and will automatically count towards targets/be pulled for analytics.
 
 ---
 
@@ -300,6 +300,7 @@ The utils folder is a little bit intimidating, but basically this is how the agg
 
 The [TargetSerializer](/projects/serializers.py) uses methods from this app's [utils](/analysis/utils/targets.py) folder to get target achievements and relative amounts. Note that by default targets also pull achievement from child organizations. 
 
+If a question type is numeric, we support averages. We can also track "repeats", i.e., the respondent has had an interaction with this assessment n number of times.
 ---
 
 ## Flags:

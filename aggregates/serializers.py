@@ -18,18 +18,22 @@ from flags.utils import create_flag, resolve_flag
 from flags.models import Flag
 from flags.serializers import FlagSerializer
 
-class AggregatGroupListSerializer(serializers.ModelSerializer):
+class AggregateGroupListSerializer(serializers.ModelSerializer):
     organization = OrganizationListSerializer(read_only=True)
     project = ProjectListSerializer(read_only=True)
     indicator = IndicatorSerializer(read_only=True)
 
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
+    display_name = serializers.SerializerMethodField()
 
+    def get_display_name(self, obj):
+        return str(obj)
+    
     class Meta:
         model = AggregateGroup
         fields = [
-            'id', 'organization', 'indicator', 'project',
+            'id', 'organization', 'indicator', 'project', 'name', 'display_name',
             'start', 'end', 'created_by', 'created_at', 'updated_by', 'updated_at'
         ]
 
@@ -65,7 +69,7 @@ class AggregateCountSerializer(serializers.ModelSerializer):
         ]
        
     
-class AggregatGroupSerializer(serializers.ModelSerializer):
+class AggregateGroupSerializer(serializers.ModelSerializer):
     organization = OrganizationListSerializer(read_only=True)
     project = ProjectListSerializer(read_only=True)
     indicator = IndicatorSerializer(read_only=True)
@@ -76,6 +80,7 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
     updated_by = ProfileListSerializer(read_only=True)
     counts_data = AggregateCountSerializer(write_only=True, many=True, required=True)
     parent_organization = serializers.SerializerMethodField()
+    display_name = serializers.SerializerMethodField()
 
     counts = serializers.SerializerMethodField()
     def get_counts(self, obj):
@@ -85,13 +90,14 @@ class AggregatGroupSerializer(serializers.ModelSerializer):
     def get_parent_organization(self, obj):
         org_link =  ProjectOrganization.objects.filter(project=obj.project, organization=obj.organization).first()
         return org_link.parent_organization.id if org_link and org_link.parent_organization else None
-    
+    def get_display_name(self, obj):
+        return str(obj)
     class Meta:
         model = AggregateGroup
         fields = [
             'id', 'organization', 'indicator', 'project', 'organization_id', 'indicator_id', 'project_id',
             'start', 'end', 'created_by', 'created_at', 'updated_by', 'updated_at', 'counts', 'counts_data',
-            'parent_organization', 'comments',
+            'parent_organization', 'comments', 'name', 'display_name',
         ]
         
 

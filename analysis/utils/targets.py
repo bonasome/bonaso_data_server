@@ -10,7 +10,7 @@ def get_target_aggregates(user, indicator, split, start=None, end=None, project=
     '''
     
     '''
-    queryset = Target.objects.filter(task__indicator=indicator)
+    queryset = Target.objects.filter(indicator=indicator)
 
     if user.role not in ['admin', 'client']:
         child_orgs = ProjectOrganization.objects.filter(

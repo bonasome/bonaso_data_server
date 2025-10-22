@@ -10,6 +10,7 @@ User = get_user_model()
 
 
 class AggregateGroup(models.Model):
+    name = models.CharField(max_length=255, null=True, blank=True)
     indicator = models.ForeignKey(Indicator, on_delete=models.PROTECT)
     organization = models.ForeignKey(Organization, on_delete=models.PROTECT)
     project = models.ForeignKey(Project, on_delete=models.PROTECT)
@@ -20,7 +21,9 @@ class AggregateGroup(models.Model):
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='group_updated_by')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
+    
+    def __str__(self):
+        return self.name if self.name else f"Aggregate for {self.indicator.name} ({self.start}-{self.end})"
 class AggregateCount(models.Model):
     '''
     The demographic count is how numeric information (how many people) is attached to an event. For example,

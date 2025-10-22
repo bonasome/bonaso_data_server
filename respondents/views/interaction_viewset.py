@@ -98,8 +98,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
     @action(detail=False, methods=['post'], url_path='mobile')
     def mobile_upload(self, request):
         '''
-        Similar to batch create, but the mobile view is less punishing and allows for partial 
-        successes. Will expect the information to be uploaded with both a server_id and a local device ID. 
+        Allows user to upload a list of interactions. Uses the serializer to check each one.
+        Will expect the information to be uploaded with both a server_id and a local device ID. 
         '''
         if request.user.role == 'client':
                 raise PermissionDenied('You do not have permission to perform this action.')
@@ -152,9 +152,6 @@ class InteractionViewSet(RoleRestrictedViewSet):
         task_id = self.request.data.get('task_id')
         if not task_id or not org_id:
             raise serializers.ValidationError('Template requires a project and organization.')
-            
-
-
         
         #pull user-friendly labels that users can view
         district_labels = [choice.label for choice in Respondent.District]
@@ -215,18 +212,22 @@ class InteractionViewSet(RoleRestrictedViewSet):
         
     
 
-        #create a header for each task
+        #create a header for each indicator in the assessment
         task = Task.objects.filter(id=task_id).first()
         if not task.organization_id == org_id:
             raise ValidationError('This task does not belong to this organization.')
         if not task.assessment:
             raise ValidationError('You can only generate this template for assessments.')
+        
+        #check perms
         if user.role != 'admin':
             if task.organization != user.organization:
                 if not ProjectOrganization.objects.filter(parent_organization=user.organization, project_id=task.project_id, organization_id=org_id).exists(): #check if its a valid child for the project
                     raise PermissionDenied('You do not have permission to access this template.')
         
+        #create a header for each indicator
         for indicator in Indicator.objects.filter(assessment=task.assessment).order_by('order').all():
+            #for multiselect, split them into multiple columns for easier reporting
             if indicator.type in [Indicator.Type.MULTI, Indicator.Type.MULTINT]:
                 options = Option.objects.filter(indicator=indicator) if not indicator.match_options else Option.objects.filter(indicator=indicator.match_options)
                 for option in options.all():
@@ -237,6 +238,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 continue
             header = indicator.name
             categories = []
+            #append helper text
             if indicator.type == Indicator.Type.INT:
                 header = header + ' (Enter a Number)'
             elif indicator.type == Indicator.Type.SINGLE:
@@ -268,7 +270,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 continue
         options_sheet.sheet_state = 'hidden'
 
-        #set metadata so the user doesn't have to specify the project/org again
+        #set metadata so the user doesn't have to specify the task/org again when uploading
         metadata_sheet = wb.create_sheet("Metadata")
         metadata_sheet["A1"] = "organization_id"
         metadata_sheet["A2"] = org_id
@@ -277,14 +279,14 @@ class InteractionViewSet(RoleRestrictedViewSet):
 
         metadata_sheet.sheet_state = 'hidden'
         metadata_sheet.protection.sheet = True
-        metadata_sheet.protection.password = 'xQvzLit1@SS69'
+        metadata_sheet.protection.password = 'xQvzLit1@SS69' #nice
 
         output = BytesIO()
         wb.save(output)
         output.seek(0)
         response = HttpResponse(output.read(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        filename = f'{str(task.assessment.name)[:10]}_{date.today().strftime("%Y-%m-%d")}.xlsx'
-        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        filename = f'{str(task.assessment.name).replace(' ', '_')[:10]}_{date.today().strftime("%Y-%m-%d")}.xlsx'
+        response['Content-Disposition'] = f'attachment; filename="{filename}"' #filename based on date/assessment
         return response
 
     @action(detail=False, methods=['POST'], url_path='upload')
@@ -292,8 +294,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
         '''
         Method for uploading the afforementioned template and converting it the data the system can use.
         '''
-
         user = request.user
+
         #custom errors/warnings
         errors = []
         warnings = []
@@ -309,26 +311,26 @@ class InteractionViewSet(RoleRestrictedViewSet):
         if not uploaded_file.name.endswith('.xlsx'):
             return Response({"detail": "Uploaded file must be an .xlsx Excel file."}, status=status.HTTP_400_BAD_REQUEST)
         
-        #read metadata sheet that has project/organization info and throw an error if its missing or wrong
+        #read metadata sheet that has task/organization info and throw an error if its missing or wrong
         try:
             wb = load_workbook(filename=uploaded_file)
             ws = wb['Metadata']
         except Exception:
             raise ValidationError("Unable to read 'Metadata' sheet. Please check the template.")
-
         try:
             org_id = int(ws['A2'].value)
         except (TypeError, ValueError):
             raise ValidationError("Organization ID must be numeric.")
         if not org_id:
             raise ValidationError("Template requires a valid organization ID.")
-        
+        #check perms
         if user.role != 'admin':
             #non admins should only have access to their org and child orgs
             if str(org_id) != str(user.organization_id): #if not their org then...
                 if not ProjectOrganization.objects.filter(parent_organization=user.organization, organization_id=org_id).exists(): #check if its a valid child for the project
                     raise PermissionDenied('You do not have permission to access this template.')
 
+        #make sure all the columns are present (row 1)
         ws = wb['Data'] 
         headers = {}
         for row in ws.iter_rows(min_row=1, max_row=1):
@@ -350,9 +352,12 @@ class InteractionViewSet(RoleRestrictedViewSet):
         dis_labels = [dis.label.lower().replace(' ', '')  for dis in DisabilityType.DisabilityTypes]
         auto_attr = [RespondentAttributeType.Attributes.PLWHIV, RespondentAttributeType.Attributes.KP, RespondentAttributeType.Attributes.PWD]
         special_attribute_labels = [attr.label.lower().replace(' ', '') for attr in RespondentAttributeType.Attributes if attr not in auto_attr]
+        
+        #helper for getting verbose name used in template
         def get_verbose(field_name):
             return Respondent._meta.get_field(field_name).verbose_name
         
+        #helper for checking respondent columns
         def expect_column(field_name, options=None, multiple=False):
             verbose = get_verbose(field_name)
             if verbose in headers:
@@ -396,7 +401,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
         
         metadata_ws = wb['Metadata']
 
-        
+        #helper to pull column based on indicator name/type
         def get_indicator_column(indicator, option=None, stmt=None):
             header = indicator.name
             if indicator.type in [Indicator.Type.MULTI, Indicator.Type.MULTINT]:
@@ -409,10 +414,13 @@ class InteractionViewSet(RoleRestrictedViewSet):
             if header:
                 return header['column']
             return None
+        
+        #tracker to help when creating errors
         indicator_columns = {}
         
-        cell = metadata_ws[f'B2']  # B3, B4, B5...
+        cell = metadata_ws[f'B2']  #task_id location
         task = None
+        #check perms
         try:
             task_id = int(cell.value)
         except (TypeError, ValueError):
@@ -434,10 +442,12 @@ class InteractionViewSet(RoleRestrictedViewSet):
             ).exists():
                 raise PermissionDenied("You do not have permission to use this template.")
 
-        # 2️⃣ Validate Indicators for Each Assessment
+        #make sure each indicator is here
         for indicator in Indicator.objects.filter(assessment=task.assessment).all():
             if indicator.type in [Indicator.Type.MULTI, Indicator.Type.MULTINT]:
+                #if its a multi/multint, check that a column for each option is there
                 options = Option.objects.filter(indicator=indicator.match_options) if indicator.match_options else Option.objects.filter(indicator=indicator)
+                #append helper text
                 stmt = stmt = 'Select All That Apply' if indicator.type == Indicator.Type.MULTI else 'Enter a Number'
                 for option in options.all():
                     col = get_indicator_column(indicator, option, stmt)
@@ -446,6 +456,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     col = get_indicator_column(indicator, option, stmt)
                     indicator_columns[str(indicator.id)] = col
             else:
+                #otherwise there should only be one column (still get helper text)
                 suffix = (
                     " (Select One)" if indicator.type == Indicator.Type.SINGLE else
                     " (Enter a Number)" if indicator.type == Indicator.Type.INT else
@@ -457,19 +468,21 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 indicator_columns[str(indicator.id)] = col
 
         
-        #few helper functions to get us through the next step
+        #gets a specific cell value based on a field
         def get_cell_value(row, field_name):
             header = headers.get(get_verbose(field_name))
             if header:
                 return row[header['column'] - 1]
             return None
 
+        #gets a column position based on a respondent field
         def get_column(field_name):
             header = headers.get(get_verbose(field_name))
             if header:
                 return header['column']
             return None
-
+        
+        #gets indicator value from a row/indicator (plus option/statement for multiselect/multint)
         def get_indicator_value(row, indicator, option=None, stmt=None):
             header = indicator.name
             if indicator.type in [Indicator.Type.MULTI, Indicator.Type.MULTINT]:
@@ -583,14 +596,14 @@ class InteractionViewSet(RoleRestrictedViewSet):
             #get/validate email and phone if provided
             email = get_cell_value(row, 'email') or None
             if email and not is_email(email):
-                row_warnings.append(f"Email at column: {get_column('email')}, row: {i} is not a valid choice.")
+                row_warnings.append(f"Email at column: {get_column('email')}, row: {i} is not a valid format.")
                 email = None
             phone_number = get_cell_value(row, 'phone_number') or None
             if phone_number and not is_phone_number(phone_number):
-                row_warnings.append(f"Phone Number at column: {get_column('phone_number')}, row: {i} is not a valid choice.")
+                row_warnings.append(f"Phone Number at column: {get_column('phone_number')}, row: {i} is not a valid format.")
                 phone_number = None
 
-
+            #get choice from label for respondent fields
             def get_choice_key_from_label(choices, label):
                 if not label:
                     return None
@@ -599,12 +612,14 @@ class InteractionViewSet(RoleRestrictedViewSet):
                         return key
                 return None
             
+            #validate that the correct options were provided
             sex = get_choice_key_from_label(Respondent.Sex.choices, sex)
             district = get_choice_key_from_label(Respondent.District.choices, district)
             if age_range and not dob:
                 age_range = get_choice_key_from_label(Respondent.AgeRanges.choices, age_range)
             elif dob:
                 age_range = None
+
             #validate our m2m fields
             kp_types = []
             kp_status_names_raw = get_cell_value(row, 'kp_status') or ''
@@ -740,6 +755,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                                 term_ended = parsed
                         else:
                             term_ended = None
+            
             #if there are any errors up to this point, the user needs to verify the respondent before any any data is recorded
             if len(row_errors) > 0:
                 row_errors.append("This respondent and their interactions will not be saved until these errors are fixed")
@@ -759,6 +775,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     return respondent, None
                 else:
                     return None, serializer.errors
+            
             #append the created data to our master list if new 
             if not respondent:
                 respondent_data = upload = {
@@ -830,17 +847,19 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     ]),
                     'hiv_status_data': {'hiv_positive': ex_stat.hiv_positive if ex_stat else None, 'date_positive': ex_stat.date_positive if ex_stat else None},
                 }
-                # Remove pregnancy before comparing (optional)
+                # Remove pregnancy before comparing to prevent potential conflicts since the formats differ
                 upload_preg = upload.pop('pregnancy_data', None)
                 if not anon:
                     in_db['age_range'] = None
+
+                #if there are any changes from the one in the db, add the val to existing so the user can determine what to do next
                 if upload != in_db:
                     existing.append({'id': respondent.id, 'upload': upload, 'in_database': in_db})
 
             #get date of interaction and make sure its legit
             doi_col = headers['Date of Interaction']['column']-1 
             interaction_date = row[doi_col] if len(row) > doi_col else None
-
+            #validate interaction date
             if interaction_date:
                 parsed = valid_excel_date(interaction_date)
                 if not parsed:
@@ -854,7 +873,9 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     f"Date of interaction at column: {doi_col}, row: {i} is required. "
                 )
             loc_col = headers['Interaction Location']['column']-1 
-            comments = get_cell_value(row, 'comments') or None
+
+            comments = get_cell_value(row, 'comments') or None #get interaction comments
+            
             #make sure a location is provided
             interaction_location = row[loc_col] if len(row) > loc_col else None
             if not interaction_location:
@@ -875,6 +896,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
             for indicator in Indicator.objects.filter(assessment=task.assessment).order_by('order'):
                 col = get_indicator_column(indicator)
                 val = str(get_indicator_value(row, indicator)).lower().replace(' ', '') if indicator.type != Indicator.Type.TEXT else str(get_indicator_value(row, indicator))
+                #for multi, loop through each col and combine the valid vals into an array
                 if indicator.type == Indicator.Type.MULTI:
                     val = []
                     for option in Option.objects.filter(indicator=indicator) if not indicator.match_options else Option.objects.filter(indicator=indicator.match_options):
@@ -886,7 +908,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                         val.append(option.id)
                     if len(val) == 0 and indicator.allow_none:
                         val = ['none']
-
+                #for multint, create a list with value/optionid from each column
                 elif indicator.type == Indicator.Type.MULTINT:
                     val = []
                     for option in Option.objects.filter(indicator=indicator):
@@ -902,7 +924,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                         except (ValueError, TypeError):
                             row_warnings.append(f'Number at column: {col}, row: {i} is not a valid number.')
                             continue   
-
+                #grab the option text and make sure its readable
                 elif indicator.type == Indicator.Type.SINGLE:
                     if val == 'none' and indicator.allow_none:
                         val == 'none'
@@ -921,6 +943,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
                         else:
                             val = valid_map[val]
                             print(val)
+
+                #get the value in yes/no or adjacent and convert to boolean
                 elif indicator.type == Indicator.Type.BOOL:
                     if val in ['yes', 'true', '1']:
                         val = True
@@ -931,6 +955,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                     else:
                         row_warnings.append(f'Could not parse value at column: {col}, row: {i}. Please enter "yes" or "no".')
                         continue
+                #verify its a number
                 elif indicator.type == Indicator.Type.INT:
                     if val in ['', 'none', 'na', 'n/a', 'unsure', 'maybe']:
                         continue
@@ -947,8 +972,8 @@ class InteractionViewSet(RoleRestrictedViewSet):
                         continue
                 
                 response_data[str(indicator.id)] = { 'value': val }
-            print(response_data)
-            # run once per assessment
+
+            #to check for duplicates, so repeat uploads to fix mistakes don't recreate interactions
             lookup_fields = {
                 'respondent': respondent,
                 'interaction_date': interaction_date,
@@ -978,7 +1003,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                 # Flatten error details for easier reading
                 error_details = serializer.errors
                 details = error_details.get("details", {})
-                indicator_id = str(details.get("indicator_id", "?"))  # convert to str
+                indicator_id = str(details.get("indicator_id", "?"))  # convert to str so we can find the col in our map
                 col = indicator_columns.get(indicator_id, "?")
                 print(error_details)
                 for field, msgs in error_details.items():

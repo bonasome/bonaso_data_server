@@ -16,7 +16,7 @@ class Event(models.Model):
     may not be necessary. It can also be used to track certian indicators like (how many counselling sessions
     were conducted in a month). 
 
-    Events can be tied to any Indicator via a task and information is recorded via counts (see below). 
+    Events can be tied to any Indicator via a task, and can be used to track indicators that track number of events or organizations capacitated. 
 
     KEY FIELDS:
         Event Type: Mainly used for categorization/filtering

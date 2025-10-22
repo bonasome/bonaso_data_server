@@ -19,6 +19,10 @@ from flags.models import Flag
 from flags.serializers import FlagSerializer
 
 class AggregateGroupListSerializer(serializers.ModelSerializer):
+    '''
+    Basic list serializer that pulls high level information about an aggregate group for 
+    list views. 
+    '''
     organization = OrganizationListSerializer(read_only=True)
     project = ProjectListSerializer(read_only=True)
     indicator = IndicatorSerializer(read_only=True)
@@ -38,6 +42,9 @@ class AggregateGroupListSerializer(serializers.ModelSerializer):
         ]
 
 class AggregateCountSerializer(serializers.ModelSerializer):
+    '''
+    Helper serializer that pulls information about a specific count.
+    '''
     option = OptionSerializer(read_only=True)
     option_id = serializers.PrimaryKeyRelatedField(queryset=Option.objects.all(), write_only=True, source='option', required=False, allow_null=True)
     flags = FlagSerializer(read_only=True, many=True)
@@ -70,6 +77,10 @@ class AggregateCountSerializer(serializers.ModelSerializer):
        
     
 class AggregateGroupSerializer(serializers.ModelSerializer):
+    '''
+    Full group serializer that pulls aggregate group information as well as related counts. Also 
+    used to create/edit aggregate groups.
+    '''
     organization = OrganizationListSerializer(read_only=True)
     project = ProjectListSerializer(read_only=True)
     indicator = IndicatorSerializer(read_only=True)
@@ -81,15 +92,17 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
     counts_data = AggregateCountSerializer(write_only=True, many=True, required=True)
     parent_organization = serializers.SerializerMethodField()
     display_name = serializers.SerializerMethodField()
-
     counts = serializers.SerializerMethodField()
+
     def get_counts(self, obj):
+        #fetch related counts
         counts = AggregateCount.objects.filter(group=obj)
         return AggregateCountSerializer(counts, many=True).data
 
     def get_parent_organization(self, obj):
         org_link =  ProjectOrganization.objects.filter(project=obj.project, organization=obj.organization).first()
         return org_link.parent_organization.id if org_link and org_link.parent_organization else None
+    
     def get_display_name(self, obj):
         return str(obj)
     class Meta:
@@ -100,21 +113,25 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
             'parent_organization', 'comments', 'name', 'display_name',
         ]
         
-
+    #validate a specific count
     def __validate_row(self, indicator, data):
+        #if it has an option, make sure its valid
         option = data.get('option')
         if indicator.type == Indicator.Type.MULTI:
+            #make sure that multiselects are sending an aggregated deduplication field for unique only
             if not option and not data.get('unique_only'):
                 raise serializers.ValidationError("Option or total flag is required for this indicator type.")
+        #make sure option is sent for these types
         if indicator.type in [Indicator.Type.SINGLE, Indicator.Type.MULTINT] and not option:
             raise serializers.ValidationError("Option is required for this indicator type.")
+        #and not other types
         elif indicator.type not in [Indicator.Type.MULTI, Indicator.Type.SINGLE, Indicator.Type.MULTINT]:
             # For all other indicator types, option must NOT be provided
             if option:
                 raise serializers.ValidationError(
                     f"Option should not be provided for indicator type '{indicator.type}'."
                 )
-
+        #make sure that for the demographic fields, a valid value is provided
         for field, valid_values in AggregateCount.DEMOGRAPHIC_VALIDATORS.items():
             value = data.get(field)
             if value and value not in valid_values:
@@ -125,10 +142,10 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
         return data
 
     def validate(self, attrs):
+        #check perms
         user = self.context.get('request').user if self.context.get('request') else None
         if user.role not in ['admin', 'meofficer', 'manager']:
             raise PermissionDenied('You do not have permission to perform this action.')
-        
         indicator = attrs.get('indicator')
         org = attrs.get('organization')
         proj = attrs.get('project')
@@ -142,13 +159,15 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
 
             if not (is_own_org or is_child_org):
                 raise PermissionDenied("You do not have permission to create aggregates not related to your organization.")
+       
+       #make the indicator/org/project combo exists
         assessments = Assessment.objects.filter(id=indicator.assessment_id).values_list('id', flat=True)
         if not Task.objects.filter(Q(organization=org, project=proj, indicator=indicator) | Q(organization=org, project=proj, assessment_id__in=assessments)):
             raise serializers.ValidationError('There is no task associated with this indicator for this project/organiation.')
-        #check for overlaps
+        
+        #check for overlaps and validate the dates aren't weird
         start =attrs.get('start')
         end=attrs.get('end')
-
         if start > end:
             raise serializers.ValidationError("Start must be before the end.")
         if start > date.today():
@@ -167,14 +186,16 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
         if overlaps.exists():
             raise serializers.ValidationError("This aggregate overlaps with an existing aggregate in the same time period.")
         
-        # ✅ Boolean or select indicators should map to an option
+        # dissallow aggreagates for these categories/types where it doesn't make sense
         if indicator.category in [Indicator.Category.SOCIAL, Indicator.Category.EVENTS, Indicator.Category.ORGS]: #these should be linked to another object via a task
             raise serializers.ValidationError('Aggregates are not allowed for this indicator category.')
         if indicator.type in [Indicator.Type.TEXT]:
             raise serializers.ValidationError("Aggregates not allowed for this indicator type.")
         if not indicator.allow_aggregate:
             raise serializers.ValidationError("Aggregates not allowed for this indicator.")
-        
+
+        #make sure that each count has the same "breakdown" categories (so they can theoretically fit on the same table)
+        #Also make sure no "dupliocates" are sent (i.e., 2 females, 18_24, optionA)
         counts = attrs.get('counts_data', [])
         breakdown_keys_set = None
 
@@ -203,6 +224,7 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
                     f"Duplicate demographic combination found: {dict(zip(breakdown_keys_set, combination))}"
                 )
             seen_combinations.add(combination)
+        #validate that total values are present are the option values are not greater than the total/unique value
         if indicator.type == Indicator.Type.MULTI:
             exclude_keys = {'option', 'value', 'unique_only'}
             
@@ -245,18 +267,19 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
 
         return attrs
     
+    # if in an assessment, check that logical conditions are met, and if not, create a flag for review
     def __check_logic(self, indicator, organization, start, end, count, user, visited=None):
-        if count.value in [None, '', 0, '0']:
-            return
-        if visited is None:
+        if visited is None: #flag for when checking downstream values to prevent infinite recursion
             visited = set()
         
         key = (indicator.id, count.id)
         if key in visited:
             return
         visited.add(key)
+        
+        flags = count.flags.filter(auto_flagged=True) #get any existing flags
 
-        flags = count.flags.filter(auto_flagged=True)
+        #check for logic
         logic_group = LogicGroup.objects.filter(indicator=indicator).first()
         if not logic_group:
             return
@@ -265,16 +288,18 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
         if not conditions.exists():
             return
 
+        #if logic and conditions are found, run some checks
         val = count.value
-
         for condition in conditions.all():
             prereq = condition.source_indicator
+            #find a count that overlaps with this one, has the prerequisite indicator, and belongs to the same org
             filters = {
                 'group__start__lt': end,
                 'group__end__gt': start,
                 'group__indicator': prereq,
                 'group__organization': organization,
             }
+            # also find that it has the same breakdowns (exclude unqiue_only and options if the prereq doesn't have them)
             for field in ['sex', 'age_range', 'kp_type', 'disability_type', 'hiv_status', 'pregnancy', 'district', 'citizenship', 'attribute_type', 'unique_only']:
                 if field == 'unique_only' and prereq.type != Indicator.Type.MULTI:
                     continue
@@ -283,7 +308,8 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
                     filters[field] = value
             if count.option_id is not None and Option.objects.filter(indicator=prereq).exists():
                 filters['option_id'] = count.option_id
-            print(filters)
+
+            #find the count, unless its flagged
             find_count = AggregateCount.objects.filter(**filters).exclude(flags__resolved=False).first()
 
             # Logic: NONE / False condition
@@ -310,7 +336,7 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
         # Check downstream counts recursively
         self.__check_downstream(indicator=indicator, organization=organization, start=start, end=end, count=count, user=user, visited=visited)
 
-
+    #helper to resolve/create flags that may be created/resolved downstream 
     def __check_downstream(self, indicator, organization, start, end, count, user, visited):
         # find all counts overlapping this range
         filters = {
@@ -325,6 +351,7 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
             if conditions.exists():
                 self.__check_logic(indicator=ds_ind, organization=organization, start=start, end=end, count=c, user=user, visited=visited)
 
+    
     def create(self, validated_data):
         user = self.context.get('request').user if self.context.get('request') else None
         rows = validated_data.pop('counts_data')

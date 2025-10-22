@@ -113,6 +113,7 @@ class TaskViewSetTest(APITestCase):
         Test that a task can be created with the below payload
         '''
         self.client.force_authenticate(user=self.admin)
+        #for standalone
         valid_payload = {
             'organization_id': self.other_org.id,
             'indicator_id': self.indicator.id,
@@ -125,7 +126,7 @@ class TaskViewSetTest(APITestCase):
         task = Task.objects.get(organization=self.other_org, indicator=self.indicator, project=self.project)
         self.assertEqual(task.created_by, self.admin)
 
-        #also works
+        #also works for assessments
         valid_payload = {
             'organization_id': self.other_org.id,
             'indicator_id': None,
@@ -154,8 +155,7 @@ class TaskViewSetTest(APITestCase):
     
     def test_task_ass_indicator(self):
         '''
-        Kind of an odd move to assign an indicator a prerequisite then assign it without assigning the 
-        prereq first, right?
+        Test that you cannot assign an assessment category indicator in isolation (should be added as an assessment)
         '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {

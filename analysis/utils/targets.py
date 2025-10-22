@@ -8,10 +8,22 @@ from analysis.utils.periods import get_month_strings_between, get_quarter_string
 
 def get_target_aggregates(user, indicator, split, start=None, end=None, project=None, organization=None):
     '''
-    
+    Fetches target aggreagates based on an indicator
+    - user (user instance): the user making the request for permissions
+    - indicator (indicator instance): the indicator whose data is to be aggregated
+    - params (dict): a dictionary of params with true or false values denoting whether this aggregates 
+        should be split by that param (accepts any of the breakdown fields found in the respondents/aggregatecounts model)
+    - split (string, optional): split the data into periods (month, quarter
+    - start (ISO date string, optional): only collect data after this point
+    - end (ISO date string, optional): only collect data before this point
+    - project (project instance, optional): scope data to specific project
+    - organization (organization instance, optional): scope data to specific organization
     '''
+
+    #get targets if this indicator
     queryset = Target.objects.filter(indicator=indicator)
 
+    #filter based on perms
     if user.role not in ['admin', 'client']:
         child_orgs = ProjectOrganization.objects.filter(
                 parent_organization=user.organization,
@@ -20,6 +32,7 @@ def get_target_aggregates(user, indicator, split, start=None, end=None, project=
                 Q(organization=user.organization) | Q(organization__in=child_orgs)
             )
 
+    #and any other params
     if project:
         queryset = queryset.filter(project=project)
     if organization:
@@ -29,6 +42,7 @@ def get_target_aggregates(user, indicator, split, start=None, end=None, project=
     if end:
         queryset = queryset.filter(end__lte=end)
 
+    #create a map for getting values broken down by period
     targets_map = defaultdict(float)
 
     range_func = get_quarter_strings_between if split == 'quarter' else get_month_strings_between
@@ -54,8 +68,7 @@ def get_achievement(user, target, related=None):
 
     - user (user instance): for checking permissions
     - target (target instance): target to collect information about
-    - related (task instance): if this target is measured as the percentage of another task's achievement,
-        pass that task here to get its achievement over the target's time period
+    - related (indicator instance): if this target is measured as the percentage of another indicator's achievement
     '''
     start = target.start
     end = target.end
@@ -96,7 +109,7 @@ def get_achievement(user, target, related=None):
             total += sum(r.response_value or 0 for r in valid_responses)
         else:
             total += valid_responses.count()
-
+    # if misc pull counts
     elif indicator.category  in [Indicator.Category.MISC]:
         #start by fetching related event counts
         valid_counts  = get_counts_from_indicator(

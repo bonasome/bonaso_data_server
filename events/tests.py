@@ -123,7 +123,7 @@ class EventViewSetTest(APITestCase):
     
     def test_child_view(self):
         '''
-        Participants should see orgs they are a part of.
+        Participants should see events they are a part of.
         '''
         event = Event.objects.create(
             name='Event',
@@ -340,7 +340,7 @@ class EventViewSetTest(APITestCase):
     
     def test_associated_perms(self):
         '''
-        Associalte (in the event, but not the host) should be able to view, but not edit events.
+        Associates (in the event, but not the host) should be able to view, but not edit events.
         '''
         test_event = Event.objects.create(
             name='Event',

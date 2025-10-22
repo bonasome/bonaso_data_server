@@ -462,6 +462,9 @@ class DashboardSettingViewSet(RoleRestrictedViewSet):
         return Response(breakdowns)
 
 class SiteAnalyticsViewSet(RoleRestrictedViewSet):
+    '''
+    Really doesn't work, but ideally provides data about api requests and the like.
+    '''
     permission_classes = [IsAuthenticated]
     queryset = RequestLog.objects.none()
     serializer = RequestLogSerializer

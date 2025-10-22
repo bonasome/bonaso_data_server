@@ -14,7 +14,7 @@ from flags.models import Flag
 def get_user_activity(user):
     '''
     Helper function to collect a list of all user activity. Not an exact science, but gives an idea of a users 
-    activity for a profile page.
+    activity for a profile page. Add any models you want to track to the list below.
     '''
     #fetch these items
     USER_ACTIVITY_MODELS = [

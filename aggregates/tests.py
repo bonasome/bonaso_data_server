@@ -198,7 +198,7 @@ class AggregatesTest(APITestCase):
     
     def test_rogue_option(self):
         '''
-        Make sure that if an indicator has options, the user is sending data for those
+        Make sure that if an indicator has options, the user is sending data for those.
         '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
@@ -243,8 +243,7 @@ class AggregatesTest(APITestCase):
     
     def test_start_after_end(self):
         '''
-        A count should not be able to be created in the future (an end in the future is ok, but the start
-        must be in the past).
+        A count should not be able to be created if the start date is after the end date.
         '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
@@ -266,7 +265,7 @@ class AggregatesTest(APITestCase):
 
     def test_count_logic(self):
         '''
-        Test a basic count creation
+        Test that flags are created if logic applies and is not met.
         '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
@@ -383,7 +382,7 @@ class AggregatesTest(APITestCase):
     
     def test_agg_not_allowed(self):
         '''
-        Can't create a count for a task that doesn't exist. 
+        Can't create a count for an indicator that does not allow aggregates.
         '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
@@ -457,7 +456,7 @@ class AggregatesTest(APITestCase):
     
     def test_perm_fail_wrong_org(self):
         '''
-        ... but not for an unrelated org
+        but not for an unrelated org
         '''
         self.client.force_authenticate(user=self.manager)
         valid_payload = {
@@ -484,6 +483,9 @@ class AggregatesTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
     
     def test_perm_fail_dc(self):
+        '''
+        Data collectors cannot create aggregates.
+        '''
         self.client.force_authenticate(user=self.data_collector)
         valid_payload = {
             'indicator_id': self.indicator.id,

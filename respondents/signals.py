@@ -82,6 +82,8 @@ def sync_hiv_attribute(sender, instance, **kwargs):
     transaction.on_commit(after_commit)
 
 
+
+#cosnider trying to add this back in at some point (automatically update respondent attributes based on assessment responses)
 '''
     Some indicators may be associated with respondent attributes that we want to automatically update
     (i.e., indicator tested postiive for HIV --> automatically mark person as HIV positive if they are not.)

@@ -11,8 +11,8 @@ from django.db import transaction
 User = get_user_model()
 from organizations.models import Organization
 from projects.models import Project, Task, Client, ProjectOrganization
-from indicators.models import Indicator
-from respondents.models import Respondent, Interaction, KeyPopulation, DisabilityType
+from indicators.models import Indicator, Assessment, Option, LogicCondition, LogicGroup
+from respondents.models import Respondent, Interaction, KeyPopulation, DisabilityType, Response
 from events.models import Event
 
 def create_user():
@@ -36,26 +36,22 @@ def seed_db():
     manager = User.objects.create_user(username='manager', password='testpass123', role='manager', email='test@test.com', organization=org)
     dc = User.objects.create_user(username='dc', password='testpass123', email='test@test.org', role='data_collector', organization=org)
 
-    indicator = Indicator.objects.create(code='T101', name='Test 1', indicator_type='respondent')
-    cat1 = IndicatorSubcategory.objects.create(name='Cat 1')
-    cat2 = IndicatorSubcategory.objects.create(name='Cat 2')
-    cat3 = IndicatorSubcategory.objects.create(name='Cat 3')
-    indicator.subcategories.set([cat1, cat2, cat3])
-    indicator.save()
+    assessment = Assessment.objects.create(name='Ass')
+    indicator = Indicator.objects.create(name='Test 1', type=Indicator.Type.MULTI, assessment=assessment)
+    option1 = Option.objects.create(name='Option 1', indicator=indicator)
+    option2 = Option.objects.create(name='Option 2', indicator=indicator)
+    option3 = Option.objects.create(name='Option 3', indicator=indicator)
 
-    dep_indicator = Indicator.objects.create(code='T102', name='Test Dep', indicator_type='respondent')
-    dep_indicator.prerequisites.set([indicator])
-    dep_indicator.subcategories.set([cat1, cat2, cat3])
-    dep_indicator.match_subcategories_to = indicator
-    dep_indicator.save()
-    
-    num_sc_indicator = Indicator.objects.create(code='T103', name='Test Numeric Subcats', indicator_type='respondent', require_numeric=True, allow_repeat=True)
-    num_sc_indicator.subcategories.set([cat1, cat2, cat3])
-    num_sc_indicator.save()
+    assessment = Assessment.objects.create(name='Ass')
+    indicator2 = Indicator.objects.create(name='Test 2', type=Indicator.Type.MULTI, assessment=assessment, match_options=indicator)
+    group = LogicGroup.objects.create(indicator=indicator2, group_operator='AND')
+    condition = LogicCondition.objects.create(group=group, source_indicator=indicator, condition_type='any', operator='=')
 
-    num_indicator = Indicator.objects.create(code='T104', name='Test Numeric Only', indicator_type='respondent', require_numeric=True)
+    indicator3=Indicator.objects.create(name='Test 3', type=Indicator.Type.MULTINT, assessment=assessment)
+    option4 = Option.objects.create(name='Option 4', indicator=indicator3)
+    option5 = Option.objects.create(name='Option 5', indicator=indicator3)
 
-    social_ind = Indicator.objects.create(code='S101', name='Social', indicator_type='social')
+    social_ind = Indicator.objects.create(name='Social', category=Indicator.Category.SOCIAL)
 
     project = Project.objects.create(name='Test Project', start='2025-01-01', end='2025-12-31', client=client_org, status='Active')
     org_link = ProjectOrganization.objects.create(organization=org, project=project)
@@ -64,17 +60,13 @@ def seed_db():
 
     other_project = Project.objects.create(name='Normies Should Not See This', start='2025-01-01', end='2025-12-31')
 
-    pti = Task.objects.create(project=project, organization=org, indicator=indicator)
-    ptd = Task.objects.create(project=project, organization=org, indicator=dep_indicator)
-    ptscn = Task.objects.create(project=project, organization=org, indicator=num_sc_indicator)
-    pts = Task.objects.create(project=project, organization=org, indicator=social_ind)
+    pti = Task.objects.create(project=project, organization=org, assessment=assessment)
 
-    cti = Task.objects.create(project=project, organization=child_org, indicator=indicator)
+    cti = Task.objects.create(project=project, organization=child_org, assessment=assessment)
 
-    oti = Task.objects.create(project=project, organization=other_org, indicator=indicator)
+    oti = Task.objects.create(project=project, organization=other_org, assessment=assessment)
 
     event = Event.objects.create(name='Test Event', start='2025-05-01', end='2025-05-02', status=Event.EventStatus.COMPLETED, event_type=Event.EventType.ENGAGEMENT, location='Who Cares?', host=org)
-    event.tasks.set([pti, ptd])
     event.save()
 
     respondent1 = Respondent.objects.create(
@@ -103,13 +95,15 @@ def seed_db():
     d2=DisabilityType.objects.create(name=DisabilityType.DisabilityTypes.VI)
     respondent2.kp_status.set([kp1, kp2])
     respondent2.disability_status.set([d1, d2])
-    ir1 = Interaction.objects.create(task=pti, respondent=respondent2, interaction_date='2025-03-5', interaction_location='Over there')
-    ir1sc = InteractionSubcategory.objects.create(interaction=ir1, subcategory=cat1)
-    ir2 = Interaction.objects.create(task=ptd, respondent=respondent2, interaction_date='2025-03-5', interaction_location='Over there')
-    ir2sc = InteractionSubcategory.objects.create(interaction=ir2, subcategory=cat1)
-    ir3 = Interaction.objects.create(task=ptscn, respondent=respondent2, interaction_date='2025-03-5', interaction_location='Over there')
-    ir3sc = InteractionSubcategory.objects.create(interaction=ir3, subcategory=cat1, numeric_component=10)
     respondent2.save()
+
+    ir1 = Interaction.objects.create(task=pti, respondent=respondent2, interaction_date='2025-03-5', interaction_location='Over there')
+    response1 = Response.objects.create(interaction=ir1, response_option=option1, indicator=indicator)
+    response11 = Response.objects.create(interaction=ir1, response_option=option2, indicator=indicator)
+    response2 = Response.objects.create(interaction=ir1, response_option=option1, indicator=indicator2)
+    response3 = Response.objects.create(interaction=ir1, response_option=option4, response_value='10', indicator=indicator3)
+    response4 = Response.objects.create(interaction=ir1, response_option=option5, response_value='12', indicator=indicator3)
+    
 
 @csrf_exempt
 @require_POST

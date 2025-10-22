@@ -9,7 +9,7 @@ class ChartField(models.Model):
     '''
     Shared enum storing model that handles controlled filter/legend/stack fields. If adding any fields to 
     the respondent/demogrpahic count model, make sure to reflect those changes here as well as [./utils/interactions_prep.py]
-    (see the events.models --> Demogrpahic count for more).
+    (see the respondent/aggregate models for more).
     '''
     class Field(models.TextChoices):
         AR = 'age_range', _('Age Range')
@@ -156,7 +156,7 @@ class PivotTableParam(models.Model):
 
 class LineList(models.Model):
     '''
-    Model that stores information about a line list. Accepts project, organization, indicator, start, and end
+    Model that stores information about a line list. Accepts project, organization, assessment, start, and end
     as filters. 
     '''
     name = models.CharField(max_length=255, null=True, blank=True)
@@ -174,6 +174,9 @@ class LineList(models.Model):
 
 
 class RequestLog(models.Model):
+    '''
+    Model that tracks api requests made.
+    '''
     path = models.CharField(max_length=200)
     timestamp = models.DateTimeField(auto_now_add=True)
     method = models.CharField(max_length=10)

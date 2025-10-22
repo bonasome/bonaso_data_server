@@ -108,18 +108,27 @@ class FlagViewSetTest(APITestCase):
         self.assertEqual(len(response.data['results']), 4)
     
     def test_higher_role_list(self):
+        '''
+        Test higher roles see appropriate flags
+        '''
         self.client.force_authenticate(user=self.manager)
         response = self.client.get('/api/flags/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 3)
     
     def test_lower_role_list(self):
+        '''
+        Lower roles see flags they created
+        '''
         self.client.force_authenticate(user=self.data_collector)
         response = self.client.get('/api/flags/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 1)
     
     def test_raise_flag_valid(self):
+        '''
+        Good package
+        '''
         self.client.force_authenticate(user=self.manager)
         valid_payload = {
             'model': 'respondents.interaction',
@@ -132,6 +141,9 @@ class FlagViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
     
     def test_raise_flag_child(self):
+        '''
+        Test an meofficer/manager can create a flag for a child org.
+        '''
         self.client.force_authenticate(user=self.manager)
         valid_payload = {
             'model': 'respondents.interaction',
@@ -144,6 +156,9 @@ class FlagViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
     
     def test_raise_flag_wrong_obj(self):
+        '''
+        But not other orgs...
+        '''
         self.client.force_authenticate(user=self.manager)
         valid_payload = {
             'model': 'respondents.interaction',
@@ -154,6 +169,9 @@ class FlagViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
     
     def test_raise_flag_perm(self):
+        '''
+        DC cannot raise flags.
+        '''
         self.client.force_authenticate(user=self.data_collector)
         valid_payload = {
             'model': 'respondents.interaction',
@@ -164,6 +182,9 @@ class FlagViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
     
     def test_resolve_flag(self):
+        '''
+        Me/Manager can resolve a flag with a reason.
+        '''
         self.client.force_authenticate(user=self.manager)
         valid_payload = {
                     'resolved_reason': 'Nah man',
@@ -174,6 +195,9 @@ class FlagViewSetTest(APITestCase):
         self.assertEqual(self.flag.resolved, True)
     
     def test_resolve_flag_child(self):
+        '''
+        And for a child.
+        '''
         self.client.force_authenticate(user=self.manager)
         
         valid_payload = {
@@ -185,6 +209,9 @@ class FlagViewSetTest(APITestCase):
         self.assertEqual(self.flag_child.resolved, True)
 
     def test_resolve_flag_perm_fail(self):
+        '''
+        Not from other orgs though.
+        '''
         self.client.force_authenticate(user=self.manager)
         valid_payload = {
                     'resolved_reason': 'Nah man',

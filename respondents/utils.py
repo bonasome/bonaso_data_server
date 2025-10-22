@@ -57,9 +57,17 @@ def respondent_flag_check(respondent, user):
         _maybe_create_flag(flags, respondent, sex_reason, user)
 
 def check_logic(c, response_info, assessment, respondent):
+    '''
+    Helper function that checks logic to make sure the indicator should be visible/answerable.
+    - c (LogicCondition instance): logic condition
+    - response_info(dict): the response package
+    - assessment (assessment instance): assessment object for these responses
+    - respondent (respondent instance): respondent object to compare logic to
+    '''
     if not c or not response_info or not assessment or not respondent:
         return False
 
+    #if source is another indicator in the assessment
     if c.source_type == 'assessment':
         # Find the prerequisite indicator
         prereq = c.source_indicator
@@ -74,12 +82,15 @@ def check_logic(c, response_info, assessment, respondent):
         else:
             req_val = c.value_text
         if req_val in [None, '']:
-            return False
+            return False #make sure the req_val exists and is a real value
         # Get the actual stored value
         prereq_val = response_info.get(str(c.source_indicator.id), {}).get('value')
         if prereq.type in ['boolean']:
+            # check a variety of options for true/false
             prereq_val = True if prereq_val in ['1', 1, True, 'true'] else False if prereq_val in ['0', 0, False, 'false'] else None
         # Special logic for multi with any/none/all
+
+        #handle condition types for multi (data should be an array)
         if prereq.type == 'multi' and req_val in ['any', 'none', 'all']:
             prereq_val = prereq_val or []
             if req_val == 'any':
@@ -87,9 +98,10 @@ def check_logic(c, response_info, assessment, respondent):
             elif req_val == 'none':
                 return prereq_val in [[], None, ['none']]
             elif req_val == 'all':
-                return len(prereq_val) == Option.objects.filter(indicator=prereq).count()
+                options = Option.objects.filter(indicator=prereq).count() if not prereq.match_options else Option.objects.filter(indicator=prereq.match_options).count()
+                return len(prereq_val) == options
 
-        # Special logic for single with any/none/all
+        # handle condition types for single response (data is a thing)
         if prereq.type == 'single' and req_val in ['any', 'none', 'all']:
             # single is a single string or None
             prereq_val = prereq_val or None
@@ -100,20 +112,20 @@ def check_logic(c, response_info, assessment, respondent):
             elif req_val == 'all':
                 return False  # impossible
 
-        # Multi-select value check
+        # Multi-select value check (is array)
         if prereq.type == 'multi':
             if c.operator == '=':
                 return prereq_val and str(req_val) in [str(v) for v in prereq_val]
             if c.operator == '!=':
                 return not prereq_val or req_val not in prereq_val
         else:
-            # Direct comparison for single/text/boolean
+            # Direct comparison for single/text/boolean/int
             if c.operator == '=':
                 return str(prereq_val) == str(req_val)
             if c.operator == '!=':
                 return prereq_val != req_val
 
-        # Greater / Less than comparisons
+        # Greater / Less than comparisons (integer only)
         if c.operator in ['>', '<'] and prereq.type == 'integer':
             try:
                 if c.operator == '>':
@@ -131,13 +143,16 @@ def check_logic(c, response_info, assessment, respondent):
 
         return False
 
+    #otherwise check if the respondent has the attribute
     elif c.source_type == 'respondent':
         req_val = c.value_text
         prereq_val = None
+        #for hiv status (and pregnancy if added), run this special check since its stored as a sperate object
         if c.respondent_field == 'hiv_status':
             stat = HIVStatus.objects.filter(respondent=respondent).first()
             prereq_val = "true" if stat and stat.hiv_positive else "false"
         else:
+            #otherwise pull the value (may need to add another option for kp status and such that come as an array)
             prereq_val = getattr(respondent, c.respondent_field)
 
         if c.operator == '=':
@@ -146,7 +161,7 @@ def check_logic(c, response_info, assessment, respondent):
             return prereq_val != req_val
         return False
 
-    return False
+    return False #by default return false if logic is present
 
 def update_m2m_status(model, through_model, respondent, name_list, related_field='attribute'):
     """

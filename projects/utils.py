@@ -31,9 +31,6 @@ def test_child_org(user, organization, project):
     return ProjectOrganization.objects.filter(organization=organization, parent_organization=user.organization, project=project).exists()
 
 
-
-
-
 class ProjectPermissionHelper:
     '''
     This permission helper streamlines the process for creating project activites and the like. It automatically

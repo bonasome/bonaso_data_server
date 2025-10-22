@@ -79,14 +79,16 @@ class ProjectOrganization(models.Model):
 
 class Task(models.Model):
     '''
-    The task is a link between a project, organization, and an indicator. It is linked to events/interactions
+    The task is a link between a project, organization, and an indicator/assessment. It is linked to events/interactions
     and is the chief way that we track who is doing what. 
+    - Link to indicator for standalone (social, events, misc)
+    - Link to assessment for assessment category so they are assigned as a unit as intended
 
     Tasks can't really be updated since they are just a nexus. They are either created or destroyed.
     '''
     project = models.ForeignKey(Project, on_delete=models.CASCADE)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
-    assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE, null=True, blank=True)
+    assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE, null=True, blank=True) #
     indicator = models.ForeignKey(Indicator, on_delete=models.CASCADE, null=True, blank=True)
     
     created_at = models.DateTimeField(auto_now_add=True)

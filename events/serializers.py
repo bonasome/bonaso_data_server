@@ -60,6 +60,7 @@ class EventSerializer(serializers.ModelSerializer):
         new_links = []
         for task in tasks:
             org = task.organization
+            #assure that the task assigned is in the right category to be linked
             if task.indicator.category not in [Indicator.Category.EVENTS, Indicator.Category.ORGS]:
                 raise serializers.ValidationError(f"Task '{task.indicator.name}' may not be assigned to an event. Please consider creating a social post instead.")
             if user.role != 'admin':
@@ -84,6 +85,7 @@ class EventSerializer(serializers.ModelSerializer):
         #check permissions
         if user.role not in ['admin', 'meofficer', 'manager']:
             raise PermissionDenied('You do not have permission to edit events.')
+        #require a host
         host = attrs.get('host', getattr(self.instance, 'host', None))
         if not host:
             raise serializers.ValidationError(

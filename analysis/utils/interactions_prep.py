@@ -38,6 +38,7 @@ def build_keys(response, pregnancies_map, hiv_status_map):
         if field == 'organization':
             base_keys.add(response.interaction.task.organization.name)
         elif field == 'option':
+            # add response option name if option breakdown is requested
             if response.response_option:
                 base_keys.add(response.response_option.name) 
         elif field == 'pregnancy':
@@ -69,6 +70,7 @@ def build_keys(response, pregnancies_map, hiv_status_map):
 
     key = frozenset(base_keys)
     amount = 0
+    #if this is indicator collects a number, add the number for a sum (or average), otherwise add one for a count
     if response.indicator.type in [Indicator.Type.INT, Indicator.Type.MULTINT]:
         try:
             amount = int(response.response_value)

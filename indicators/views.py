@@ -19,6 +19,9 @@ from respondents.utils import get_enum_choices
 
 
 class IndicatorViewSet(RoleRestrictedViewSet):
+    '''
+    Viewset for managing indicators (standalone, or for creating/editing indicators within an assessment).
+    '''
     permission_classes = [IsAuthenticated]
     serializer_class = IndicatorSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -28,9 +31,11 @@ class IndicatorViewSet(RoleRestrictedViewSet):
 
     def get_queryset(self):
         queryset = Indicator.objects.all()
+        #check perms
         user = self.request.user
         if user.role not in ['meofficer', 'manager', 'admin', 'client']:
             return Indicator.objects.none()
+        #should only see an indicator they have a task for
         if user.role in ['meofficer', 'manager']:
             direct_indicators = Task.objects.filter(
                 indicator__isnull=False, 
@@ -49,6 +54,7 @@ class IndicatorViewSet(RoleRestrictedViewSet):
             ).values_list('id', flat=True)
             valid_ids = list(direct_indicators) + list(assessment_indicators)
             queryset = queryset.filter(id__in=valid_ids)
+        #should only see indicators with tasks in projects they are a client for
         if user.role in ['client']:
             direct_indicators = Task.objects.filter(
                 indicator__isnull=False, 
@@ -68,6 +74,7 @@ class IndicatorViewSet(RoleRestrictedViewSet):
             valid_ids = list(direct_indicators) + list(assessment_indicators)
             queryset = queryset.filter(id__in=valid_ids)
         
+        #few filters to help organize
         project_param = self.request.query_params.get('project')
         if project_param:
             direct_indicators = Task.objects.filter(
@@ -132,6 +139,9 @@ class IndicatorViewSet(RoleRestrictedViewSet):
     
     @action(detail=True, methods=['patch'], url_path='change-order')
     def change_order(self, request, pk=None):
+        '''
+        Action that will reset the order on a form if a requested change is made. 
+        '''
         ind=self.get_object()
         user=request.user
 
@@ -143,19 +153,20 @@ class IndicatorViewSet(RoleRestrictedViewSet):
         inds = list(Indicator.objects.filter(assessment=ind.assessment).exclude(id=ind.id).order_by('order'))
         total = len(inds) + 1  # +1 because we will insert `ind` itself
 
+        #get the new position
         try:
             pos = int(request.data.get('position'))
             print(pos)
         except (TypeError, ValueError):
             return Response({'detail': 'Position must be an integer'}, status=400)
-
+        #make sure its a valid position
         if not (0 <= pos < total):
             return Response(
                 {'detail': f'Position must be between 0 and {total-1}'}, 
                 status=400
             )
+        #reindex based on new position
         inds.insert(pos, ind)
-        print(inds)
         with transaction.atomic():
             for idx, i in enumerate(inds):
                 i.order = idx
@@ -179,7 +190,7 @@ class IndicatorViewSet(RoleRestrictedViewSet):
                 },
                 status=status.HTTP_409_CONFLICT
             )
-
+        #prevent if linked to an aggregate group
         if AggregateGroup.objects.filter(indicator_id=instance.id).exists():
             return Response(
                 {
@@ -189,7 +200,7 @@ class IndicatorViewSet(RoleRestrictedViewSet):
                 },
                 status=status.HTTP_409_CONFLICT
             )
-        
+        #prevent if linked to a target
         if Target.objects.filter(indicator_id=instance.id).exists():
             return Response(
                 {
@@ -228,6 +239,9 @@ class IndicatorViewSet(RoleRestrictedViewSet):
         })
 
 class AssessmentViewSet(RoleRestrictedViewSet):
+    '''
+    Viewset for getting assessments. 
+    '''
     permission_classes = [IsAuthenticated]
     serializer_class = IndicatorSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -238,21 +252,40 @@ class AssessmentViewSet(RoleRestrictedViewSet):
     def get_queryset(self):
         queryset = Assessment.objects.all()
         user = self.request.user
-        #expects organizations=1,2,3,4
+        #should only see assessments they have a task for
+        if user.role in ['meofficer', 'manager']:
+            ass_tasks = Task.objects.filter(
+                assessment__isnull=False, 
+                organization_id=user.organization_id
+            ).values_list('assessment_id', flat=True)
+
+            valid_ids = list(ass_tasks)
+            queryset = queryset.filter(id__in=valid_ids)
+
+        #should only see indicators with tasks in projects they are a client for
+        if user.role in ['client']:
+            # Assessments linked to tasks
+            ass_tasks = Task.objects.filter(
+                assessment__isnull=False, 
+                project__client_id=user.client_organization_id
+            ).values_list('assessment_id', flat=True)
+
+            valid_ids = list(ass_tasks)
+            queryset = queryset.filter(id__in=valid_ids)
+
+        #few params for when assigning tasks
         exclude_org_param = self.request.query_params.get('exclude_organization')
         exclude_project_param = self.request.query_params.get('exclude_project') 
         if exclude_org_param and exclude_project_param:
             ids = Task.objects.filter(assessment__isnull=False, organization_id=exclude_org_param, project_id=exclude_project_param).values_list('assessment_id', flat=True)
-            print(ids)
             queryset = queryset.exclude(id__in=ids)
-
         return queryset
 
     def get_serializer_class(self):
         if self.action == 'list':
-            return AssessmentListSerializer
+            return AssessmentListSerializer #lightweight for index views
         else:
-            return AssessmentSerializer
+            return AssessmentSerializer #heavier for detail views
 
     def destroy(self, request, *args, **kwargs):
         '''
@@ -267,7 +300,7 @@ class AssessmentViewSet(RoleRestrictedViewSet):
         
         instance = self.get_object()
 
-        # Prevent deletion if respondent has interactions
+        # Prevent deletion if assessment has interactions
         if Interaction.objects.filter(assessment_id=instance.id).exists():
             return Response(
                 {
@@ -277,7 +310,7 @@ class AssessmentViewSet(RoleRestrictedViewSet):
                 },
                 status=status.HTTP_409_CONFLICT
             )
-
+        # or if its indicator is linked to a count
         if AggregateGroup.objects.filter(indicator__assessment_id=instance.id).exists():
             return Response(
                 {
@@ -287,6 +320,7 @@ class AssessmentViewSet(RoleRestrictedViewSet):
                 },
                 status=status.HTTP_409_CONFLICT
             )
+        #or if it has an indicator with a target
         if Target.objects.filter(indicator__assessment_id=instance.id).exists():
             return Response(
                 {

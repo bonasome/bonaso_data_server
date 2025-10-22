@@ -288,6 +288,10 @@ class HIVStatus(models.Model):
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='hiv_status_updated_by')
 
 class Interaction(models.Model):
+    '''
+    An interaction is linked to a respondent and a task with an assessment. It helps organize responses by 
+    session/org/project/respondent
+    '''
     respondent = models.ForeignKey(Respondent, on_delete=models.PROTECT)
     task = models.ForeignKey(Task, on_delete=models.PROTECT)
     comments = models.TextField(null=True, blank=True)
@@ -301,6 +305,13 @@ class Interaction(models.Model):
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, default=None, null=True, blank=True, related_name='interaction_updated_by')
 
 class Response(models.Model):
+    '''
+    Individual response linked to an interaction and an indicator. Contains the actual values collected
+    during the interaction.
+
+    Mutli/Multint type indicators can have multiple respones per interaction, otherwise
+    interaction's should only have one response per indicator.
+    '''
     interaction = models.ForeignKey(Interaction, on_delete=models.CASCADE)
     indicator = models.ForeignKey(Indicator, on_delete=models.PROTECT)
     comments = models.TextField(null=True, blank=True)

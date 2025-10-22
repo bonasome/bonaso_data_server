@@ -28,6 +28,9 @@ from respondents.utils import get_enum_choices
 
 
 class AggregateViewSet(RoleRestrictedViewSet):
+    '''
+    Viewset for pulling aggregate groups and related counts
+    '''
     queryset = AggregateGroup.objects.all().prefetch_related('counts')
     serializer_class = AggregateGroupSerializer
     permission_classes = [IsAuthenticated]
@@ -62,7 +65,7 @@ class AggregateViewSet(RoleRestrictedViewSet):
         
         return queryset.distinct()
 
-    # Optional: override destroy to also remove related counts
+    # Destroy count if user has perms
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         user = request.user
@@ -74,6 +77,7 @@ class AggregateViewSet(RoleRestrictedViewSet):
             instance.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
     
+    # meta action to pull breakdown values for creating entry tables with disaggregations
     @action(detail=False, methods=['get'], url_path='meta')
     def get_breakdowns_meta(self, request):
         '''

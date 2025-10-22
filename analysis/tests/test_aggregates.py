@@ -372,7 +372,7 @@ class AggregatesViewSetTest(APITestCase):
     
     def test_get_misc_admin(self):
         '''
-        EXPECTED: 66
+        EXPECTED: 21
             21 (10+11)
         '''
         self.client.force_authenticate(user=self.admin)
@@ -384,7 +384,7 @@ class AggregatesViewSetTest(APITestCase):
     
     def test_get_indicator_client(self):
         '''
-        EXPECTED: 46
+        EXPECTED: 45
             5 FROM interactions (3r1 + 2r2) (should not see interaction_2_2_other since this is with other_project)
             40 FROM events ((10+30 e1)) (should not see 37 from other group)
         '''
@@ -397,7 +397,7 @@ class AggregatesViewSetTest(APITestCase):
 
     def test_get_indicator_me(self):
         '''
-        EXPECTED: 44
+        EXPECTED: 43
             3 FROM interactions (2r1+1r2) (should not see 3 task_other/other_project_task intereactions)
             40 FROM events (10+30 e1) (should not see 37 from other group)
         '''

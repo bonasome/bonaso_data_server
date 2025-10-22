@@ -52,7 +52,7 @@ class ProjectListSerializer(serializers.ModelSerializer):
 
 class TaskSerializer(serializers.ModelSerializer):
     '''
-    Serializer for viewing tasks. Contains related information about organization, project, and indicator.
+    Serializer for viewing tasks. Contains related information about organization, project, and indicator/assessment.
     '''
     indicator = IndicatorSerializer(read_only=True)
     project = ProjectListSerializer(read_only=True)

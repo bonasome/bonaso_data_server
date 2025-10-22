@@ -28,6 +28,7 @@ class FlagSerializer(serializers.ModelSerializer):
         Get the object type and some information that is required for filtering/linking at the frontend. 
         '''
         try:
+            #get the object content type to collect necessary information for building URLs/sending messages
             ct = ContentType.objects
             self.ct_respondent = ct.get(app_label='respondents', model='respondent')
             self.ct_interaction = ct.get(app_label='respondents', model='interaction')

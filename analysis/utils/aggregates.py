@@ -20,7 +20,7 @@ FIELD_MAP = {
 
 def demographic_aggregates(user, indicator, params, split=None, project=None, organization=None, start=None, end=None, filters=None, repeat_only=False, n=2, cascade=False, average=False):
     '''
-    Function that finds interactions/demographic counts that match the criteria and aggregates them. Can split by 
+    Function that finds responses/aggregate counts that match the criteria and aggregates them. Can split by 
     timer period/param if requested. 
     - user (user instance): the user making the request for permissions
     - indicator (indicator instance): the indicator whose data is to be aggregated
@@ -35,6 +35,7 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
     - repeat_only (boolean, optional): for respondent indicators, count respondents that have had this interaction n number of times
     - n (integer, optional): for use with repeat _only, the number of times this repsondent should have had an interaction with this indicator before being counted
     - cascade (boolean, optional): if organization and project is selected, also include data from child organizations
+    - average (boolean, optional): for integer types, pull an average instead of a sum
     '''
     #get a list of interactions prefiltered based on user role/filters
     responses = get_interactions_from_indicator(user, indicator, project, organization, start, end, filters, cascade)
@@ -52,8 +53,8 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
     include_options=False
     for param, include in params.items():
         if include:
-            #get list of subcats from indicator
             if param == 'option':
+                #get list of options from indicator
                 options = Option.objects.filter(indicator=indicator)
                 if options.exists():
                     include_options = True
@@ -71,6 +72,7 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
                 fields_map[param] = [value for value, label in field.choices]
     
     if not include_options and indicator.type == Indicator.Type.MULTI:
+        #filter to only one row for multiselects if option breakdown is not requested, since these are stored in multiple rows
         responses = responses.distinct('interaction_id', 'interaction__respondent_id', 'indicator_id')
 
     #if time split is required, add an additional 'field' deonting the time period
@@ -121,19 +123,22 @@ def demographic_aggregates(user, indicator, params, split=None, project=None, or
                             else:
                                 continue
                         else:
+                            #otherwise increase by the value, which is one unless its a numeric type
                             aggregates[pos]['count'] += value
                             if average:
+                                #if average also tally a number to divide by
                                 aggregates[pos]['number'] += 1
                         seen_respondents.add(response.interaction.respondent_id)
+    # if average, calc the average
     if average:
         for key, obj in aggregates.items():
             num = obj.get('number', 0)
             if num > 0:
-                obj['count'] = obj['count'] / num
+                obj['count'] = round(obj['count'] / num, 2)
             else: 
                 obj['count'] = None
 
-    if counts: #only perform this if counts are available (and not expressly disabled by the repeat_only arg)
+    if counts: #only perform this if counts are available (and not expressly disabled by the repeat_only/average arg)
         for count in counts:
             count_params = []
             for field in fields_map.keys():
@@ -180,7 +185,7 @@ def get_repeats(responses, n):
         .filter(interaction_id=OuterRef('interaction_id'))
         .order_by('id')  # or 'created_at' if you prefer
     )
-
+    # then pull list of repeats
     repeat_only = (
         responses
         .filter(interaction__respondent_id__in=repeat_respondents)
@@ -191,12 +196,28 @@ def get_repeats(responses, n):
     repeat_only = responses.filter(interaction__respondent_id__in=repeat_respondents)
     return repeat_only
 
-def aggregate_only_aggregates(user, indicator, params, split=None, project=None, organization=None, start=None, end=None, filters=None, repeat_only=False, n=2, cascade=False):
+def aggregate_only_aggregates(user, indicator, params, split=None, project=None, organization=None, start=None, end=None, filters=None, cascade=False):
+    '''
+    Function that finds aggregate counts that match the criteria and aggregates them. Can split by 
+    timer period/param if requested. Used for "misc" category indicators
+
+    - user (user instance): the user making the request for permissions
+    - indicator (indicator instance): the indicator whose data is to be aggregated
+    - params (dict): a dictionary of params with true or false values denoting whether this aggregates 
+        should be split by that param (accepts any of the breakdown fields found in the respondents/aggregatecounts model)
+    - split (string, optional): split the data into periods (month, quarter)
+    - project (project instance, optional): scope data to specific project
+    - organization (organization instance, optional): scope data to specific organization
+    - start (ISO date string, optional): only collect data after this point
+    - end (ISO date string, optional): only collect data before this point
+    - filters (dict, optional): filter to only inlcude values that match certain criteria
+    - cascade (boolean, optional): if organization and project is selected, also include data from child organizations
+    '''
+    #get list of counts that match criteria
     counts = get_counts_from_indicator(user, indicator, params, project, organization, start, end, filters, cascade)
     fields_map = {}
     for param, include in params.items():
         if include:
-            #get list of subcats from indicator
             if param == 'organization':
                 fields_map['organization'] = set(sorted({count.group.organization.name for count in counts}))
                 continue
@@ -228,6 +249,7 @@ def aggregate_only_aggregates(user, indicator, params, split=None, project=None,
         aggregates[pos]['count'] = 0 #set default count to 0
     product_index_sets = {frozenset(k): v for k, v in product_index.items()}
 
+    #loop through each count and add the value to the correct bucket
     for count in counts:
             count_params = []
             for field in fields_map.keys():
@@ -461,9 +483,10 @@ def aggregates_switchboard(user, indicator, params, split=None, project=None, or
     - repeat_only (boolean, optional): for respondent indicators, count respondents that have had this interaction n number of times
     - n (integer, optional): for use with repeat _only, the number of times this repsondent should have had an interaction with this indicator before being counted
     - cascade (boolean, optional): if organization and project is selected, also include data from child organizations
+    - average (boolean, optional): for integer types, pull an average instead of a sum
     '''
     aggregates = {}
-    if indicator.category == Indicator.Category.ASS: #respondent type
+    if indicator.category == Indicator.Category.ASS: #assessment type
         aggregates = demographic_aggregates(user, indicator, params, split, project, organization, start, end, filters, repeat_only, n, cascade, average)
     if indicator.category == Indicator.Category.EVENTS: #number of event type
         aggregates = event_no_aggregates(user, indicator, split, project, organization, start, end, cascade, params)

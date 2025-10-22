@@ -118,6 +118,9 @@ class TargetViewSetTest(APITestCase):
 
     
     def test_target_non_admin(self):
+        '''
+        Non-admin can view for themselves and their child orgs.
+        '''
         #non-admins should only see targets associated with their org/child orgs and with active projects
         self.client.force_authenticate(user=self.manager)
         response = self.client.get('/api/manage/targets/')
@@ -252,7 +255,9 @@ class TargetViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_target_create_rel_wrong(self):
-        #related to not with same org/project
+        '''
+        Related to indicator not with same org/project
+        '''
         self.client.force_authenticate(user=self.admin)
         invalid_payload = {
             'indicator_id': self.indicator_ass.id,
@@ -294,6 +299,9 @@ class TargetViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_target_mismatched_amounts(self):
+        '''
+        Check that either amount or related_to/related_to% are provided, not a  mix and match
+        '''
         self.client.force_authenticate(user=self.admin)
         invalid_payload = {
             'indicator_id': self.indicator_ass.id,
@@ -321,7 +329,9 @@ class TargetViewSetTest(APITestCase):
 
 
     def test_target_create_overlap(self):
-        #should fail since there's already a target for this task in this time period
+        '''
+        Should fail since there's already a target for this task in this time period
+        '''
         self.client.force_authenticate(user=self.admin)
         invalid_payload = {
             'indicator_id': self.indicator.id,
@@ -336,6 +346,9 @@ class TargetViewSetTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
     
     def test_target_create_wrong_dates(self):
+        '''
+        Check date validations
+        '''
         #start before end
         self.client.force_authenticate(user=self.admin)
         invalid_payload = {

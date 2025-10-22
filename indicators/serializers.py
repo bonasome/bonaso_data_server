@@ -6,6 +6,9 @@ from indicators.models import Indicator, Assessment, Option, LogicCondition, Log
 from profiles.serializers import ProfileListSerializer
 
 class LogicConditionSerializer(serializers.ModelSerializer):
+    '''
+    Nested serializer that collects information about a specific condition.
+    '''
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
     
@@ -17,6 +20,10 @@ class LogicConditionSerializer(serializers.ModelSerializer):
         ]
 
 class LogicGroupSerializer(serializers.ModelSerializer):
+    '''
+    Nested serializer that collects information about a group of conditions for one indicator and 
+    related conditions.
+    '''
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
     conditions = serializers.SerializerMethodField()
@@ -30,6 +37,9 @@ class LogicGroupSerializer(serializers.ModelSerializer):
         ]
     
 class OptionSerializer(serializers.ModelSerializer):
+    '''
+    Nested serializer that has information about an option. 
+    '''
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
     class Meta:
@@ -40,8 +50,7 @@ class OptionSerializer(serializers.ModelSerializer):
 
 class AssessmentListSerializer(serializers.ModelSerializer):
     '''
-    Simple index serializer. We also attach a subcateogry count that's helpful for frontend checks 
-    that handle then match subcategory category.
+    Lightweight list serilaizer for when pulling lists of assessments. 
     '''
     display_name = serializers.SerializerMethodField(read_only=True)
     def get_display_name(self, obj):
@@ -52,6 +61,9 @@ class AssessmentListSerializer(serializers.ModelSerializer):
         fields = ['id', 'display_name', 'name', 'description', 'created_by', 'created_at', 'updated_by', 'updated_at']
 
 class IndicatorSerializer(serializers.ModelSerializer):
+    '''
+    Collects information about an indicator. Can be standalone or nested within an assessment serializer.
+    '''
     options = serializers.SerializerMethodField()
     logic = serializers.SerializerMethodField()
     created_by = ProfileListSerializer(read_only=True)
@@ -77,6 +89,8 @@ class IndicatorSerializer(serializers.ModelSerializer):
     
     def get_display_name(self, obj):
         return str(obj)  # Uses obj.__str__()
+    
+    #these two only apply for assessment category indicators
     def get_options(self, obj):
         opts = []
         if obj.match_options:
@@ -98,9 +112,11 @@ class IndicatorSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, attrs):
+        #check perms
         user = self.context['request'].user
         if user.role != 'admin':
             raise PermissionDenied('You do not have permission to create an indicator')
+        #make sure an assessment is provided if this is an assessment type
         if attrs.get('category') == Indicator.Category.ASS and not attrs.get('assessment'):
             raise serializers.ValidationError("Assessment is required for this category")
 
@@ -108,21 +124,25 @@ class IndicatorSerializer(serializers.ModelSerializer):
         options_data = attrs.get('options_data') or []
         match_options = attrs.get('match_options', None)
         
+        #name is required and must be unique
         name = attrs.get('name', None)
         if not name:
             raise serializers.ValidationError('Name is required.')
         if Indicator.objects.filter(name=name).exclude(pk=getattr(self.instance, 'pk', None)).exists():
             raise serializers.ValidationError('Name is already in use. Please check if this indicator is already in the system.')
 
+        #mathc options only allowed from and to multiselect types
         if match_options:
             if ind_type != Indicator.Type.MULTI:
                 return serializers.ValidationError("Only Multiselect indicators can support match options.")
             if match_options.type != Indicator.Type.MULTI:
                 return serializers.ValidationError("Only Multiselect indicators can be used as a reference for match_options.")
        
-        if ind_type in [Indicator.Type.SINGLE, Indicator.Type.MULTI]:
+       #options are required for these types
+        if ind_type in [Indicator.Type.SINGLE, Indicator.Type.MULTI, Indicator.Type.MULTINT]:
             if not options_data and not attrs.get('match_options'):
                 raise serializers.ValidationError("This indicator type requires options.")
+            #options within the same indicator cannot have the same name
             seen = []
             for option in options_data:
                 name = option.get('name')
@@ -130,34 +150,39 @@ class IndicatorSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError('You cannot have the same name for two options.')
                 seen.append(name)
         
-
+        #collect logic data
         logic_data = attrs.get('logic_data', {})
-        # if logic data
+        # if logic data and category is assessment
         if logic_data and attrs.get('category') != Indicator.Category.ASS:
             raise serializers.ValidationError('Logic cannot be applied to this indicator.')
         
         if logic_data:
-            #if conditions are not provided or the list is empty, throw an error
+            #if conditions are not provided or the list is empty, throw an error, something went wrong
             if not logic_data.get('conditions', []):
                 raise serializers.ValidationError('At least one condition is required to create logic.')
             #check each condition
             for condition in logic_data.get('conditions', []):
                 #check if this is comparing to an indicator a respondent field
                 st = condition.get('source_type')
-                # if a indicator field (either this assessment or including previous ones)
-                
+
+                # if sourced from an assessment/indicator
                 if st in [LogicCondition.SourceType.ASS]:
                     prereq_id = condition.get('source_indicator') #grab the indicator id
                     prereq = Indicator.objects.filter(id=prereq_id).first() #make sure this indicator exists
                     
                     if not prereq:
                         raise serializers.ValidationError('A valid indicator is required.')
+                    #don't allow this type to determine visibility
+                    if prereq.type == Indicator.Type.MULTINT:
+                        raise serializers.ValidationError('This type of indicator is not allowed as a source indicator.')
                     operator = condition.get('operator')
                     if operator not in LogicCondition.Operator.values:
                         raise serializers.ValidationError(f'Invalid operator "{operator}".')
+                    
                     if prereq.type in [Indicator.Type.MULTI, Indicator.Type.BOOL, Indicator.Type.SINGLE]:
                         if operator not in [LogicCondition.Operator.EQUALS, LogicCondition.Operator.NE]:
                             raise serializers.ValidationError('Indicators of this type can only accept "equal to" or "not equal to" as the operator.')
+                    
                     if operator in [LogicCondition.Operator.GT, LogicCondition.Operator.LT]:
                         print(prereq.type)
                         if prereq.type not in [Indicator.Type.INT]:
@@ -167,6 +192,8 @@ class IndicatorSerializer(serializers.ModelSerializer):
                             value = int(value)
                         except (TypeError, ValueError):
                             raise serializers.ValidationError(f'Greater Than/Less Than requires a number')
+                    
+                    #validate condition types are not misused
                     condition_type = condition.get('condition_type')
                     if condition_type and prereq.type not in [Indicator.Type.MULTI, Indicator.Type.SINGLE]:
                         raise serializers.ValidationError('Condition types only apply to indicators with manually created options.')
@@ -178,18 +205,22 @@ class IndicatorSerializer(serializers.ModelSerializer):
                     if operator in [LogicCondition.Operator.DNC, LogicCondition.Operator.C] and prereq.type not in [Indicator.Type.TEXT]:
                         raise serializers.ValidationError('This operator can only be applied to indicators that accept open text responses.')
 
+                    #if it is linked to a source indicator with options, run some checks
                     option = condition.get('value_option', None)
                     if prereq.type in [Indicator.Type.MULTI, Indicator.Type.SINGLE]: #if it is linked to options... # pull the value_option field (an int id)
+                        #it could be a condition type (any, all, none)
                         if condition_type and option:
                             raise serializers.ValidationError('Provide either a condition type or an option.')
                         valid_extra_choices = [c[0] for c in LogicCondition.ExtraChoices.choices]
                         if option is None and condition_type not in valid_extra_choices:
                             raise serializers.ValidationError('An option or condition type is required for this condition.') #raise error if blank
+                        # if its an option, validate the option
                         if not condition_type:
                             try:
                                 option = int(option)
                             except (TypeError, ValueError):
                                 raise serializers.ValidationError(f'Invalid option ID: {option}')
+                            #make sure its either in this indicator or a matched indicator
                             if not prereq.match_options and not option in Option.objects.filter(indicator_id=prereq_id).values_list('id', flat=True): # raise error if not a valid option
                                 raise serializers.ValidationError(f'"{option}" is not a valid option for this indicator')
                             elif prereq.match_options:
@@ -200,6 +231,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
                                 if not option in Option.objects.filter(indicator=match_to).values_list('id', flat=True):
                                     raise serializers.ValidationError(f'"{option}" is not a valid option for this indicator')
                     
+                    #assure that invalid properties aren't sent
                     if prereq.type not in [Indicator.Type.MULTI, Indicator.Type.SINGLE] and option:
                         raise serializers.ValidationError('Only multi and single select indicators can accept an option property.')
 
@@ -218,7 +250,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
                             valid = int(condition.get('value_text'))
                         except (TypeError, ValueError):
                             raise serializers.ValidationError(f'Logic relying on a numeric indicator must have a valid number.')
-                        
+         
                 #else if this is checking against a respondent field
                 elif st == LogicCondition.SourceType.RES:
                     field = condition.get('respondent_field')
@@ -228,21 +260,24 @@ class IndicatorSerializer(serializers.ModelSerializer):
                         if not condition.get('value_text') in [o.get('value') for o in LogicCondition.RESPONDENT_VALUE_CHOICES[field]]:
                             raise serializers.ValidationError(f'"{condition.get("value_text")}" is not a valid choice for respondent field {field}.')
         
+        #validate that allow aggregtes is allowed before committing it
         if attrs.get('category') in [Indicator.Category.SOCIAL, Indicator.Category.EVENTS, Indicator.Category.ORGS]: #these should be linked to another object via a task
             if attrs.get('allow_aggregate', False):
                 raise serializers.ValidationError('Aggregates are not allowed for this indicator category.')
         if ind_type in [Indicator.Type.TEXT]:
             if attrs.get('allow_aggregate', False):
                 raise serializers.ValidationError('Aggregates are not allowed for this indicator type.')    
-
         
         return attrs
     
+    #set options for an indicator
     def __set_options(self, user, indicator, options_data):
         if len(options_data) == 0:
             return
+        #only these types of indicators can have options
         if indicator.type not in [Indicator.Type.SINGLE, Indicator.Type.MULTI, Indicator.Type.MULTINT]:
             raise serializers.ValidationError(f'{indicator} cannot accept options.')
+        # loop to check for existing or create a new one
         for option in options_data:
             existing=None
             id = option.get('id')
@@ -259,16 +294,19 @@ class IndicatorSerializer(serializers.ModelSerializer):
                     deprecated=False,
                 )
                 option['id'] = new.id
+        #if it existed but wasn't provided, deprecate the option
         existing_options = set(Option.objects.filter(indicator=indicator).values_list('id', flat=True))
         submitted_options = set([opt['id'] for opt in options_data if 'id' in opt])
         to_deprecate = existing_options - submitted_options
         Option.objects.filter(id__in=to_deprecate).update(deprecated=True)
 
+    #create the logic now that it's been validated
     def __set_logic(self, user, indicator, logic_data):
         if len(logic_data) == 0:
             return
         if indicator.category != Indicator.Category.ASS:
             raise serializers.ValidationError('Indicator of this category cannot accept logic rules')
+        #create a group
         group=None
         existing = LogicGroup.objects.filter(indicator=indicator).first()
         if existing:
@@ -283,7 +321,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
                 group_operator=logic_data.get('group_operator'),
                 created_by=user,
             )
-        
+        #then the condition
         for condition in logic_data.get('conditions', []):
             st = condition.get('source_type')
             op = condition.get('operator')
@@ -323,6 +361,7 @@ class IndicatorSerializer(serializers.ModelSerializer):
         options_data = validated_data.pop('options_data', [])
         logic_data = validated_data.pop('logic_data', {}) or {}
         indicator = Indicator.objects.create(**validated_data)
+        #autocalculate order (default at end of assessment)
         pos = Indicator.objects.filter(assessment=indicator.assessment).count()
         indicator.order = pos - 1 if pos > 0 else 0
         self.__set_options(user, indicator, options_data)
@@ -344,12 +383,9 @@ class IndicatorSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
-
-
 class AssessmentSerializer(serializers.ModelSerializer):
     '''
-    Simple index serializer. We also attach a subcateogry count that's helpful for frontend checks 
-    that handle then match subcategory category.
+    Detailed assessment serializer that also pulls a list of indicators. 
     '''
     display_name = serializers.SerializerMethodField(read_only=True)
     indicators = serializers.SerializerMethodField(read_only=True)

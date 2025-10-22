@@ -22,7 +22,7 @@ FILTERS_MAP = {
 
 def get_interactions_from_indicator(user, indicator, project=None, organization=None, start=None, end=None, filters=None, cascade=False):
     '''
-    Helper function get queryset of interactions that match a set of conditions. Returns a queryset of 
+    Helper function get queryset of interactions/responses that match a set of conditions. Returns a queryset of 
     interactions that match the provided args.
     - user (user instance): The user making the request, for managing perms
     - indicator (indicator instance): The indicator these interactions should be related to 

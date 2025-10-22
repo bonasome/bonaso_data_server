@@ -42,7 +42,7 @@ class TestIndicators(APITestCase):
     
     def test_edit_ass(self):
         '''
-        Assessments can be created with the below payload.
+        Assessments can be patched with the below payload.
         '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
@@ -142,7 +142,7 @@ class TestIndicators(APITestCase):
     
     def test_edit_indicator_ass(self):
         '''
-        Assessments can be created with the below payload.
+        Indicators within an assessment can be edited.
         '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
@@ -325,6 +325,9 @@ class TestIndicators(APITestCase):
 
 
     def test_create_indicator_standalone(self):
+        '''
+        Test creating an indicator not in an assessment
+        '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'name': 'Standalone',
@@ -337,7 +340,7 @@ class TestIndicators(APITestCase):
     
     def test_fail_options(self):
         '''
-        Test out a couple types of indicators for an assessment.
+        Test that option requirements are working for assessment inds. 
         '''
         self.client.force_authenticate(user=self.admin)
         invalid_payload = {
@@ -375,6 +378,7 @@ class TestIndicators(APITestCase):
         Test out that various types/categories either do or do not accept the allow_aggregate flag.
         '''
         self.client.force_authenticate(user=self.admin)
+        #yes, single select in assessment
         valid_payload = {
             'name': 'Valid 1',
             'category': Indicator.Category.ASS,
@@ -390,6 +394,7 @@ class TestIndicators(APITestCase):
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+        #yes, integer in assessment
         valid_payload = {
             'name': 'Valid 2',
             'category': Indicator.Category.ASS,
@@ -405,6 +410,7 @@ class TestIndicators(APITestCase):
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+        #yes, misc type
         valid_payload = {
             'name': 'Valid 3',
             'category': Indicator.Category.MISC,
@@ -414,6 +420,7 @@ class TestIndicators(APITestCase):
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+        #no, social type
         invalid_payload = {
             'name': 'Invalid 1',
             'category': Indicator.Category.SOCIAL,
@@ -423,6 +430,7 @@ class TestIndicators(APITestCase):
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+        #no, text type
         invalid_payload = {
             'name': 'Invalid 2',
             'category': Indicator.Category.ASS,
@@ -439,6 +447,9 @@ class TestIndicators(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_reorder(self):
+        '''
+        Test that reordering indicators within an assessment works.
+        '''
         self.client.force_authenticate(user=self.admin)
         valid_payload = {
             'position': 0

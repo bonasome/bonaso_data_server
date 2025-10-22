@@ -9,7 +9,7 @@ User = get_user_model()
 class Flag(models.Model):
     '''
     Generic flag model that is used to mark suspicious data for further review. Is attachable to any data
-    model, but is mostly used for interactions, respondents, event counts, and social media posts.
+    model, but is mostly used for interactions, respondents, aggregate counts, and social media posts.
     '''
     class FlagReason(models.TextChoices):
         '''

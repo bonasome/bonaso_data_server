@@ -10,6 +10,10 @@ User = get_user_model()
 
 
 class AggregateGroup(models.Model):
+    '''
+    The AggregateGroup is used to collect a group of aggregate count items. It stores shared information,
+    such as indicator, organization, project, and time period. 
+    '''
     name = models.CharField(max_length=255, null=True, blank=True)
     indicator = models.ForeignKey(Indicator, on_delete=models.PROTECT)
     organization = models.ForeignKey(Organization, on_delete=models.PROTECT)
@@ -26,18 +30,15 @@ class AggregateGroup(models.Model):
         return self.name if self.name else f"Aggregate for {self.indicator.name} ({self.start}-{self.end})"
 class AggregateCount(models.Model):
     '''
-    The demographic count is how numeric information (how many people) is attached to an event. For example,
-    how many people tested, how many staff trained, etc. We allow dynamic splitting by the following demographic
-    categories. Each count is linked to one event.
+    An AggregateCount allows a user to attach a number to a set of demographic breakdowns for aggregated
+    reporting of an indicator (assuming an indicator allows for such). It must be linked to an AggregateGroup.
+    Each count object has a number and then a value (or None) representing the disaggregation fields attached
+    to this value.
 
-    These categories should match with their corresponding ones from the respondents model.
-
-    Each count must be linked to a task (this is how the system knows what to do with it.)
-    We also have a business logic rule that one task can only have one set of counts (visualize it like a table).
-    There's a nascent idea to allow organizations breakdowns (for training maybe) but right now that field is dormant.
+    Can have a flag attached to it if the data is suspect. 
     '''
     
-    #keep these three here
+    # these fields are stored slightly differently than how they are in the respondent model
     class Citizenship(models.TextChoices):
         CIT = 'citizen', _('Citizen')
         NC = 'non_citizen', _('Non-Citizen')
@@ -50,6 +51,7 @@ class AggregateCount(models.Model):
         YES = 'hiv_positive', _('HIV Positive')
         NO = 'hiv_negative', _('HIV Negative')
 
+    #validation map to make sure no rogue values make it in
     DEMOGRAPHIC_VALIDATORS = {
         'sex': Respondent.Sex.values,
         'age_range': Respondent.AgeRanges.values,
@@ -64,6 +66,7 @@ class AggregateCount(models.Model):
     }
     group = models.ForeignKey(AggregateGroup, on_delete=models.CASCADE)
     value = models.PositiveIntegerField() #numeric value
+
     sex = models.CharField(max_length = 2, choices=Respondent.Sex.choices, null=True, blank=True)
     age_range = models.CharField(max_length = 25, choices=Respondent.AgeRanges.choices, null=True, blank=True)
     district = models.CharField(max_length=50, choices=Respondent.District.choices, null=True, blank=True)

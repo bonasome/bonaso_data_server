@@ -429,6 +429,9 @@ class RespondentSerializer(serializers.ModelSerializer):
         return instance
 
 class ResponseSerializer(serializers.ModelSerializer):
+    '''
+    Nested serializer for getting responses within an interaction (view only)
+    '''
     response_option = OptionSerializer(read_only=True)
     indicator = IndicatorSerializer(read_only=True)
     class Meta:
@@ -441,6 +444,9 @@ class ResponseSerializer(serializers.ModelSerializer):
 
 
 class InteractionSerializer(serializers.ModelSerializer):
+    '''
+    Serializer for viewing/editing/creating interactions and associated responses.
+    '''
     respondent = RespondentSerializer(read_only=True)
     task = TaskSerializer(read_only=True)
     task_id = serializers.PrimaryKeyRelatedField(
@@ -462,6 +468,7 @@ class InteractionSerializer(serializers.ModelSerializer):
     updated_by = ProfileListSerializer(read_only=True)
     
     def get_parent_organization(self, obj):
+        #helps for determining editing priveleges on the frontend
         org_link =  ProjectOrganization.objects.filter(project=obj.task.project, organization=obj.task.organization).first()
         return org_link.parent_organization.id if org_link and org_link.parent_organization else None
 
@@ -477,6 +484,7 @@ class InteractionSerializer(serializers.ModelSerializer):
             'updated_at', 'parent_organization',
         ]
 
+    #check if a response option (sent as an id) is an int/valid option
     def __options_valid(self, option, indicator):
         try:
             option = int(option)
@@ -489,9 +497,11 @@ class InteractionSerializer(serializers.ModelSerializer):
                 return False
         return True
     
+    #check if the value provided for an indicator is valid
     def __value_valid(self, indicator, val):
         if not val and not indicator.required:
             return
+        #multi expects a list of options
         if indicator.type == Indicator.Type.MULTI:
             if not isinstance(val, list):
                 raise serializers.ValidationError('A list is expected for this indicator.')
@@ -502,6 +512,7 @@ class InteractionSerializer(serializers.ModelSerializer):
                     valid = self.__options_valid(option, indicator)
                     if not valid:
                         raise serializers.ValidationError(f'ID {val} is not valid for indicator {indicator.name}.')
+        #single expects  a single option
         if indicator.type == Indicator.Type.SINGLE:
             if val == 'none' and indicator.allow_none:
                 val = None
@@ -509,14 +520,17 @@ class InteractionSerializer(serializers.ModelSerializer):
                 valid = self.__options_valid(val, indicator)
                 if not valid:
                     raise serializers.ValidationError(f'ID {val} is not valid for indicator {indicator.name}.')
+        #int expects a number
         if indicator.type == Indicator.Type.INT:
             try:
                 val = int(val)
             except (TypeError, ValueError):
                 raise serializers.ValidationError(f'Integer is required.')
+        # bool expects a boolean, or something close to it
         if indicator.type == Indicator.Type.BOOL:
             if val not in [True, False, 0, 1, '0', '1', "true", "false"]:
                 raise serializers.ValidationError('Boolean is required.')
+        #multint expects an array of option/value pairs
         if indicator.type == Indicator.Type.MULTINT:
             for pair in val:
                 option_id = pair.get('option')
@@ -536,17 +550,19 @@ class InteractionSerializer(serializers.ModelSerializer):
                         raise serializers.ValidationError('Value must be a non-negative integer.')
                 except (TypeError, ValueError):
                     raise serializers.ValidationError('Each value must be a valid integer.')
-                
+    #check if this question should be visible based on previous responses    
     def __should_be_visible(self, indicator, responses, respondent, task):
         logic_group = LogicGroup.objects.filter(indicator=indicator).first()
         if logic_group:
             conditions = LogicCondition.objects.filter(group=logic_group)
             if conditions.exists():
+                #and all must be true
                 if logic_group.group_operator == LogicGroup.Operator.AND:   
                     for condition in conditions.all():
                         passed = check_logic(c=condition, response_info=responses, assessment=task.assessment, respondent=respondent)
                         if not passed:
                             return False
+                #or one must be true
                 if logic_group.group_operator == LogicGroup.Operator.OR:   
                     for condition in conditions.all():
                         passed = check_logic(condition, responses, task.assessment, respondent)
@@ -555,11 +571,12 @@ class InteractionSerializer(serializers.ModelSerializer):
                     return False
         return True   
 
+    #validate that if two options are matched, the second value is a subset of the first
     def __match_options(self, indicator, responses, task):
         # 1. Validate setup
         if not indicator.match_options:
             raise serializers.ValidationError('Match options is not configured for this indicator.')
-
+        #only multi's are allowed here
         if indicator.type != Indicator.Type.MULTI or indicator.match_options.type != Indicator.Type.MULTI:
             raise serializers.ValidationError('Invalid match options setup.')
 
@@ -590,6 +607,7 @@ class InteractionSerializer(serializers.ModelSerializer):
                     "details": {"indicator_id": indicator.id}
                 })
 
+    #check that resoponse/interaction dates are valid
     def __check_date(self, date_val, project):
         if not date_val:
             return
@@ -615,6 +633,7 @@ class InteractionSerializer(serializers.ModelSerializer):
         if project.end and date_val > project.end:
             raise serializers.ValidationError('Date is after project end.')
 
+    #make sure the user has perm to create/edit this interaction based on the task
     def __check_perms(self, user, task):
         if user.role == 'admin':
             return True
@@ -633,16 +652,18 @@ class InteractionSerializer(serializers.ModelSerializer):
                     raise PermissionDenied('You do not have permission to create an interaction for this task.')
         else:
             raise PermissionDenied('You do not have permission to create interactions.')
-        
+
     def validate(self, attrs):
         user = self.context['request'].user
         
         ir_date = attrs.get('interaction_date', None)
         loc = attrs.get('interaction_location', None)
         task = attrs.get('task')
+        #check perms
         self.__check_perms(user, task)
         respondent = attrs.get('respondent')
 
+        #assessment task is required
         if not task.assessment:
             raise serializers.ValidationError('An assessment is required to create an interaction.')
         
@@ -651,6 +672,7 @@ class InteractionSerializer(serializers.ModelSerializer):
         self.__check_date(ir_date, task.project)
         responses = attrs.get('response_data')
 
+        #validate each indicator's response, make sure that required inds are answered
         for indicator in Indicator.objects.filter(assessment=task.assessment).all():
             #first check if the item should be visible
             sbv = self.__should_be_visible(indicator, responses, respondent, task)
@@ -661,7 +683,7 @@ class InteractionSerializer(serializers.ModelSerializer):
             self.__check_date(response_date, task.project)
 
             #if this should be visible and the indicator is required, but there is no value, raise an error
-            if sbv and val in [[], None, ''] and indicator.required:
+            if sbv and val in [[], None, ''] and indicator.required: #note this allows ['none']/'none' for options that allow none
                 raise serializers.ValidationError({
                     'requirement_error': f'Indicator {indicator.name} is required.',
                     "details": {"indicator_id": indicator.id}
@@ -680,9 +702,12 @@ class InteractionSerializer(serializers.ModelSerializer):
             
     
         return attrs
+    
+    #create a single response linked to an interaction
     def __make_response(self, interaction, indicator, data, user):
         if data.get('value') in [[], None, '', 'none', ['none']]:
             return
+        #get response date/location (if provided, otherwise use interaction wide one)
         response_date = data.get('date', interaction.interaction_date)
         if response_date == '':
             response_date = interaction.interaction_date
@@ -691,6 +716,8 @@ class InteractionSerializer(serializers.ModelSerializer):
         if response_location == '':
             response_location = interaction.interaction_location
         
+        #for multint, pass through each item in the array and create a unique response object
+        #object will have both a value and an option
         if indicator.type == Indicator.Type.MULTINT:
             vals = data.get('value', [])
             print(vals)
@@ -703,6 +730,7 @@ class InteractionSerializer(serializers.ModelSerializer):
                     response_date=response_date,
                     response_location=response_location,
                 )
+        #for multi, create response object for each item in array, but only has response_option
         elif indicator.type == Indicator.Type.MULTI:
             options = data.get('value')
             for option in options:
@@ -713,6 +741,7 @@ class InteractionSerializer(serializers.ModelSerializer):
                     response_date=response_date,
                     response_location=response_location,
                 )
+        #otherwise create a single response object
         else:
             boolVal = data.get('value') if indicator.type == Indicator.Type.BOOL else None
             option = data.get('value') if indicator.type == Indicator.Type.SINGLE else None

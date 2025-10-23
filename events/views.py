@@ -79,6 +79,9 @@ class EventViewSet(RoleRestrictedViewSet):
         end_param = self.request.query_params.get('end')
         if end_param:
             queryset = queryset.filter(end__lte=end_param)
+        project_param = self.request.query_params.get('project')
+        if project_param:
+            queryset = queryset.filter(tasks__project_id=project_param).distinct()
 
         return queryset
     
@@ -91,7 +94,7 @@ class EventViewSet(RoleRestrictedViewSet):
             "event_types": get_enum_choices(Event.EventType),
             "statuses": get_enum_choices(Event.EventStatus),
         })
-    
+
     @transaction.atomic
     def destroy(self, request, *args, **kwargs):
         '''

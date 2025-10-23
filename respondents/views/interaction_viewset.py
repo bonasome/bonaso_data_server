@@ -285,7 +285,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
         wb.save(output)
         output.seek(0)
         response = HttpResponse(output.read(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        filename = f'{str(task.assessment.name).replace(' ', '_')[:10]}_{date.today().strftime("%Y-%m-%d")}.xlsx'
+        filename = f"{str(task.assessment.name).replace(' ', '_')[:10]}_{date.today().strftime('%Y-%m-%d')}.xlsx"
         response['Content-Disposition'] = f'attachment; filename="{filename}"' #filename based on date/assessment
         return response
 

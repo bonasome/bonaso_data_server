@@ -110,6 +110,17 @@ class AggregatesTest(APITestCase):
                     'citizenship': 'citizen',
                     'option_id': self.option2.id,
                 },
+                {
+                    'value': 27,
+                    'disability_type': 'VI',
+                    'kp_type': 'MSM',
+                    'pregnancy': 'pregnant',
+                    'hiv_status': 'hiv_positive',
+                    'sex': 'M',
+                    'age_range': '20_24',
+                    'citizenship': 'citizen',
+                    'unique_only': True,
+                },
             ]
         }
         response = self.client.post(f'/api/aggregates/', valid_payload, content_type='application/json')
@@ -118,8 +129,10 @@ class AggregatesTest(APITestCase):
         group = AggregateGroup.objects.filter(start='2025-01-01', end='2025-01-03').first()
         counts = AggregateCount.objects.filter(group=group)
         check_val = counts.filter(option=self.option2).first()
-        self.assertEqual(counts.count(), 2)
+        check_total_val = counts.filter(unique_only=True).first()
+        self.assertEqual(counts.count(), 3)
         self.assertEqual(check_val.value, 5)
+        self.assertEqual(check_total_val.value, 27)
         self.assertEqual(check_val.created_by, self.admin)
     
     def test_count_creation_no_options(self):
@@ -169,6 +182,11 @@ class AggregatesTest(APITestCase):
                     'disability_type': 'VI',
                     'option_id': self.option1.id,
                 },
+                {
+                    'value': 26,
+                    'disability_type': 'VI',
+                    'unique_only': True,
+                },
             ]
         }
         response = self.client.post(f'/api/aggregates/', valid_payload, content_type='application/json')
@@ -194,6 +212,57 @@ class AggregatesTest(APITestCase):
             ]
         }
         response = self.client.post(f'/api/aggregates/', valid_payload, content_type='application/json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+    
+    def test_option_total_req(self):
+        '''
+        Make sure that if an indicator is multiselect, user is sending a total flag
+        '''
+        self.client.force_authenticate(user=self.admin)
+        valid_payload = {
+            'indicator_id': self.indicator.id,
+            'organization_id': self.parent_org.id,
+            'project_id': self.project.id,
+            'start': '2025-01-01',
+            'end': '2025-01-03',
+            'counts_data': [
+                {
+                    'value': 25,
+                    'disability_type': 'VI',
+                    'option_id': self.option1.id
+                },
+            ]
+        }
+        response = self.client.post(f'/api/aggregates/', valid_payload, content_type='application/json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+    
+    def test_option_total_valid(self):
+        '''
+        Make sure that if an indicator is multiselect, user is sending a total flag that is equal
+        to the smallest option
+        '''
+        self.client.force_authenticate(user=self.admin)
+        valid_payload = {
+            'indicator_id': self.indicator.id,
+            'organization_id': self.parent_org.id,
+            'project_id': self.project.id,
+            'start': '2025-01-01',
+            'end': '2025-01-03',
+            'counts_data': [
+                {
+                    'value': 29,
+                    'disability_type': 'VI',
+                    'option_id': self.option1.id
+                },
+                {
+                    'value': 28,
+                    'disability_type': 'VI',
+                    'unique_only': True
+                },
+            ]
+        }
+        response = self.client.post(f'/api/aggregates/', valid_payload, content_type='application/json')
+        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
     
     def test_rogue_option(self):
@@ -235,6 +304,10 @@ class AggregatesTest(APITestCase):
                     'value': 25,
                     'option_id': self.option1.id,
                 },
+                {
+                    'value': 25,
+                    'unique_only': True,
+                },
             ]
         }
 
@@ -256,6 +329,10 @@ class AggregatesTest(APITestCase):
                 {
                     'value': 25,
                     'option_id': self.option1.id,
+                },
+                {
+                    'value': 25,
+                    'unique_only': True,
                 },
             ]
         }
@@ -286,6 +363,17 @@ class AggregatesTest(APITestCase):
                     'citizenship': 'citizen',
                     'option_id': self.option1.id,
                 },
+                {
+                    'value': 25,
+                    'disability_type': 'VI',
+                    'kp_type': 'MSM',
+                    'pregnancy': 'pregnant',
+                    'hiv_status': 'hiv_positive',
+                    'sex': 'M',
+                    'age_range': '20_24',
+                    'citizenship': 'citizen',
+                    'unique_only': True,
+                },
             ]
         }
         response = self.client.post(f'/api/aggregates/', valid_payload, content_type='application/json')
@@ -312,6 +400,17 @@ class AggregatesTest(APITestCase):
                     'age_range': '20_24',
                     'citizenship': 'citizen',
                     'option_id': self.option1.id,
+                },
+                {
+                    'value': 20,
+                    'disability_type': 'VI',
+                    'kp_type': 'MSM',
+                    'pregnancy': 'pregnant',
+                    'hiv_status': 'hiv_positive',
+                    'sex': 'M',
+                    'age_range': '20_24',
+                    'citizenship': 'citizen',
+                    'unique_only': True,
                 },
             ]
         }
@@ -342,9 +441,20 @@ class AggregatesTest(APITestCase):
                     'citizenship': 'citizen',
                     'option_id': self.option1.id,
                 },
+                {
+                    'value': 25,
+                    'disability_type': 'VI',
+                    'kp_type': 'MSM',
+                    'pregnancy': 'pregnant',
+                    'hiv_status': 'hiv_positive',
+                    'sex': 'M',
+                    'age_range': '20_24',
+                    'citizenship': 'citizen',
+                    'unique_only': True,
+                },
             ]
         }
-        response = self.client.patch(f'/api/aggregates/{self.prereq_count.id}/', valid_payload, content_type='application/json')
+        response = self.client.patch(f'/api/aggregates/{self.prereq_count.group.id}/', valid_payload, content_type='application/json')
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         
@@ -374,6 +484,17 @@ class AggregatesTest(APITestCase):
                     'age_range': '20_24',
                     'citizenship': 'citizen',
                     'option_id': self.option1.id,
+                },
+                {
+                    'value': 25,
+                    'disability_type': 'VI',
+                    'kp_type': 'MSM',
+                    'pregnancy': 'pregnant',
+                    'hiv_status': 'hiv_positive',
+                    'sex': 'M',
+                    'age_range': '20_24',
+                    'citizenship': 'citizen',
+                    'unique_only': True,
                 },
             ]
         }
@@ -425,6 +546,17 @@ class AggregatesTest(APITestCase):
                     'citizenship': 'citizen',
                     'option_id': self.option1.id,
                 },
+                {
+                    'value': 25,
+                    'disability_type': 'VI',
+                    'kp_type': 'MSM',
+                    'pregnancy': 'pregnant',
+                    'hiv_status': 'hiv_positive',
+                    'sex': 'M',
+                    'age_range': '20_24',
+                    'citizenship': 'citizen',
+                    'unique_only': True,
+                },
             ]
         }
         response = self.client.post(f'/api/aggregates/', valid_payload, content_type='application/json')
@@ -448,6 +580,17 @@ class AggregatesTest(APITestCase):
                     'age_range': '20_24',
                     'citizenship': 'citizen',
                     'option_id': self.option1.id,
+                },
+                {
+                    'value': 25,
+                    'disability_type': 'VI',
+                    'kp_type': 'MSM',
+                    'pregnancy': 'pregnant',
+                    'hiv_status': 'hiv_positive',
+                    'sex': 'M',
+                    'age_range': '20_24',
+                    'citizenship': 'citizen',
+                    'unique_only': True,
                 },
             ]
         }
@@ -477,6 +620,17 @@ class AggregatesTest(APITestCase):
                     'citizenship': 'citizen',
                     'option_id': self.option1.id,
                 },
+                {
+                    'value': 25,
+                    'disability_type': 'VI',
+                    'kp_type': 'MSM',
+                    'pregnancy': 'pregnant',
+                    'hiv_status': 'hiv_positive',
+                    'sex': 'M',
+                    'age_range': '20_24',
+                    'citizenship': 'citizen',
+                    'unique_only': True,
+                },
             ]
         }
         response = self.client.post(f'/api/aggregates/', valid_payload, content_type='application/json')
@@ -504,6 +658,17 @@ class AggregatesTest(APITestCase):
                     'age_range': '20_24',
                     'citizenship': 'citizen',
                     'option_id': self.option1.id,
+                },
+                {
+                    'value': 25,
+                    'disability_type': 'VI',
+                    'kp_type': 'MSM',
+                    'pregnancy': 'pregnant',
+                    'hiv_status': 'hiv_positive',
+                    'sex': 'M',
+                    'age_range': '20_24',
+                    'citizenship': 'citizen',
+                    'unique_only': True,
                 },
             ]
         }

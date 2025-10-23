@@ -137,8 +137,8 @@ def get_interactions_from_indicator(user, indicator, project=None, organization=
 
 def get_counts_from_indicator(user, indicator, params, project=None, organization=None, start=None, end=None, filters=None, cascade=False):
     '''
-    Helper function get queryset of Demographic count that match a set of conditions. Returns queryset of
-    DemographicCount instances.
+    Helper function get queryset of Aggregate Counts that match a set of conditions. Returns queryset of
+    AggreagateCount instances.
     - user (user instance): The user making the request, for managing perms
     - indicator (indicator instance): The indicator these interactions should be related to 
     - params (object, optional): List of fields to split the data by

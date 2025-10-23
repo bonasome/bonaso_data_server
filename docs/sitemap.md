@@ -224,8 +224,6 @@ For multiselect questions, a "Total" row will be automatically created, to allow
 
 [**Important Models**](/events/models.py):
 - Event: Stores details about an event and associated tasks.
--Demographic Count: Stores details about counts associated with an event, linked to one task and one event, and then an variable number of demographic fields. 
-
 
 **Permissions**: M&E Officers/Managers and admins can create/edit events. M&E Officers/Managers can edit events where they or their child org are the host.
 

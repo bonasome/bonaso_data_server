@@ -394,7 +394,7 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
                 related=related_counts, 
                 conditions=conditions, 
             )
-
+        self.__check_downstream(group, saved_instances, user)
     def create(self, validated_data):
         user = self.context.get('request').user if self.context.get('request') else None
         rows = validated_data.pop('counts_data')

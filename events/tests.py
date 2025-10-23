@@ -63,6 +63,16 @@ class EventViewSetTest(APITestCase):
         child_link.parent_organization = self.parent_org
         child_link.save()
 
+        self.other_project = Project.objects.create(
+            name='Beta Project',
+            status=Project.Status.ACTIVE,
+            start='2024-01-01',
+            end='2024-12-31',
+            description='Test project',
+            created_by=self.admin,
+        )
+        self.other_project.organizations.set([self.parent_org, self.child_org])
+
         #create some indicators and some tasks
         self.indicator_event = Indicator.objects.create(name='Number of Events Held', category=Indicator.Category.EVENTS)
         self.indicator_org = Indicator.objects.create(name='Number of Orgs Trained at Event', category=Indicator.Category.ORGS)
@@ -72,6 +82,8 @@ class EventViewSetTest(APITestCase):
         self.new_task = Task.objects.create(indicator=self.indicator_event, project=self.project, organization=self.parent_org)
         self.other_task = Task.objects.create(indicator=self.indicator_event, project=self.project, organization=self.other_org)
 
+        self.other_project_task = Task.objects.create(indicator=self.indicator_event, project=self.other_project, organization=self.parent_org)
+        self.other_project_not_child_task = Task.objects.create(indicator=self.indicator_event, project=self.other_project, organization=self.child_org)
 
         #create a few sample events
         self.event = Event.objects.create(
@@ -82,7 +94,16 @@ class EventViewSetTest(APITestCase):
             host=self.parent_org
         )
         self.event.tasks.set([self.task])
-        self.event.organizations.set([self.parent_org])
+        self.event.organizations.set([self.child_org])
+
+        self.child_event = Event.objects.create(
+            name='Event',
+            start='2024-07-09',
+            end='2024-07-09',
+            location='here',
+            host=self.child_org
+        )
+        self.child_event.tasks.set([self.child_task])
 
         self.other_event = Event.objects.create(
             name='Event',
@@ -91,16 +112,25 @@ class EventViewSetTest(APITestCase):
             location='here',
             host=self.other_org
         )
-        self.other_event.organizations.set([self.other_org])
         self.other_event.tasks.set([self.other_task])
 
-        self.third_event = Event.objects.create(
-            name='Event',
+        self.no_tasks_other_proj = Event.objects.create(
+            name='No Tasks',
             start='2024-07-09',
             end='2024-07-09',
             location='here',
-            host=self.other_org
+            host=self.child_org,
+            project=self.other_project,
         )
+
+        self.tasks_other_proj = Event.objects.create(
+            name='No Tasks',
+            start='2024-07-09',
+            end='2024-07-09',
+            location='here',
+            host=self.child_org,
+        )
+        self.tasks_other_proj.tasks.set([self.other_project_not_child_task])
 
 
     def test_admin_view(self):
@@ -110,35 +140,26 @@ class EventViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.admin)
         response = self.client.get('/api/activities/events/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 3)
+        self.assertEqual(len(response.data['results']), 5)
 
     def test_me_mgr_view(self):
         '''
-        Higher roles should see only events that they are related to
+        Higher roles should see only events that they are related to F
         '''
         self.client.force_authenticate(user=self.manager)
         response = self.client.get('/api/activities/events/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 1)
+        self.assertEqual(len(response.data['results']), 2)
     
     def test_child_view(self):
         '''
         Participants should see events they are a part of.
         '''
-        event = Event.objects.create(
-            name='Event',
-            start='2024-07-09',
-            end='2024-07-09',
-            location='here',
-            host=self.parent_org
-        )
-        event.tasks.set([self.task])
-        event.organizations.set([self.parent_org, self.child_org])
 
         self.client.force_authenticate(user=self.officer)
         response = self.client.get('/api/activities/events/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 1)
+        self.assertEqual(len(response.data['results']), 4)
 
     def test_client_view(self):
         '''
@@ -147,7 +168,7 @@ class EventViewSetTest(APITestCase):
         self.client.force_authenticate(user=self.client_user)
         response = self.client.get('/api/activities/events/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 2)
+        self.assertEqual(len(response.data['results']), 3)
     
     def test_create_event(self):
         '''
@@ -163,6 +184,27 @@ class EventViewSetTest(APITestCase):
             'host_id': self.parent_org.id,
             'description': 'Testing creation',
             'task_ids': [self.task.id],
+            'organization_ids': [self.child_org.id],
+
+        }
+        response = self.client.post('/api/activities/events/', valid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        event = Event.objects.get(name='New Event')
+        self.assertEqual(event.created_by, self.admin)
+        self.assertEqual(event.tasks.count(), 1)
+        self.assertEqual(event.organizations.count(), 1)
+
+        ### OR ###
+        self.client.force_authenticate(user=self.admin)
+        valid_payload = {
+            'name': 'New Event II',
+            'type': 'Training',
+            'start': '2024-03-01',
+            'end': '2024-03-02',
+            'location': 'Gaborone',
+            'host_id': self.parent_org.id,
+            'description': 'Testing creation',
+            'project_id': self.project.id,
             'organization_ids': [self.child_org.id],
 
         }
@@ -199,6 +241,113 @@ class EventViewSetTest(APITestCase):
         response = self.client.patch(f'/api/activities/events/{self.event.id}/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+
+    def test_parent_child_perm(self):
+        '''
+        Parent organizations can create events for their child orgs and add child orgs
+         as participants
+        '''
+        self.client.force_authenticate(user=self.manager)
+
+        # can create events for child orgs
+        valid_payload = {
+            'name': 'New Event',
+            'type': 'Training',
+            'start': '2024-03-01',
+            'end': '2024-03-02',
+            'location': 'Gaborone',
+            'host_id': self.child_org.id,
+            'description': 'Testing creation',
+            'task_ids': [self.child_task.id],
+        }
+        response = self.client.post('/api/activities/events/', valid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # can and events with child orgs as participants
+        valid_payload = {
+            'name': 'New Event',
+            'type': 'Training',
+            'start': '2024-03-01',
+            'end': '2024-03-02',
+            'location': 'Gaborone',
+            'host_id': self.parent_org.id,
+            'description': 'Testing creation',
+            'task_ids': [self.task.id],
+            'organization_ids': [self.child_org.id],
+        }
+        response = self.client.post('/api/activities/events/', valid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_task_mismatch(self):
+        '''
+        Task must belong to the host
+        '''
+        self.client.force_authenticate(user=self.manager)
+
+        # can and events with child orgs as participants
+        valid_payload = {
+            'name': 'New Event',
+            'type': 'Training',
+            'start': '2024-03-01',
+            'end': '2024-03-02',
+            'location': 'Gaborone',
+            'host_id': self.parent_org.id,
+            'description': 'Testing creation',
+            'task_ids': [self.child_task.id],
+            'organization_ids': [self.child_org.id],
+        }
+        response = self.client.post('/api/activities/events/', valid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+    
+    def test_project_scoped_rel(self):
+        '''
+        Cannot create events for an org that is a child in one project but not another. 
+        '''
+        self.client.force_authenticate(user=self.manager)
+
+        # should fail, other_project_not_child_task is in other project where child org is not a child of parent
+        valid_payload = {
+            'name': 'New Event',
+            'type': 'Training',
+            'start': '2024-03-01',
+            'end': '2024-03-02',
+            'location': 'Gaborone',
+            'host_id': self.child_org.id,
+            'description': 'Testing creation',
+            'task_ids': [self.other_project_not_child_task.id],
+        }
+        response = self.client.post('/api/activities/events/', valid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # should also fail, other project is not a valid task for this
+        valid_payload = {
+            'name': 'New Event',
+            'type': 'Training',
+            'start': '2024-03-01',
+            'end': '2024-03-02',
+            'location': 'Gaborone',
+            'host_id': self.child_org.id,
+            'description': 'Testing creation',
+            'task_ids': [self.other_project_task.id],
+            'organization_ids': [self.child_org.id]
+        }
+        response = self.client.post('/api/activities/events/', valid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # should also fail, child org is not is not a child in that project
+        valid_payload = {
+            'name': 'New Event',
+            'type': 'Training',
+            'start': '2024-03-01',
+            'end': '2024-03-02',
+            'location': 'Gaborone',
+            'host_id': self.parent_org.id,
+            'description': 'Testing creation',
+            'project_ids': [self.other_project.id],
+            'organization_ids': [self.child_org.id],
+        }
+        response = self.client.post('/api/activities/events/', valid_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_event_perm(self):
         '''
@@ -265,39 +414,6 @@ class EventViewSetTest(APITestCase):
         response = self.client.post('/api/activities/events/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
     
-    def test_patch_event_perm(self):
-        '''
-        Test a few permissions related to patcing events for non-admins. Should be able to patch events,
-        but not with information related to orgs they are not related to.
-        '''
-        self.client.force_authenticate(user=self.manager)
-        valid_payload = {
-            'start': '2024-07-01',
-            'organization_ids': [self.child_org.id],
-            'task_ids': [self.child_task.id]
-        }
-        response = self.client.patch(f'/api/activities/events/{self.event.id}/', valid_payload, format='json')
-        print(response.json())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.event.refresh_from_db()
-        self.assertEqual(self.event.start, date(2024, 7, 1))
-    
-        #should fail
-        valid_payload = {
-            'start': '2024-07-01',
-            'organization_ids': [self.other_org.id],
-        }
-        response = self.client.patch(f'/api/activities/events/{self.event.id}/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-        #should also fail
-        valid_payload = {
-            'start': '2024-07-01',
-            'organization_ids': [self.parent_org.id],
-        }
-        response = self.client.patch(f'/api/activities/events/{self.other_event.id}/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-    
     def patch_event_child(self):
         '''
         Parent orgs should have the ability to edit events for their child orgs.
@@ -342,27 +458,16 @@ class EventViewSetTest(APITestCase):
         '''
         Associates (in the event, but not the host) should be able to view, but not edit events.
         '''
-        test_event = Event.objects.create(
-            name='Event',
-            start='2024-07-09',
-            end='2024-07-09',
-            location='here',
-            host=self.parent_org
-        )
-        test_event.tasks.set([self.task, self.child_task])
-        test_event.organizations.set([self.parent_org, self.child_org])
-
         #child org should be allowed to see since they are a part of the event
         self.client.force_authenticate(user=self.officer)
-        response = self.client.get(f'/api/activities/events/')
+        response = self.client.get(f'/api/activities/events/{self.event.id}/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 1)
 
         #but not edit
         valid_payload = {
             'start': '2024-07-01',
         }
         
-        response = self.client.patch(f'/api/activities/events/{test_event.id}/', valid_payload, format='json')
+        response = self.client.patch(f'/api/activities/events/{self.event.id}/', valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 

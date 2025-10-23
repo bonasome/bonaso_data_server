@@ -506,7 +506,7 @@ class InteractionSerializer(serializers.ModelSerializer):
             if not isinstance(val, list):
                 raise serializers.ValidationError('A list is expected for this indicator.')
             if 'none' in val and indicator.allow_none:
-                val = []
+                return #value is valid
             else:
                 for option in val:
                     valid = self.__options_valid(option, indicator)
@@ -515,7 +515,7 @@ class InteractionSerializer(serializers.ModelSerializer):
         #single expects  a single option
         if indicator.type == Indicator.Type.SINGLE:
             if val == 'none' and indicator.allow_none:
-                val = None
+                return #value is valid
             else:
                 valid = self.__options_valid(val, indicator)
                 if not valid:
@@ -705,8 +705,9 @@ class InteractionSerializer(serializers.ModelSerializer):
     
     #create a single response linked to an interaction
     def __make_response(self, interaction, indicator, data, user):
-        if data.get('value') in [[], None, '', 'none', ['none']]:
+        if data.get('value') in [[], None, '']:
             return
+
         #get response date/location (if provided, otherwise use interaction wide one)
         response_date = data.get('date', interaction.interaction_date)
         if response_date == '':
@@ -716,11 +717,20 @@ class InteractionSerializer(serializers.ModelSerializer):
         if response_location == '':
             response_location = interaction.interaction_location
         
+        if indicator.type in [Indicator.Type.MULTI, Indicator.Type.SINGLE] and indicator.allow_none:
+            if data.get('value') == 'none' or  'none' in data.get('value'):
+                response = Response.objects.create(
+                    interaction=interaction,
+                    indicator=indicator,
+                    response_none=True,
+                    response_date=response_date,
+                    response_location=response_location,
+                )
+                return
         #for multint, pass through each item in the array and create a unique response object
         #object will have both a value and an option
         if indicator.type == Indicator.Type.MULTINT:
             vals = data.get('value', [])
-            print(vals)
             for val in vals:
                 response = Response.objects.create(
                     interaction=interaction,
@@ -757,6 +767,7 @@ class InteractionSerializer(serializers.ModelSerializer):
                 comments=data.get('comments', None),
                 created_by=user,
             )
+
     def create(self, validated_data):
         user = self.context['request'].user
         response_data = validated_data.pop('response_data', [])

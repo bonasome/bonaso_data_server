@@ -2,7 +2,7 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
 from organizations.models import Organization
-from projects.models import Task
+from projects.models import Task, Project
 from django.contrib.contenttypes.fields import GenericRelation
 
 User = get_user_model()
@@ -24,8 +24,10 @@ class Event(models.Model):
         Host: The hosting organization, will default to the users if not an admin, can be left blank by admins (
         for creating public/multi-org events).
         Organizations: The organizations that participated in this event. Governs which tasks are available.
-        Tasks: The tasks (or indicators) that this event contributes towards. Depending on the indicator type,
-        these may depend on counts or they may be auto-calced.
+        Tasks: The tasks (or indicators) that this event contributes towards. Used as the primary method of 
+        determining scope. 
+        Project: If an event has no tasks, the user can define a project as a fallback for helping to assire
+        that all events are categorized properly. 
 
     '''
     class EventStatus(models.TextChoices):
@@ -51,6 +53,7 @@ class Event(models.Model):
     host = models.ForeignKey(Organization, verbose_name='Hosting Organization', on_delete=models.SET_NULL, blank=True, null=True, related_name='host')
     organizations = models.ManyToManyField(Organization, through='EventOrganization', blank=True) # list of participating organizations, used to calc org_event_numbers and can be used to add tasks for other orgs
     tasks = models.ManyToManyField(Task, through='EventTask', blank=True) 
+    project = models.ForeignKey(Project, null=True, blank=True, on_delete=models.SET_NULL)
     location = models.CharField(max_length=255, verbose_name='Event Location')
     start = models.DateField()
     end = models.DateField()

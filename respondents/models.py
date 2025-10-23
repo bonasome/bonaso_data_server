@@ -313,6 +313,7 @@ class Response(models.Model):
     response_value = models.CharField(max_length=255, blank=True, null=True)
     response_option = models.ForeignKey(Option, on_delete=models.PROTECT, blank=True, null=True)
     response_boolean = models.BooleanField(blank=True, null=True)
+    response_none = models.BooleanField(blank=True, null=True) #track that a respondent deliberately selected a none option
     response_date = models.DateField(null=True, blank=True)
     response_location = models.TextField(null=True, blank=True)
 

@@ -8,8 +8,8 @@ from events.models import Event, EventTask, EventOrganization
 from profiles.serializers import ProfileListSerializer
 from organizations.models import Organization
 from organizations.serializers import OrganizationListSerializer
-from projects.models import ProjectOrganization,Task
-from projects.serializers import TaskSerializer
+from projects.models import ProjectOrganization,Task, Project
+from projects.serializers import TaskSerializer, ProjectListSerializer
 from flags.serializers import FlagSerializer
 from indicators.models import Indicator
 
@@ -26,6 +26,9 @@ class EventSerializer(serializers.ModelSerializer):
     tasks = TaskSerializer(many=True, read_only=True)
     organization_ids = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), required=False, many=True, write_only=True, source='organizations')
     task_ids = serializers.PrimaryKeyRelatedField(queryset= Task.objects.all(), many=True, required=False, write_only=True, source='tasks')
+    project = ProjectListSerializer(read_only=True)
+    project_id = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), write_only=True, required=False, allow_null=True, source='project')
+    
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
     
@@ -34,7 +37,7 @@ class EventSerializer(serializers.ModelSerializer):
         fields = [
                     'id', 'name', 'description', 'host', 'host_id', 'tasks', 'organizations', 'organization_ids', 
                     'task_ids', 'location', 'start', 'end', 'event_type', 'status', 'created_by', 'created_at',
-                    'updated_by', 'updated_at'
+                    'updated_by', 'updated_at', 'project', 'project_id',
                 ]
     
     def _update_organizations(self, event, organizations, user):
@@ -44,11 +47,6 @@ class EventSerializer(serializers.ModelSerializer):
         EventOrganization.objects.filter(event=event).delete()
         new_links = []
         for org in organizations:
-            if user.role != 'admin':
-                if not org == user.organization and not ProjectOrganization.objects.filter(organization=org, parent_organization=user.organization).exists():
-                    raise PermissionDenied(
-                        f"Cannot assign an organization that is not your organization or your child organization."
-                    )
             new_links.append(EventOrganization(event=event, organization=org, added_by=user))
         EventOrganization.objects.bulk_create(new_links)
 
@@ -59,25 +57,7 @@ class EventSerializer(serializers.ModelSerializer):
         EventTask.objects.filter(event=event).delete()
         new_links = []
         for task in tasks:
-            org = task.organization
-            #assure that the task assigned is in the right category to be linked
-            if task.indicator.category not in [Indicator.Category.EVENTS, Indicator.Category.ORGS]:
-                raise serializers.ValidationError(f"Task '{task.indicator.name}' may not be assigned to an event. Please consider creating a social post instead.")
-            if user.role != 'admin':
-                 if not org == user.organization and not ProjectOrganization.objects.filter(organization=org, parent_organization=user.organization, project=task.project).exists():
-                    raise PermissionDenied(
-                        f"Cannot assign a task that is not associcated with your organization or child organization."
-                    )
-            if not EventOrganization.objects.filter(organization=org).exists() and not event.host==org:
-                raise serializers.ValidationError(
-                    f"Task '{task.indicator.name}' is associated with '{task.organization.name}' who is not associated with this event. Please add them first."
-                )
-            if event.start < task.project.start or event.end > task.project.end:
-                raise serializers.ValidationError(
-                    f"Task '{task.indicator.name}' for organization '{task.organization.name}' is associcated with a project whose start and end dates do not align with this events date."
-                )
             new_links.append(EventTask(event=event, task=task, added_by=user))
-
         EventTask.objects.bulk_create(new_links)
 
     def validate(self, attrs):
@@ -87,6 +67,8 @@ class EventSerializer(serializers.ModelSerializer):
             raise PermissionDenied('You do not have permission to edit events.')
         #require a host
         host = attrs.get('host', getattr(self.instance, 'host', None))
+        child_orgs = set(ProjectOrganization.objects.filter(parent_organization=user.organization)
+                 .values_list('organization', flat=True))
         if not host:
             raise serializers.ValidationError(
                     f"Event host is required."
@@ -103,8 +85,65 @@ class EventSerializer(serializers.ModelSerializer):
         #check that start is not after the end
         start = attrs.get('start', getattr(self.instance, 'start', None))
         end = attrs.get('end', getattr(self.instance, 'end', None))
+        if not start:
+            raise serializers.ValidationError('Event start is required.')
+        if not end:
+            end = start
         if start and end and end < start:
             raise serializers.ValidationError("Event end may not be before event start.")
+        tasks = attrs.get('tasks', [])
+        project = attrs.get('project', None)
+        if not tasks and not project:
+            raise serializers.ValidationError('Task or project is required. ')
+        if project and tasks:
+            task_projects = {task.project_id for task in tasks}
+            if project.id not in task_projects:
+                raise serializers.ValidationError(
+                    "The provided project must match one of the selected task projects."
+                )
+
+        project_ids = set()   
+        if tasks:
+            for task in tasks:
+                if task.indicator.category not in [Indicator.Category.EVENTS, Indicator.Category.ORGS]:
+                    raise serializers.ValidationError(f"Task '{task.indicator.name}' may not be assigned to an event.")
+                if task.organization != host:
+                    raise serializers.ValidationError('Tasks must belong to the host organization.')
+                
+                if start < task.project.start or end > task.project.end:
+                    raise serializers.ValidationError(
+                        f"Task '{task.indicator.name}' for organization '{task.organization.name}' is associcated with a project whose start and end dates do not align with this events date."
+                    )
+                if user.role != 'admin':
+                    if task.organization != user.organization:
+                        if not ProjectOrganization.objects.filter(project=task.project, organization=task.organization, parent_organization=user.organization).exists():
+                            raise PermissionDenied('You do not have permission to access this task.')
+                project_ids.add(task.project_id)
+
+        if project:
+            if not ProjectOrganization.objects.filter(project=project, organization=host).exists():
+                raise serializers.ValidationError('Cannot create an event related to a project you are not assigned to.')
+        
+        if not project and not project_ids:
+            raise serializers.ValidationError(
+                "Task or project is required to determine valid participating organizations."
+            )
+        participants = attrs.get('organizations', [])
+        for org in participants:
+            if user.role != 'admin':
+                if project:
+                    if not org == user.organization and not ProjectOrganization.objects.filter(organization=org, parent_organization=user.organization, project=project).exists():
+                        raise PermissionDenied(
+                            f"Cannot assign an organization that is not your organization or a child organization for the duration of this project."
+                        )
+                else:
+                    if org != user.organization:
+                        if not ProjectOrganization.objects.filter(
+                            organization=org, 
+                            parent_organization=user.organization,
+                            project_id__in=project_ids,
+                        ).exists():
+                            raise PermissionDenied(f"Cannot assign an organization that is not your organization or one of your child organizations.")
         return attrs
 
     @transaction.atomic

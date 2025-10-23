@@ -1,6 +1,6 @@
 from django.shortcuts import render, redirect
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Exists, OuterRef
 from django.contrib.contenttypes.models import ContentType
 from django.shortcuts import get_object_or_404
 
@@ -51,16 +51,44 @@ class EventViewSet(RoleRestrictedViewSet):
             queryset = Event.objects.all()
         #client can see any event that has counts relevent to their projects
         elif user.role == 'client':
-            queryset = Event.objects.filter(tasks__project__client=user.client_organization)
+            queryset = Event.objects.filter(Q(tasks__project__client=user.client_organization) | Q(project__client=user.client_organization))
             queryset=queryset.distinct()
         #higher roles can see event where they are the host, their child is the host, or they are a participant
         elif user.role in ['meofficer', 'manager']:
-           queryset = Event.objects.filter(
-                Q(host=user.organization) |
-                Q(organizations=user.organization) |
-                Q(host__in=ProjectOrganization.objects.filter(
-                    parent_organization=user.organization
-                ).values_list('organization', flat=True))
+            my_projects = ProjectOrganization.objects.filter(
+                organization=user.organization
+            ).values_list('project_id', flat=True)
+
+            # Base: org is directly host or participant
+            base_q = Q(host=user.organization) | Q(organizations=user.organization)
+
+            # Child-host relationships (parent-child link within a project)
+            project_child_rels = ProjectOrganization.objects.filter(
+                parent_organization=user.organization
+            )
+
+            # Events where a child org is the host and both share a project
+            child_host_q = Q(
+                Exists(
+                    project_child_rels.filter(
+                        organization=OuterRef('host'),
+                        project=OuterRef('project')
+                    )
+                )
+            )
+
+            # Events where a child org hosts but project comes via tasks
+            child_host_task_q = Q(
+                Exists(
+                    project_child_rels.filter(
+                        organization=OuterRef('host'),
+                        project=OuterRef('tasks__project')
+                    )
+                )
+            )
+
+            queryset = Event.objects.filter(
+                base_q | child_host_q | child_host_task_q
             ).distinct()
         else:
             return Event.objects.none()

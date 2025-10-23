@@ -266,52 +266,27 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
                     )
 
         return attrs
-    
-    # if in an assessment, check that logical conditions are met, and if not, create a flag for review
-    def __check_logic(self, indicator, organization, start, end, count, user, visited=None):
-        if visited is None: #flag for when checking downstream values to prevent infinite recursion
-            visited = set()
-        
-        key = (indicator.id, count.id)
-        if key in visited:
-            return
-        visited.add(key)
-        
-        flags = count.flags.filter(auto_flagged=True) #get any existing flags
 
-        #check for logic
-        logic_group = LogicGroup.objects.filter(indicator=indicator).first()
-        if not logic_group:
-            return
+    def __make_breakdown_key(self, indicator_id, count, indicator_type=None):
+        base_fields = ['sex', 'age_range', 'kp_type', 'disability_type', 
+                    'hiv_status', 'pregnancy', 'district', 
+                    'citizenship', 'attribute_type']
 
-        conditions = LogicCondition.objects.filter(group=logic_group, source_type=LogicCondition.SourceType.ASS)
-        if not conditions.exists():
-            return
+        if indicator_type in [Indicator.Type.SINGLE, Indicator.Type.MULTINT]:
+            base_fields.append('option')
+        elif indicator_type == Indicator.Type.MULTI:
+            base_fields.extend(['option', 'unique_only'])
 
-        #if logic and conditions are found, run some checks
-        val = count.value
-        for condition in conditions.all():
+        return (indicator_id, tuple(getattr(count, f, None) for f in base_fields))
+
+    def __check_logic(self, indicator, count, user, related, conditions):
+        for condition in conditions:
             prereq = condition.source_indicator
+            lookup_key = self.__make_breakdown_key(prereq.id, count, prereq.type)
             #find a count that overlaps with this one, has the prerequisite indicator, and belongs to the same org
-            filters = {
-                'group__start__lt': end,
-                'group__end__gt': start,
-                'group__indicator': prereq,
-                'group__organization': organization,
-            }
-            # also find that it has the same breakdowns (exclude unqiue_only and options if the prereq doesn't have them)
-            for field in ['sex', 'age_range', 'kp_type', 'disability_type', 'hiv_status', 'pregnancy', 'district', 'citizenship', 'attribute_type', 'unique_only']:
-                if field == 'unique_only' and prereq.type != Indicator.Type.MULTI:
-                    continue
-                value = getattr(count, field)
-                if value is not None:
-                    filters[field] = value
-            if count.option_id is not None and Option.objects.filter(indicator=prereq).exists():
-                filters['option_id'] = count.option_id
+            find_count = related.get(lookup_key)
 
-            #find the count, unless its flagged
-            find_count = AggregateCount.objects.filter(**filters).exclude(flags__resolved=False).first()
-
+            val = count.value
             # Logic: NONE / False condition
             if condition.condition_type == LogicCondition.ExtraChoices.NONE or condition.value_boolean is False:
                 '''
@@ -321,37 +296,98 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
                 continue
             else:
                 # Logic: prereq must exist and be >= this value
-                msg = f'Indicator "{indicator.name}" requires a corresponding count for {prereq.name}.'
+                msg = f'Count for Indicator "{indicator.name}" is missing prerequsite counts.'
                 if not find_count:
                     create_flag(instance=count, reason=msg, caused_by=user, reason_type=Flag.FlagReason.MPRE)
                 else:
-                    resolve_flag(flags, msg)
+                    resolve_flag(count.flags, msg)
                 if find_count:
                     msg = f'Value for this count may not be higher than the corresponding value from {prereq.name}.'
                     if val is not None and (find_count.value is None or val > find_count.value):
                         create_flag(instance=count, reason=msg, caused_by=user, reason_type=Flag.FlagReason.MPRE)
                     else:
-                        resolve_flag(flags, msg)
-
-        # Check downstream counts recursively
-        self.__check_downstream(indicator=indicator, organization=organization, start=start, end=end, count=count, user=user, visited=visited)
-
-    #helper to resolve/create flags that may be created/resolved downstream 
-    def __check_downstream(self, indicator, organization, start, end, count, user, visited):
-        # find all counts overlapping this range
-        filters = {
-            'group__start__lt': end,
-            'group__end__gt': start,
-            'group__organization': organization,
-        }
-        potential_downstream = AggregateCount.objects.filter(**filters)
-        for c in potential_downstream:
-            ds_ind = c.group.indicator
-            conditions = LogicCondition.objects.filter(group__indicator=ds_ind, source_indicator=indicator)
-            if conditions.exists():
-                self.__check_logic(indicator=ds_ind, organization=organization, start=start, end=end, count=c, user=user, visited=visited)
+                        resolve_flag(count.flags, msg)
 
     
+    def __get_related_counts(self, group):
+        logic_group = LogicGroup.objects.filter(indicator=group.indicator).first()
+        if not logic_group:
+            return None
+
+        prereq_inds = LogicCondition.objects.filter(
+            group=logic_group,
+            source_type=LogicCondition.SourceType.ASS
+        ).values_list('source_indicator__id', flat=True)
+
+        if not prereq_inds:
+            return None
+
+        # Prefetch indicator types for breakdown logic
+        indicator_types = dict(
+            Indicator.objects.filter(id__in=prereq_inds)
+            .values_list('id', 'type')
+        )
+        #find a count that overlaps with this one, has the prerequisite indicator, and belongs to the same org
+        filters = {
+            'group__start__lt': group.end,
+            'group__end__gt': group.start,
+            'group__organization': group.organization,
+            'group__project': group.project,
+            'group__indicator__in': prereq_inds
+        }
+        counts = AggregateCount.objects.filter(**filters)
+        counts_map = {}
+
+        for c in counts:
+            indicator_type = indicator_types.get(c.group.indicator_id)
+            key = self.__make_breakdown_key(c.group.indicator_id, c, indicator_type)
+            counts_map[key] = c
+
+        return counts_map
+    
+    def __check_downstream(self, group, saved_instances, user):
+        potential_downstream_ids = LogicCondition.objects.filter(source_indicator=group.indicator).values_list('group__indicator__id', flat=True)
+        filters = {
+            'group__start__lt': group.end,
+            'group__end__gt': group.start,
+            'group__organization': group.organization,
+            'group__project': group.project,
+            'group__indicator__in': potential_downstream_ids
+        }   
+        downstream_counts = AggregateCount.objects.filter(**filters)
+        if downstream_counts.exists():
+            downstream_conditions = {
+                ind_id: list(LogicCondition.objects.filter(group__indicator_id=ind_id).select_related('source_indicator'))
+                for ind_id in potential_downstream_ids
+            }
+            counts_map = {
+                self.__make_breakdown_key(c.group.indicator_id, c, c.group.indicator.type): c
+                for c in saved_instances
+            }
+            for count in downstream_counts:
+                conditions = downstream_conditions.get(count.group.indicator_id, [])
+                self.__check_logic(count.group.indicator, count, user, counts_map, conditions)
+    
+    def __check_counts(self, group, saved_instances, user):
+        related_counts = self.__get_related_counts(group)
+        if related_counts is None: #no logic, just check to see if anything downstream should be fixed/created
+            self.__check_downstream(group, saved_instances, user)
+            return
+        if not related_counts: #empty dict means no matching count, flag all counts, check downstream 
+            for count in saved_instances:
+                create_flag(count, f'Count for Indicator "{group.indicator.name}" is missing prerequsite counts.', user, Flag.FlagReason.MPRE)
+            self.__check_downstream(group, saved_instances, user)
+            return
+        #check if individual counts are mismatched
+        conditions = LogicCondition.objects.filter(group__indicator=group.indicator).select_related('source_indicator')
+        for count in saved_instances:
+            self.__check_logic(
+                indicator=group.indicator, 
+                user=user, 
+                related=related_counts, 
+                conditions=conditions, 
+            )
+
     def create(self, validated_data):
         user = self.context.get('request').user if self.context.get('request') else None
         rows = validated_data.pop('counts_data')
@@ -364,10 +400,7 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
                 for row in rows
             ]
             saved_instances = AggregateCount.objects.bulk_create(instances)
-            visited = set()
-            for count in saved_instances:
-                self.__check_logic(indicator=group.indicator, organization=group.organization, start=group.start, end=group.end,count= count, user=user, visited=visited)
-                self.__check_downstream(indicator=group.indicator, organization=group.organization, start=group.start, end=group.end, count=count, user=user, visited=visited)
+            self.__check_counts(group, saved_instances, user)            
         return group
     
     def update(self, instance, validated_data):
@@ -384,8 +417,5 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
                 for row in rows
             ]
             saved_instances = AggregateCount.objects.bulk_create(instances)
-            visited = set()
-            for count in saved_instances:
-                self.__check_logic(indicator=instance.indicator, organization=instance.organization, start=instance.start, end=instance.end, count=count, user=user, visited=visited)
-                self.__check_downstream(indicator=instance.indicator, organization=instance.organization, start=instance.start, end=instance.end, count=count, user=user, visited=visited)
+            self.__check_counts(instance, saved_instances, user)  
         return instance

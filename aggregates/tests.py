@@ -381,7 +381,7 @@ class AggregatesTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         count = AggregateCount.objects.filter(group__indicator=self.indicator2).first()
         self.assertEqual(count.flags.count(), 1)
-        self.assertIn('requires a corresponding count', count.flags.filter(resolved=False).first().reason)
+        self.assertIn('missing prerequsite counts', count.flags.filter(resolved=False).first().reason)
 
         valid_payload = {
             'indicator_id': self.indicator.id,

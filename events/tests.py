@@ -317,7 +317,7 @@ class EventViewSetTest(APITestCase):
             'task_ids': [self.other_project_not_child_task.id],
         }
         response = self.client.post('/api/activities/events/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_403_PERMISSION_DENIED)
 
         # should also fail, other project is not a valid task for this
         valid_payload = {
@@ -412,7 +412,7 @@ class EventViewSetTest(APITestCase):
             'organization_ids': [self.parent_org.id],
         }
         response = self.client.post('/api/activities/events/', valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
     
     def patch_event_child(self):
         '''

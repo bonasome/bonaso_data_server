@@ -48,7 +48,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
     filter_backends = [SearchFilter]
     filterset_fields = ['task', 'respondent', 'interaction_date']
     search_fields = ['respondent__uuid', 'respondent__first_name', 'respondent__last_name', 
-                     'task__indicator__code', 'task__indicator__name', 'task__organization__name'] 
+                     'task__assessment__name'] 
     
     def get_queryset(self):
         '''

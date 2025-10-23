@@ -109,7 +109,7 @@ class EventViewSet(RoleRestrictedViewSet):
             queryset = queryset.filter(end__lte=end_param)
         project_param = self.request.query_params.get('project')
         if project_param:
-            queryset = queryset.filter(tasks__project_id=project_param).distinct()
+            queryset = queryset.filter(Q(tasks__project_id=project_param) | Q(project_id=project_param)).distinct()
 
         return queryset
     
@@ -139,3 +139,32 @@ class EventViewSet(RoleRestrictedViewSet):
 
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)
+    
+    @action(detail=False, methods=['get'], url_path='gantt')
+    def get_gantt(self, request):
+        user = request.user
+        project_id = request.query_params.get('project')
+
+        if not project_id:
+            return Response({'detail': 'Project ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Only fetch events linked to this project (directly or through tasks)
+        events = Event.objects.filter(
+            Q(project_id=project_id) |
+            Q(tasks__project_id=project_id)
+        ).filter(
+            Q(host=user.organization) | Q(organizations=user.organization)
+        ).distinct()
+
+        data = []
+        for event in events:
+            data.append({
+                'id': event.id,
+                'name': event.name,
+                'start': event.start,
+                'end': event.end,
+                'category': event.event_type,
+                'host': event.host.name if event.host else None,
+            })
+
+        return Response({'data': data}, status=status.HTTP_200_OK)

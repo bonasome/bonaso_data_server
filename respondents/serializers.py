@@ -438,7 +438,7 @@ class ResponseSerializer(serializers.ModelSerializer):
         model=Response
         fields = [
             'id', 'response_value', 'response_option', 'response_boolean', 'response_date', 'indicator', 
-            'response_location', 'comments',
+            'response_location', 'comments', 'response_none',
         ]
         
 

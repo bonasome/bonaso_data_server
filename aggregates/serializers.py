@@ -366,7 +366,13 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
             }
             for count in downstream_counts:
                 conditions = downstream_conditions.get(count.group.indicator_id, [])
-                self.__check_logic(count.group.indicator, count, user, counts_map, conditions)
+                self.__check_logic(
+                    indicator=count.group.indicator, 
+                    count=count, 
+                    user=user, 
+                    related=counts_map, 
+                    conditions=conditions
+                )
     
     def __check_counts(self, group, saved_instances, user):
         related_counts = self.__get_related_counts(group)
@@ -383,6 +389,7 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
         for count in saved_instances:
             self.__check_logic(
                 indicator=group.indicator, 
+                count=count,
                 user=user, 
                 related=related_counts, 
                 conditions=conditions, 

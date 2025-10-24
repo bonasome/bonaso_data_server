@@ -147,7 +147,6 @@ Projects also house important information about how organizations are related. A
 - Task: A nexus model that stores FKs to a project, organization, and an indicator. Any data collected is related to a task. 
 - Target: Can set target outcomes for tasks (either as a number or calculated based on the achievement for another task).
 - ProjectOrganization: Primarily a through model for the "organizations" field of projects, but also stores information about different organizations relationships (parent and child). 
-- ProjectActivity: An activity related to a project (such as an M&E check-in or midtern review) that can be scoped to an organization or visible to all members.
 - ProjectDeadline: A deadline related to a project.
 
 [**Important Views/Actions**](/projects/views.py):

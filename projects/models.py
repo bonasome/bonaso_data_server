@@ -155,6 +155,7 @@ class Target(models.Model):
         return f'Target for {self.indicator} ({self.start} - {self.end})'
 class ProjectActivity(models.Model):
     '''
+    ***DEPRECATED:  THIS MODEL IS BEING PHASED OUT IN FAVOR OF EVENTS***
     An organizational tool that can help admins/orgs track when events are and such. No real bearing on the data,
     purely organizational.
 

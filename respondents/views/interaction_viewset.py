@@ -926,7 +926,7 @@ class InteractionViewSet(RoleRestrictedViewSet):
                             continue   
                 #grab the option text and make sure its readable
                 elif indicator.type == Indicator.Type.SINGLE:
-                    if val == 'none' and indicator.allow_none:
+                    if val in ['none', '', None] and indicator.allow_none:
                         val == 'none'
                     elif val in ['', 'none', 'na', 'n/a', 'unsure', 'maybe']:
                         continue

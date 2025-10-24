@@ -113,7 +113,6 @@ class SocialMediaPostSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         user = self.context['request'].user
         tasks = validated_data.pop('tasks', None)
-        update_tasks = 'task_ids' in self.initial_data 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.updated_by = user

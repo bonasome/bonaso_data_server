@@ -20,7 +20,7 @@ class SocialMediaPostViewSet(RoleRestrictedViewSet):
     queryset = SocialMediaPost.objects.all()
     serializer_class = SocialMediaPostSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['platform']
+    filterset_fields = ['platform', 'organization']
     ordering_fields = ['published_at', 'created_at']
     search_fields = ['name', 'platform', 'description']
 
@@ -85,6 +85,8 @@ class SocialMediaPostViewSet(RoleRestrictedViewSet):
                 if not ProjectOrganization.objects.filter(project__in=pids, parent_organization=user.organization, organization=post.organization).exists():
                     return Response({"detail": "You cannot edit metrics for this post."}, status.HTTP_403_FORBIDDEN)
         for metric, value in metrics.items():
+            if value in  [None, '']:
+                continue
             try:
                 value = int(value)
             except (TypeError, ValueError):
@@ -95,7 +97,7 @@ class SocialMediaPostViewSet(RoleRestrictedViewSet):
             setattr(post, metric, value)
         post.save()
         
-        return Response({'detail': 'Metrics successfully updated!'}, status.HTTP_200_OK)
+        return Response(SocialMediaPostSerializer(post).data, status.HTTP_200_OK)
 
 
         

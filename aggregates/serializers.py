@@ -227,43 +227,61 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
         #validate that total values are present are the option values are not greater than the total/unique value
         if indicator.type == Indicator.Type.MULTI:
             exclude_keys = {'option', 'value', 'unique_only'}
-            
             for row in counts:
-                val = row.get('value')
+                val = row.get('value') or 0
                 option = row.get('option')
                 unique_only = row.get('unique_only', False)
 
-                # Skip total rows (we only validate option rows against totals)
-                if unique_only or option is None:
+                # Skip empty/zero values
+                if not val or float(val) == 0:
                     continue
 
-                # Ignore empty/zero values safely
-                if not val or str(val).strip() == '0':
-                    continue
+                # Extract breakdown keys for matching
+                breakdown_keys = {k: v for k, v in row.items() if k not in exclude_keys}
 
-                # Find the corresponding "total" row with same breakdown keys
-                target_subset = {k: v for k, v in row.items() if k not in exclude_keys}
-                total_match = next(
-                    (
+                if unique_only and option is None:
+                    # Total row: validate against corresponding options
+                    matching_options = [
                         r for r in counts
-                        if not r.get('option')  # total row has no option
-                        and r.get('unique_only', True)  # must be marked as total
-                        and all(r.get(k) == v for k, v in target_subset.items())
-                    ),
-                    None,
-                )
+                        if r.get('option') is not None
+                        and not r.get('unique_only', False)
+                        and all(r.get(k) == v for k, v in breakdown_keys.items())
+                    ]
+                    if not matching_options:
+                        raise serializers.ValidationError(
+                            f"Total row {breakdown_keys} provided without any corresponding options."
+                        )
 
-                if not total_match:
-                    raise serializers.ValidationError(
-                        f'No total row found for option {option.name if hasattr(option, "name") else option}.'
-                    )
+                    option_sum = sum(float(o.get('value') or 0) for o in matching_options)
+                    if float(val) > option_sum:
+                        raise serializers.ValidationError(
+                            f"Total {val} cannot be greater than the sum of options ({option_sum}) "
+                            f"for breakdown {breakdown_keys}."
+                        )
 
-                total_val = total_match.get('value') or 0
-                if float(val) > float(total_val):
-                    raise serializers.ValidationError(
-                        f'Count for option {option.name if hasattr(option, "name") else option} '
-                        f'({val}) cannot be higher than total ({total_val}).'
+                else:
+                    # Option row: validate against corresponding total
+                    matching_total = next(
+                        (
+                            r for r in counts
+                            if r.get('option') is None
+                            and r.get('unique_only', True)
+                            and all(r.get(k) == v for k, v in breakdown_keys.items())
+                        ),
+                        None
                     )
+                    if not matching_total:
+                        raise serializers.ValidationError(
+                            f"No total row found for option '{getattr(option, 'name', option)}' "
+                            f"with breakdown {breakdown_keys}."
+                        )
+
+                    total_val = float(matching_total.get('value') or 0)
+                    if float(val) > total_val:
+                        raise serializers.ValidationError(
+                            f"Count for option '{getattr(option, 'name', option)}' ({val}) "
+                            f"cannot exceed total ({total_val}) for breakdown {breakdown_keys}."
+                        )
 
         return attrs
 
@@ -335,7 +353,7 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
             'group__project': group.project,
             'group__indicator__in': prereq_inds
         }
-        counts = AggregateCount.objects.filter(**filters)
+        counts = AggregateCount.objects.filter(**filters).exclude(flags__resolved=False)
         counts_map = {}
 
         for c in counts:

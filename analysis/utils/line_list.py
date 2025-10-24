@@ -70,10 +70,13 @@ def prep_line_list(user, start=None, end=None, assessment=None, project=None, or
     rows = [] #stores the line list items
     #loop through each responses and build a row object
     for i, r in enumerate(queryset):
+        option = None
         value = None
-        if r.indicator.type in [Indicator.Type.MULTI, Indicator.Type.SINGLE]:
-            value = r.response_option.name if r.response_option else None
-        if r.indicator.type in [Indicator.Type.BOOL]:
+        if r.indicator.type in [Indicator.Type.MULTI, Indicator.Type.SINGLE, Indicator.Type.MULTINT]:
+            option = r.response_option.name if r.response_option else None
+            if r.indicator.type in [Indicator.Type.MULTINT]:
+                value = r.response_value
+        elif r.indicator.type in [Indicator.Type.BOOL]:
             value = r.response_boolean
         else:
             value = r.response_value 
@@ -96,11 +99,12 @@ def prep_line_list(user, start=None, end=None, assessment=None, project=None, or
             'comments': respondent.comments,
             'kp_status': [kp.name for kp in respondent.kp_status.all()],
             'disability_status': [d.name for d in respondent.disability_status.all()],
-            'indicator': str(r.indicator),
             'response_date': r.response_date,
             'response_location': r.response_location,
             'organization': str(r.interaction.task.organization),
             'project': str(r.interaction.task.project),
+            'indicator': str(r.indicator),
+            'option': option,
             'value': value,
             'flagged': (r.interaction.flags.filter(resolved=False).count() > 0 or respondent.flags.filter(resolved=False).count() > 0)
         }

@@ -265,6 +265,68 @@ class AggregatesTest(APITestCase):
         print(response.json())
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
     
+    def test_total_valid(self):
+        '''
+        Make sure that if an indicator is multiselect, user is not sending total flags that do not have a
+        corresponding option or are larger than the sum of corresponding options. 
+        '''
+        self.client.force_authenticate(user=self.admin)
+        valid_payload = {
+            'indicator_id': self.indicator.id,
+            'organization_id': self.parent_org.id,
+            'project_id': self.project.id,
+            'start': '2025-01-01',
+            'end': '2025-01-03',
+            'counts_data': [
+                {
+                    'value': 10,
+                    'disability_type': 'VI',
+                    'option_id': self.option1.id
+                },
+                {
+                    'value': 10,
+                    'disability_type': 'VI',
+                    'unique_only': True
+                },
+                {
+                    'value': 10,
+                    'disability_type': 'HI',
+                    'unique_only': True
+                },
+            ]
+        }
+        response = self.client.post(f'/api/aggregates/', valid_payload, content_type='application/json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        valid_payload = {
+            'indicator_id': self.indicator.id,
+            'organization_id': self.parent_org.id,
+            'project_id': self.project.id,
+            'start': '2025-01-01',
+            'end': '2025-01-03',
+            'counts_data': [
+                {
+                    'value': 10,
+                    'disability_type': 'VI',
+                    'option_id': self.option1.id
+                },
+                {
+                    'value': 10,
+                    'disability_type': 'VI',
+                    'option_id': self.option2.id
+                },
+                {
+                    'value': 30,
+                    'disability_type': 'VI',
+                    'unique_only': True
+                },
+            ]
+        }
+        response = self.client.post(f'/api/aggregates/', valid_payload, content_type='application/json')
+        print(response.json())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+    
     def test_rogue_option(self):
         '''
         Make sure that if an indicator has options, the user is sending data for those.

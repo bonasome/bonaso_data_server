@@ -105,7 +105,7 @@ class PivotTableSerializer(serializers.ModelSerializer):
         table_params = [param.name for param in obj.params.all()]
         #determine what params/breakdowns the user wants and format them as an object
         params = {}
-        for cat in ['id', 'age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'option', 'platform', 'metric', 'district']:
+        for cat in ['id', 'age_range', 'sex', 'kp_type', 'disability_type', 'citizenship', 'hiv_status', 'pregnancy', 'option', 'platform', 'metric', 'district', 'organization']:
             params[cat] = cat in table_params
 
         #collec the aggregates
@@ -233,7 +233,8 @@ class IndicatorChartSerializer(serializers.ModelSerializer):
                 row = {
                     'period': item.get('period', None),
                     'count': item.get('count', 0),
-                    'indicator': str(indicator)
+                    'indicator': str(indicator),
+                    'order': indicator.order
                 }
                 data.append(row)
         #return the array

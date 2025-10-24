@@ -6,10 +6,11 @@ from datetime import date
 from profiles.serializers import ProfileListSerializer
 from projects.serializers import TaskSerializer
 from projects.models import Task, ProjectOrganization
+from organizations.models import Organization
 from social.models import SocialMediaPost, SocialMediaPostTasks
 from flags.serializers import FlagSerializer
 from indicators.models import Indicator
-
+from organizations.serializers import OrganizationListSerializer
 
 class SocialMediaPostSerializer(serializers.ModelSerializer):
     '''
@@ -17,10 +18,20 @@ class SocialMediaPostSerializer(serializers.ModelSerializer):
     '''
     tasks = TaskSerializer(read_only=True, many=True)
     task_ids = serializers.PrimaryKeyRelatedField(
-        queryset=Task.objects.all(), write_only=True, many=True, required=True
+        queryset=Task.objects.all(), 
+        source='tasks',
+        write_only=True, 
+        many=True, 
+        required=True
     )
     flags = FlagSerializer(read_only=True, many=True)
-
+    organization = OrganizationListSerializer(read_only=True)
+    organization_id = serializers.PrimaryKeyRelatedField(
+        queryset=Organization.objects.all(), 
+        source='organization',
+        write_only=True, 
+        required=True
+    )
     created_by = ProfileListSerializer(read_only=True)
     updated_by = ProfileListSerializer(read_only=True)
 
@@ -28,7 +39,7 @@ class SocialMediaPostSerializer(serializers.ModelSerializer):
         model = SocialMediaPost
         fields = [
             'id', 'name', 'description', 'likes', 'comments', 'views', 'reach',
-            'platform', 'other_platform', 'link_to_post', 'published_at',
+            'platform', 'other_platform', 'link_to_post', 'published_at', 'organization', 'organization_id',
             'tasks', 'task_ids', 'created_at', 'flags', 'updated_at', 'created_by',
             'updated_by',
         ]
@@ -38,32 +49,31 @@ class SocialMediaPostSerializer(serializers.ModelSerializer):
         Permission checks and make sure that a platform is provided (specifying if other).
         '''
         user = self.context['request'].user
-        task_list = attrs.get('task_ids') or getattr(self.instance, 'tasks', None)
         if user.role not in ['meofficer', 'manager', 'admin']:
             raise PermissionDenied('You do not have permission to perform this action.')
-        if not task_list:
-            raise serializers.ValidationError({'task_ids': 'This field is required.'})
-
         
-        update_tasks = 'task_ids' in self.initial_data 
-        #check that all tasks are with the same org
-        org = None
-        if update_tasks:
-            for task in task_list:
-                if org and task.organization != org:
-                    raise serializers.ValidationError('All tasks must belong to the same organization.')
-                org = task.organization
-                #make sure the task has the correct indicator type
-                if task.indicator.category!= Indicator.Category.SOCIAL:
-                    raise serializers.ValidationError(f'Task "{str(task)}" may not be assigned to a social media post.')
-                #check that task is associated with the organization or their child
-                if user.role != 'admin':
-                    if task.organization != user.organization and not ProjectOrganization.objects.filter(
-                        parent_organization=user.organization,
-                        organization=task.organization,
-                        project=task.project
-                    ).exists():
-                        raise PermissionDenied('You do not have permission to use this task.')
+        #make sure that an irg is attached
+        org = attrs.get('organization')
+        if not org:
+            raise serializers.ValidationError({'organization': 'This field is required.'})
+        
+        #and a list of tasks
+        tasks = attrs.get('tasks')
+        if not tasks:
+            raise serializers.ValidationError({'Tasks': 'This field is required.'})
+
+        #validate that each task belongs to the org, has a social ind, and if not admin, is either that orgs task
+        # or a task for a child org in a valid project
+        # we don't need to perm check org since we'll catch issues with org not being a valid child here
+        for task in tasks:
+            if task.indicator.category != Indicator.Category.SOCIAL:
+                raise serializers.ValidationError({'Tasks': f'Task associated with indicator {task.indicator.name} is not attachable to a social media post.'})
+            if task.organization != org:
+                raise serializers.ValidationError({'Tasks': 'Task must belong to the selected organization.'})
+            if user.role != 'admin':
+                if task.organization != user.organization and not ProjectOrganization.objects.filter(organization=task.organization, project=task.project, parent_organization=user.organization).exists():
+                    raise PermissionDenied('You do not have permission to attach this task.')
+
        
         #make sure platform info is provided
         platform = attrs.get('platform') or getattr(self.instance, 'platform', None)
@@ -81,38 +91,36 @@ class SocialMediaPostSerializer(serializers.ModelSerializer):
         if not isinstance(published_at, date):
             raise serializers.ValidationError({'published_at': 'Invalid or missing published date.'})
 
-        # Check if any metrics are provided for a future post
-        if any(attrs.get(field) for field in ['likes', 'comments', 'views', 'reach']) and date.today() < published_at:
-            raise serializers.ValidationError('You may not provide metrics for a post that has not happened yet.')
-        return attrs
+        has_metrics = any(attrs.get(field) for field in ['likes', 'comments', 'views', 'reach'])
+        if has_metrics and date.today() < published_at:
+            raise serializers.ValidationError('Cannot provide metrics for a post scheduled in the future.')
 
+        return attrs
+    
     def create(self, validated_data):
         user = self.context['request'].user
-        task_ids = validated_data.pop('task_ids', [])
+        tasks = validated_data.pop('tasks', [])
 
         post = SocialMediaPost.objects.create(
             created_by=user,
             **validated_data
         )
-
-        for task in task_ids:
+        for task in tasks:
             SocialMediaPostTasks.objects.create(post=post, task=task)
 
         return post
 
     def update(self, instance, validated_data):
         user = self.context['request'].user
-        task_ids = validated_data.pop('task_ids', None)
+        tasks = validated_data.pop('tasks', None)
         update_tasks = 'task_ids' in self.initial_data 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.updated_by = user
         instance.save()
 
-        if update_tasks:
-            SocialMediaPostTasks.objects.filter(post=instance).delete()
-            if task_ids: 
-                for task in task_ids:
-                    SocialMediaPostTasks.objects.create(post=instance, task=task)
+        SocialMediaPostTasks.objects.filter(post=instance).delete()
+        for task in tasks:
+            SocialMediaPostTasks.objects.create(post=instance, task=task)
 
         return instance

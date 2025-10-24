@@ -6,6 +6,7 @@ from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.auth import get_user_model
 User = get_user_model()
 from projects.models import Task
+from organizations.models import Organization
 
 class SocialMediaPost(models.Model):
     '''
@@ -23,6 +24,7 @@ class SocialMediaPost(models.Model):
         YT = 'youtube', _('YouTube')
         OTHER = 'other', _('Another Platform')
     
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, null=True, blank=True)
     tasks = models.ManyToManyField(Task, through='SocialMediaPostTasks', blank=True)
     platform = models.CharField(max_length=50, choices=Platform.choices)
     other_platform = models.CharField(max_length=255, blank=True)

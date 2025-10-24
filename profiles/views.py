@@ -67,7 +67,6 @@ class ProfileViewSet(RoleRestrictedViewSet):
                 #send both a correct id(s) so the frontend can direct the user to the correct page for review
                 if model_label.lower() in [
                     'projects.task', 
-                    'projects.projectactivity', 
                     'projects.projectdeadline',
                 ]:
                     info['parent'] = instance.project.id

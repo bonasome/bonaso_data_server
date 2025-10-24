@@ -7,7 +7,7 @@ from events.models import Event
 from aggregates.models import AggregateGroup
 from indicators.models import Indicator, Assessment
 from organizations.models import Organization
-from projects.models import Project, Task, ProjectActivity, ProjectDeadline, Target, Client
+from projects.models import Project, Task, ProjectDeadline, Target, Client
 from social.models import SocialMediaPost
 from uploads.models import NarrativeReport
 from flags.models import Flag
@@ -22,7 +22,6 @@ def get_user_activity(user):
         Task,
         Target,
         Client,
-        ProjectActivity,
         ProjectDeadline,
         Event,
         AggregateGroup,

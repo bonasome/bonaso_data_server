@@ -20,7 +20,7 @@ def prep_line_list(user, start=None, end=None, assessment=None, project=None, or
     if user.role == 'admin':
         queryset=queryset
     elif user.role == 'client':
-        queryset=queryset.filter(responses__task__project__client=user.client_organization)
+        queryset=queryset.filter(interaction__task__project__client=user.client_organization)
     elif user.role in ['meofficer', 'manager']:
         # Find all orgs user has access to (own + child)
         accessible_orgs = list(
@@ -31,16 +31,16 @@ def prep_line_list(user, start=None, end=None, assessment=None, project=None, or
         accessible_orgs.append(user.organization.id)
         
         queryset = queryset.filter(
-            responses__task__organization__in=accessible_orgs
+            interaction__task__organization__in=accessible_orgs
         )
     else:
         queryset = queryset.filter(created_by=user)
     # filter by assessment if requested
     if assessment:
-        queryset = queryset.filter(responses__task__assessment=assessment)
+        queryset = queryset.filter(interaction__task__assessment=assessment)
     #handle additional parameters
     if project:
-        queryset=queryset.filter(responses__task__project=project)
+        queryset=queryset.filter(interaction__task__project=project)
     
     if organization:
         # if project, organization, and cascade, also fetch data from any child orgs
@@ -53,17 +53,17 @@ def prep_line_list(user, start=None, end=None, assessment=None, project=None, or
             accessible_orgs.append(organization.id)
             
             queryset = queryset.filter(
-                responses__task__organization__in=accessible_orgs
+                interaction__task__organization__in=accessible_orgs
             )
         else:
-            queryset=queryset.filter(responses__task__organization=organization)
+            queryset=queryset.filter(interaction__task__organization=organization)
     #time filters
     if start:
         queryset=queryset.filter(response_date__gte=start)
     if end:
         queryset=queryset.filter(response_date__lte=end)
     
-    respondent_ids = {r.responses.respondent_id for r in queryset}
+    respondent_ids = {r.interaction.respondent_id for r in queryset}
     hiv_status_map = get_hiv_statuses(respondent_ids=respondent_ids)
     pregnancies_map = get_pregnancies(respondent_ids=respondent_ids)
 
@@ -77,9 +77,9 @@ def prep_line_list(user, start=None, end=None, assessment=None, project=None, or
             value = r.response_boolean
         else:
             value = r.response_value 
-        respondent = r.responses.respondent
+        respondent = r.interaction.respondent
         row = {
-            'index': i,
+            'index': i+1,
             'is_anonymous': respondent.is_anonymous,
             'first_name': respondent.first_name,
             'last_name': respondent.last_name,
@@ -97,12 +97,12 @@ def prep_line_list(user, start=None, end=None, assessment=None, project=None, or
             'kp_status': [kp.name for kp in respondent.kp_status.all()],
             'disability_status': [d.name for d in respondent.disability_status.all()],
             'indicator': str(r.indicator),
-            'responses_date': r.response_date,
-            'responses_location': r.response_location,
-            'organization': str(r.responses.task.organization),
-            'project': str(r.responses.task.project),
+            'response_date': r.response_date,
+            'response_location': r.response_location,
+            'organization': str(r.interaction.task.organization),
+            'project': str(r.interaction.task.project),
             'value': value,
-            'flagged': (r.responses.flags.filter(resolved=False).count() > 0 or respondent.flags.filter(resolved=False).count() > 0)
+            'flagged': (r.interaction.flags.filter(resolved=False).count() > 0 or respondent.flags.filter(resolved=False).count() > 0)
         }
         hiv_status_list = hiv_status_map.get(respondent.id, [])
         row['hiv_status'] = any(hs.date_positive <= r.response_date for hs in hiv_status_list)

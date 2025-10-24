@@ -347,8 +347,8 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
         )
         #find a count that overlaps with this one, has the prerequisite indicator, and belongs to the same org
         filters = {
-            'group__start__lt': group.end,
-            'group__end__gt': group.start,
+            'group__start__lte': group.end,
+            'group__end__gte': group.start,
             'group__organization': group.organization,
             'group__project': group.project,
             'group__indicator__in': prereq_inds
@@ -366,8 +366,8 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
     def __check_downstream(self, group, saved_instances, user):
         potential_downstream_ids = LogicCondition.objects.filter(source_indicator=group.indicator).values_list('group__indicator__id', flat=True)
         filters = {
-            'group__start__lt': group.end,
-            'group__end__gt': group.start,
+            'group__start__lte': group.end,
+            'group__end__gte': group.start,
             'group__organization': group.organization,
             'group__project': group.project,
             'group__indicator__in': potential_downstream_ids

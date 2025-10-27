@@ -286,6 +286,7 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
         return attrs
 
     def __make_breakdown_key(self, indicator_id, count, indicator_type=None):
+        #create a key that can be referenced when comparing counts
         base_fields = ['sex', 'age_range', 'kp_type', 'disability_type', 
                     'hiv_status', 'pregnancy', 'district', 
                     'citizenship', 'attribute_type']
@@ -298,6 +299,7 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
         return (indicator_id, tuple(getattr(count, f, None) for f in base_fields))
 
     def __check_logic(self, indicator, count, user, related, conditions):
+        #check a count to see if it should be flagged based on matching breakdown fields/values
         for condition in conditions:
             prereq = condition.source_indicator
             lookup_key = self.__make_breakdown_key(prereq.id, count, prereq.type)
@@ -328,6 +330,7 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
 
     
     def __get_related_counts(self, group):
+        #prefetch set of related counts based on logic
         logic_group = LogicGroup.objects.filter(indicator=group.indicator).first()
         if not logic_group:
             return None
@@ -364,6 +367,7 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
         return counts_map
     
     def __check_downstream(self, group, saved_instances, user):
+        # check to see if edits to this count affects any dependent inds (only goes one layer down)
         potential_downstream_ids = LogicCondition.objects.filter(source_indicator=group.indicator).values_list('group__indicator__id', flat=True)
         filters = {
             'group__start__lte': group.end,
@@ -393,6 +397,7 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
                 )
     
     def __check_counts(self, group, saved_instances, user):
+        # see if any counts need to be flagged/resolved based on logic
         related_counts = self.__get_related_counts(group)
         if related_counts is None: #no logic, just check to see if anything downstream should be fixed/created
             self.__check_downstream(group, saved_instances, user)
@@ -413,6 +418,7 @@ class AggregateGroupSerializer(serializers.ModelSerializer):
                 conditions=conditions, 
             )
         self.__check_downstream(group, saved_instances, user)
+    
     def create(self, validated_data):
         user = self.context.get('request').user if self.context.get('request') else None
         rows = validated_data.pop('counts_data')

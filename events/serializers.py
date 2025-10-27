@@ -102,7 +102,8 @@ class EventSerializer(serializers.ModelSerializer):
                     "The provided project must match one of the selected task projects."
                 )
 
-        project_ids = set()   
+        project_ids = set()  
+        #require either at least one task or a project (to avoid floating events) 
         if tasks:
             for task in tasks:
                 if task.indicator.category not in [Indicator.Category.EVENTS, Indicator.Category.ORGS]:
@@ -114,6 +115,7 @@ class EventSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError(
                         f"Task '{task.indicator.name}' for organization '{task.organization.name}' is associcated with a project whose start and end dates do not align with this events date."
                     )
+                #task for child orgs is project scoped
                 if user.role != 'admin':
                     if task.organization != user.organization:
                         if not ProjectOrganization.objects.filter(project=task.project, organization=task.organization, parent_organization=user.organization).exists():

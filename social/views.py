@@ -42,7 +42,7 @@ class SocialMediaPostViewSet(RoleRestrictedViewSet):
                 parent_organization=user.organization
             )
 
-            # Events where a child org hosts but project comes via tasks
+            # Posts for a child_org scoped to correct projects but project comes via tasks
             child_host_task_q = Q(
                 Exists(
                     project_child_rels.filter(
@@ -67,6 +67,9 @@ class SocialMediaPostViewSet(RoleRestrictedViewSet):
     
     @action(detail=True, methods=['patch'], url_path='update-metrics')
     def update_metrics(self, request, pk=None):
+        '''
+        Lightweight action that just updates metrics.
+        '''
         post = self.get_object()
         user=request.user
         # metrics: { likes: 10, comments: 4 }

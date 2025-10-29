@@ -68,13 +68,17 @@ python manage.py createsuperuser
 ```
 
 This actually won't be enough to access the entire site, however. You'll also need to run:
+```bash
+python manage.py shell
+```
 
 ```python
-import User from users.models
-import Organizations from organizations.models
-org = Organization.objects.create(name='BONASO')
+from users.models import User
+from organizations.models import Organizations
 
+org = Organization.objects.create(name='BONASO')
 user = User.objects.get(username=[your_username])
+
 user.role = 'admin'
 user.organization=(org)
 user.save()

@@ -6,7 +6,7 @@ class Organization(models.Model):
     '''
     Organizations are the a useful model for linking users together and determining which users should
     see waht content. That said, its a fairly simple model mostly used for linking. The only required
-    field is a name. 
+    field is the organization name. 
 
     Other information can be collected and stored for convenience/reference.
     '''
@@ -27,3 +27,4 @@ class Organization(models.Model):
 
     def __str__(self):
         return self.name
+

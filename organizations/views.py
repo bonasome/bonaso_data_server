@@ -80,7 +80,7 @@ class OrganizationViewSet(RoleRestrictedViewSet):
     
     def destroy(self, request, *args, **kwargs):
         '''
-        Only admins can create organizations and organizations with an assigned task cannot be deleted.
+        Only admins can delete organizations and organizations with an assigned task cannot be deleted.
         '''
         user = self.request.user
         instance = self.get_object()
